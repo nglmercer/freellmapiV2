@@ -1,12 +1,11 @@
-import { Router } from 'express';
-import type { Request, Response } from 'express';
+import { Hono } from 'hono';
 import { getDb } from '../db/index.js';
 import { hasProvider } from '../providers/index.js';
 
-export const modelsRouter = Router();
+export const modelsRouter = new Hono();
 
 // List all models with availability info
-modelsRouter.get('/', (_req: Request, res: Response) => {
+modelsRouter.get('/', async (c) => {
   const db = getDb();
   const models = db.query(`
     SELECT m.*, fc.priority, fc.enabled as fallback_enabled
@@ -46,5 +45,5 @@ modelsRouter.get('/', (_req: Request, res: Response) => {
     keyCount: keyCountMap.get(m.platform) ?? 0,
   }));
 
-  res.json(result);
+  return c.json(result);
 });

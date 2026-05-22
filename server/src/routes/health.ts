@@ -1,13 +1,12 @@
-import { Router } from 'express';
-import type { Request, Response } from 'express';
+import { Hono } from 'hono';
 import { getDb } from '../db/index.js';
 import { checkKeyHealth, checkAllKeys } from '../services/health.js';
 import { hasProvider } from '../providers/index.js';
 
-export const healthRouter = Router();
+export const healthRouter = new Hono();
 
 // Get health status for all platforms
-healthRouter.get('/', (_req: Request, res: Response) => {
+healthRouter.get('/', async (c) => {
   const db = getDb();
 
   const platforms = db.query(`
@@ -30,7 +29,7 @@ healthRouter.get('/', (_req: Request, res: Response) => {
     ORDER BY platform, created_at DESC
   `).all() as any[];
 
-  res.json({
+  return c.json({
     platforms: platforms.map(p => ({
       platform: p.platform,
       hasProvider: hasProvider(p.platform),
@@ -55,19 +54,20 @@ healthRouter.get('/', (_req: Request, res: Response) => {
 });
 
 // Check a specific key
-healthRouter.post('/check/:keyId', async (req: Request, res: Response) => {
-  const keyId = parseInt(req.params.keyId as string, 10);
+healthRouter.post('/check/:keyId', async (c) => {
+  const keyId = parseInt(c.req.param('keyId'), 10);
   if (isNaN(keyId)) {
-    res.status(400).json({ error: { message: 'Invalid key ID' } });
-    return;
+    c.status(400)
+    return c.json({ error: { message: 'Invalid key ID' } });
   }
 
   const status = await checkKeyHealth(keyId);
-  res.json({ keyId, status });
+  return c.json({ keyId, status });
 });
 
 // Check all keys
-healthRouter.post('/check-all', async (_req: Request, res: Response) => {
+healthRouter.post('/check-all', async (c) => {
   await checkAllKeys();
-  res.json({ success: true });
+  c.status(200)
+  return c.json({ success: true });
 });

@@ -1,8 +1,5 @@
-import { Router } from 'express';
-import type { Request, Response } from 'express';
+import { Hono } from 'hono';
 import { getDb } from '../db/index.js';
-
-export const analyticsRouter = Router();
 
 // Map range to a JS-computed ISO timestamp passed as a bind parameter,
 // so the SQL string never includes user-controlled fragments.
@@ -19,9 +16,11 @@ function getSinceTimestamp(range: string): string {
   }
 }
 
+export const analyticsRouter = new Hono();
+
 // Summary stats
-analyticsRouter.get('/summary', (req: Request, res: Response) => {
-  const range = (req.query.range as string) ?? '7d';
+analyticsRouter.get('/summary', async (c) => {
+  const range = c.req.query('range') ?? '7d';
   const since = getSinceTimestamp(range);
   const db = getDb();
 
@@ -44,7 +43,7 @@ analyticsRouter.get('/summary', (req: Request, res: Response) => {
   const inputCost = ((stats.total_input_tokens ?? 0) / 1_000_000) * 3;
   const outputCost = ((stats.total_output_tokens ?? 0) / 1_000_000) * 15;
 
-  res.json({
+  return c.json({
     totalRequests,
     successRate: Math.round(successRate * 10) / 10,
     totalInputTokens: stats.total_input_tokens ?? 0,
@@ -55,8 +54,8 @@ analyticsRouter.get('/summary', (req: Request, res: Response) => {
 });
 
 // Stats grouped by model
-analyticsRouter.get('/by-model', (req: Request, res: Response) => {
-  const range = (req.query.range as string) ?? '7d';
+analyticsRouter.get('/by-model', async (c) => {
+  const range = c.req.query('range') ?? '7d';
   const since = getSinceTimestamp(range);
   const db = getDb();
 
@@ -77,7 +76,7 @@ analyticsRouter.get('/by-model', (req: Request, res: Response) => {
     ORDER BY requests DESC
   `).all(since) as any[];
 
-  res.json(rows.map(r => ({
+  return c.json(rows.map(r => ({
     platform: r.platform,
     modelId: r.model_id,
     displayName: r.display_name ?? r.model_id,
@@ -90,8 +89,8 @@ analyticsRouter.get('/by-model', (req: Request, res: Response) => {
 });
 
 // Stats grouped by platform
-analyticsRouter.get('/by-platform', (req: Request, res: Response) => {
-  const range = (req.query.range as string) ?? '7d';
+analyticsRouter.get('/by-platform', async (c) => {
+  const range = c.req.query('range') ?? '7d';
   const since = getSinceTimestamp(range);
   const db = getDb();
 
@@ -109,7 +108,7 @@ analyticsRouter.get('/by-platform', (req: Request, res: Response) => {
     ORDER BY requests DESC
   `).all(since) as any[];
 
-  res.json(rows.map(r => ({
+  return c.json(rows.map(r => ({
     platform: r.platform,
     requests: r.requests,
     successRate: Math.round(r.success_rate * 10) / 10,
@@ -120,9 +119,9 @@ analyticsRouter.get('/by-platform', (req: Request, res: Response) => {
 });
 
 // Timeline data
-analyticsRouter.get('/timeline', (req: Request, res: Response) => {
-  const range = (req.query.range as string) ?? '7d';
-  const interval = (req.query.interval as string) ?? (range === '24h' ? 'hour' : 'day');
+analyticsRouter.get('/timeline', async (c) => {
+  const range = c.req.query('range') ?? '7d';
+  const interval = c.req.query('interval') ?? (range === '24h' ? 'hour' : 'day');
   const since = getSinceTimestamp(range);
   const db = getDb();
 
@@ -141,7 +140,7 @@ analyticsRouter.get('/timeline', (req: Request, res: Response) => {
     ORDER BY timestamp ASC
   `).all(since) as any[];
 
-  res.json(rows.map(r => ({
+  return c.json(rows.map(r => ({
     timestamp: r.timestamp,
     requests: r.requests,
     successCount: r.success_count,
@@ -150,8 +149,8 @@ analyticsRouter.get('/timeline', (req: Request, res: Response) => {
 });
 
 // Error distribution (grouped by error type and platform)
-analyticsRouter.get('/error-distribution', (req: Request, res: Response) => {
-  const range = (req.query.range as string) ?? '7d';
+analyticsRouter.get('/error-distribution', async (c) => {
+  const range = c.req.query('range') ?? '7d';
   const since = getSinceTimestamp(range);
   const db = getDb();
 
@@ -206,7 +205,7 @@ analyticsRouter.get('/error-distribution', (req: Request, res: Response) => {
     ORDER BY count DESC
   `).all(since) as any[];
 
-  res.json({
+  return c.json({
     byCategory,
     byPlatform,
     detailed: rows,
@@ -214,8 +213,8 @@ analyticsRouter.get('/error-distribution', (req: Request, res: Response) => {
 });
 
 // Recent errors
-analyticsRouter.get('/errors', (req: Request, res: Response) => {
-  const range = (req.query.range as string) ?? '7d';
+analyticsRouter.get('/errors', async (c) => {
+  const range = c.req.query('range') ?? '7d';
   const since = getSinceTimestamp(range);
   const db = getDb();
 
@@ -227,7 +226,7 @@ analyticsRouter.get('/errors', (req: Request, res: Response) => {
     LIMIT 50
   `).all(since) as any[];
 
-  res.json(rows.map(r => ({
+  return c.json(rows.map(r => ({
     id: r.id,
     platform: r.platform,
     modelId: r.model_id,

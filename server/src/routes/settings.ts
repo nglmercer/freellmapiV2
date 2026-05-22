@@ -1,16 +1,15 @@
-import { Router } from 'express';
-import type { Request, Response } from 'express';
+import { Hono } from 'hono';
 import { getUnifiedApiKey, regenerateUnifiedKey } from '../db/index.js';
 
-export const settingsRouter = Router();
+export const settingsRouter = new Hono();
 
 // Get the unified API key
-settingsRouter.get('/api-key', (_req: Request, res: Response) => {
-  res.json({ apiKey: getUnifiedApiKey() });
+settingsRouter.get('/api-key', (c) => {
+  return c.json({ apiKey: getUnifiedApiKey() });
 });
 
 // Regenerate the unified API key
-settingsRouter.post('/api-key/regenerate', (_req: Request, res: Response) => {
+settingsRouter.post('/api-key/regenerate', (c) => {
   const newKey = regenerateUnifiedKey();
-  res.json({ apiKey: newKey });
+  return c.json({ apiKey: newKey });
 });

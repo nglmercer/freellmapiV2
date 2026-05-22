@@ -1,10 +1,7 @@
-import { Router } from 'express';
-import type { Request, Response } from 'express';
+import { Hono } from 'hono';
 import { z } from 'zod';
 import { getDb } from '../db/index.js';
 import { encrypt, decrypt, maskKey } from '../lib/crypto.js';
-
-export const keysRouter = Router();
 
 // Active providers — must match providers/index.ts registrations + shared/types.ts Platform.
 // Hugging Face, Moonshot, and MiniMax direct integrations were dropped in V4
@@ -15,6 +12,8 @@ const PLATFORMS = [
   'kilo', 'pollinations', 'llm7',
 ] as const;
 
+export const keysRouter = new Hono();
+
 const addKeySchema = z.object({
   platform: z.enum(PLATFORMS),
   key: z.string().min(1),
@@ -22,7 +21,7 @@ const addKeySchema = z.object({
 });
 
 // List all keys (masked)
-keysRouter.get('/', (_req: Request, res: Response) => {
+keysRouter.get('/', async (c) => {
   const db = getDb();
   const rows = db.query('SELECT * FROM api_keys ORDER BY created_at DESC').all() as any[];
 
@@ -46,15 +45,15 @@ keysRouter.get('/', (_req: Request, res: Response) => {
     };
   });
 
-  res.json(keys);
+  return c.json(keys);
 });
 
 // Add a key
-keysRouter.post('/', (req: Request, res: Response) => {
-  const parsed = addKeySchema.safeParse(req.body);
+keysRouter.post('/', async (c) => {
+  const parsed = addKeySchema.safeParse(await c.req.json());
   if (!parsed.success) {
-    res.status(400).json({ error: { message: parsed.error.errors.map(e => e.message).join(', ') } });
-    return;
+    c.status(400)
+    return c.json({ error: { message: parsed.error.errors.map(e => e.message).join(', ') } });
   }
 
   const { platform, key, label } = parsed.data;
@@ -66,7 +65,8 @@ keysRouter.post('/', (req: Request, res: Response) => {
     VALUES (?, ?, ?, ?, ?, 'unknown', 1)
   `).run([platform, label ?? '', encrypted, iv, authTag]);
 
-  res.status(201).json({
+  c.status(201)
+  return c.json({
     id: result.lastInsertRowid,
     platform,
     label: label ?? '',
@@ -77,45 +77,45 @@ keysRouter.post('/', (req: Request, res: Response) => {
 });
 
 // Delete a key
-keysRouter.delete('/:id', (req: Request, res: Response) => {
-  const id = parseInt(req.params.id as string, 10);
+keysRouter.delete('/:id', async (c) => {
+  const id = parseInt(c.req.param('id'), 10);
   if (isNaN(id)) {
-    res.status(400).json({ error: { message: 'Invalid key ID' } });
-    return;
+    c.status(400)
+    return c.json({ error: { message: 'Invalid key ID' } });
   }
 
   const db = getDb();
   const result = db.query('DELETE FROM api_keys WHERE id = ?').run(id);
 
   if (result.changes === 0) {
-    res.status(404).json({ error: { message: 'Key not found' } });
-    return;
+    c.status(404)
+    return c.json({ error: { message: 'Key not found' } });
   }
 
-  res.json({ success: true });
+  return c.json({ success: true });
 });
 
 // Toggle enable/disable
-keysRouter.patch('/:id', (req: Request, res: Response) => {
-  const id = parseInt(req.params.id as string, 10);
+keysRouter.patch('/:id', async (c) => {
+  const id = parseInt(c.req.param('id'), 10);
   if (isNaN(id)) {
-    res.status(400).json({ error: { message: 'Invalid key ID' } });
-    return;
+    c.status(400)
+    return c.json({ error: { message: 'Invalid key ID' } });
   }
 
-  const { enabled } = req.body;
+  const { enabled } = await c.req.json();
   if (typeof enabled !== 'boolean') {
-    res.status(400).json({ error: { message: 'enabled must be a boolean' } });
-    return;
+    c.status(400)
+    return c.json({ error: { message: 'enabled must be a boolean' } });
   }
 
   const db = getDb();
   const result = db.query('UPDATE api_keys SET enabled = ? WHERE id = ?').run([enabled ? 1 : 0, id]);
 
   if (result.changes === 0) {
-    res.status(404).json({ error: { message: 'Key not found' } });
-    return;
+    c.status(400)
+    return c.json({ error: { message: 'Key not found' } });
   }
 
-  res.json({ success: true, enabled });
+  return c.json({ success: true, enabled });
 });

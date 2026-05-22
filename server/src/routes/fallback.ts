@@ -1,12 +1,11 @@
-import { Router } from 'express';
-import type { Request, Response } from 'express';
+import { Hono } from 'hono';
 import { z } from 'zod';
 import { getDb, runInTransaction } from '../db/index.js';
 import { getAllPenalties } from '../services/router.js';
 
-export const fallbackRouter = Router();
+export const fallbackRouter = new Hono();
 // Get fallback chain (with dynamic penalties)
-fallbackRouter.get('/', (_req: Request, res: Response) => {
+fallbackRouter.get('/', async (c) => {
   const db = getDb();
   const rows = db.query(`
     SELECT fc.model_db_id, fc.priority, fc.enabled,
@@ -30,7 +29,7 @@ fallbackRouter.get('/', (_req: Request, res: Response) => {
   const penalties = getAllPenalties();
   const penaltyMap = new Map(penalties.map(p => [p.modelDbId, p]));
 
-  res.json(rows.map(r => {
+  return c.json(rows.map(r => {
     const penalty = penaltyMap.get(r.model_db_id);
     return {
       modelDbId: r.model_db_id,
@@ -60,11 +59,11 @@ const updateSchema = z.array(z.object({
 }));
 
 // Update fallback chain (full replace)
-fallbackRouter.put('/', (req: Request, res: Response) => {
-  const parsed = updateSchema.safeParse(req.body);
+fallbackRouter.put('/', async (c) => {
+  const parsed = updateSchema.safeParse(await c.req.json());
   if (!parsed.success) {
-    res.status(400).json({ error: { message: parsed.error.errors.map(e => e.message).join(', ') } });
-    return;
+    c.status(400)
+    return c.json({ error: { message: parsed.error.errors.map(e => e.message).join(', ') } });
   }
 
   const db = getDb();
@@ -78,7 +77,7 @@ fallbackRouter.put('/', (req: Request, res: Response) => {
     }
   });
 
-  res.json({ success: true });
+  return c.json({ success: true });
 });
 
 // Sort presets — `orderBy` is selected from a fixed whitelist, never from
@@ -89,12 +88,12 @@ const SORT_PRESETS: Record<string, string> = {
   budget: "CASE m.monthly_token_budget WHEN '~120M' THEN 1 WHEN '~50-100M' THEN 2 WHEN '~30M' THEN 3 WHEN '~18-45M' THEN 4 WHEN '~18M' THEN 5 WHEN '~15M' THEN 6 WHEN '~12M' THEN 7 WHEN '~6M' THEN 8 WHEN '~5-10M' THEN 9 WHEN '~4M' THEN 10 ELSE 11 END ASC",
 };
 
-fallbackRouter.post('/sort/:preset', (req: Request, res: Response) => {
-  const preset = String(req.params.preset);
+fallbackRouter.post('/sort/:preset', async (c) => {
+  const preset = String(c.req.param('preset'));
   const orderBy = SORT_PRESETS[preset];
   if (!orderBy) {
-    res.status(400).json({ error: { message: `Unknown preset: ${preset}. Use: intelligence, speed, budget` } });
-    return;
+    c.status(400)
+    return c.json({ error: { message: `Unknown preset: ${preset}. Use: intelligence, speed, budget` } });
   }
 
   const db = getDb();
@@ -107,11 +106,11 @@ fallbackRouter.post('/sort/:preset', (req: Request, res: Response) => {
     }
   });
 
-  res.json({ success: true, preset });
+  return c.json({ success: true, preset });
 });
 
 // Token usage per model for the stacked bar
-fallbackRouter.get('/token-usage', (_req: Request, res: Response) => {
+fallbackRouter.get('/token-usage', async (c) => {
   const db = getDb();
 
   // Get platforms that have enabled keys
@@ -159,7 +158,7 @@ fallbackRouter.get('/token-usage', (_req: Request, res: Response) => {
     WHERE created_at >= datetime('now', 'start of month')
   `).get() as { total_used: number };
 
-  res.json({
+  return c.json({
     totalBudget,
     totalUsed: usage.total_used,
     models: modelBudgets,
