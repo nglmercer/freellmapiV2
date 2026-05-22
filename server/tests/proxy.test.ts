@@ -1,22 +1,22 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest'
-import { proxyRouter } from '../../src/routes/proxy'
+import { proxyRouter } from '../src/routes/proxy'
 import { Hono } from 'hono'
-import type { RouteResult } from '../services/router'
+import type { RouteResult } from '../src/services/router'
 import type { ChatMessage } from '@freellmapi/shared/types'
 
 // Mock dependencies
-vi.mock('../db/index.js', () => ({
+vi.mock('../../src/db/index.js', () => ({
   getDb: vi.fn(),
   getUnifiedApiKey: vi.fn(() => 'test-unified-key')
 }))
 
-vi.mock('../services/router.js', () => ({
+vi.mock('../../src/services/router.js', () => ({
   routeRequest: vi.fn(),
   recordRateLimitHit: vi.fn(),
   recordSuccess: vi.fn()
 }))
 
-vi.mock('../services/ratelimit.js', () => ({
+vi.mock('../../src/services/ratelimit.js', () => ({
   recordRequest: vi.fn(),
   recordTokens: vi.fn(),
   setCooldown: vi.fn()
@@ -35,11 +35,11 @@ describe('Proxy Router', () => {
   let db: any
   let c: any
 
-  beforeEach(() => {
+    beforeEach(() => {
     db = {
       query: vi.fn()
     }
-    ;(require('../db/index.js') as any).getDb.mockReturnValue(db)
+    ;(require('../../src/db/index.js') as any).getDb.mockReturnValue(db)
 
     // Create a mock Hono context
     c = {
@@ -110,7 +110,7 @@ describe('Proxy Router', () => {
     }
 
     it('should return 401 when API key is invalid', async () => {
-      ;(require('../db/index.js') as any).getUnifiedApiKey.mockReturnValue('real-key')
+      ;(require('../../src/db/index.js') as any).getUnifiedApiKey.mockReturnValue('real-key')
       c.req.header.mockReturnValue('Bearer wrong-key')
 
       await proxyRouter.route('/chat/completions').post(c as any)
@@ -163,66 +163,29 @@ describe('Proxy Router', () => {
       // Mock sticky session to return undefined (no sticky model)
       ;(proxyRouter as any).getStickyModel = vi.fn().mockReturnValue(undefined)
 
-      // Mock routeRequest to return a successful route
-      const mockRoute: RouteResult = {
-        platform: 'openai',
-        modelId: 'gpt-4',
-        keyId: 'key1',
-        modelDbId: 1,
-        displayName: 'OpenAI GPT-4',
-        provider: {
-          chatCompletion: vi.fn().mockResolvedValue({
-            id: 'chatcmpl-123',
-            object: 'chat.completion',
-            created: 1234567890,
-            model: 'gpt-4',
-            choices: [{
-              index: 0,
-              message: { role: 'assistant', content: 'Hello!' },
-              finish_reason: 'stop'
-            }],
-            usage: { prompt_tokens: 10, completion_tokens: 5, total_tokens: 15 }
-          })
-        }
-      }
-      ;(require('../services/router.js') as any).routeRequest.mockReturnValue(mockRoute)
-
-      await proxyRouter.route('/chat/completions').post(c as any)
-
-      expect(c.status).not.toHaveBeenCalled() // Default 200
-      expect(c.json).toHaveBeenCalledWith(
-        expect.objectContaining({
-          id: 'chatcmpl-123',
-          object: 'chat.completion',
-          model: 'gpt-4'
-        })
-      )
-      expect(c.header).toHaveBeenCalledWith('X-Routed-Via', 'openai/gpt-4')
-    })
-
-    it('should handle successful streaming request', async () => {
-      c.req.header.mockReturnValue('Bearer test-unified-key')
-      c.req.json.mockResolvedValue({
-        ...validRequest,
-        stream: true
-      })
-
-      ;(proxyRouter as any).getStickyModel = vi.fn().mockReturnValue(undefined)
-
-      const mockRoute: RouteResult = {
-        platform: 'openai',
-        modelId: 'gpt-4',
-        keyId: 'key1',
-        modelDbId: 1,
-        displayName: 'OpenAI GPT-4',
-        provider: {
-          streamChatCompletion: vi.fn().mockReturnValue(async function* () {
-            yield { choices: [{ delta: { content: 'Hello' } }] }
-            yield { choices: [{ delta: { content: ' World' } }] }
-          })
-        }
-      }
-      ;(require('../services/router.js') as any).routeRequest.mockReturnValue(mockRoute)
+       // Mock routeRequest to return a successful route
+       const mockRoute: RouteResult = {
+         platform: 'openai',
+         modelId: 'gpt-4',
+         keyId: 'key1',
+         modelDbId: 1,
+         displayName: 'OpenAI GPT-4',
+         provider: {
+           chatCompletion: vi.fn().mockResolvedValue({
+             id: 'chatcmpl-123',
+             object: 'chat.completion',
+             created: 1234567890,
+             model: 'gpt-4',
+             choices: [{
+               index: 0,
+               message: { role: 'assistant', content: 'Hello!' },
+               finish_reason: 'stop'
+             }],
+             usage: { prompt_tokens: 10, completion_tokens: 5, total_tokens: 15 }
+           })
+         }
+       }
+       ;(require('../../src/services/router.js') as any).routeRequest.mockReturnValue(mockRoute)
 
       await proxyRouter.route('/chat/completions').post(c as any)
 

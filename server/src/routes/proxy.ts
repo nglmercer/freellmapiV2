@@ -2,8 +2,10 @@ import { Hono } from 'hono';
 import { z } from 'zod';
 import type { ChatMessage } from '@freellmapi/shared/types.js';
 import { routeRequest, recordRateLimitHit, recordSuccess, type RouteResult } from '../services/router.js';
-import { recordRequest, recordTokens, setCooldown } from '../services/ratelimit.js';
+import { apiKeyAuth, validateChatBody, normalizeMessages, estimateInputTokens } from './middleware';
+import { recordRequest, recordTokens, setCooldown, getStickyModel } from '../services/ratelimit.js';
 import { getDb, getUnifiedApiKey } from '../db/index.js';
+import { handleStreamingCompletion, handleStandardCompletion } from './streamHandler.js';
 import crypto from 'crypto';
 
 // Virtual "auto" model. Clients like Hermes require a non-empty `model` field
@@ -207,249 +209,81 @@ function isRetryableError(err: unknown): boolean {
   return false;
 }
 
-proxyRouter.post('/chat/completions', async (c) => {
+proxyRouter.post('/chat/completions', apiKeyAuth, validateChatBody, async (c) => {
   const start = Date.now();
+  const data = c.get('parsedData'); // Retreived from validation middleware
 
-  // Authenticate with the unified API key for every proxy request, including
-  // loopback callers. Browser pages can reach localhost, so socket locality is
-  // not a reliable authorization boundary.
-  const token = c.req.header('authorization')?.replace(/^Bearer\s+/i, '');
-  const unifiedKey = getUnifiedApiKey();
-  if (!token || !timingSafeStringEqual(token, unifiedKey)) {
-    c.status(401)
-    return c.json({
-      error: { message: 'Invalid API key', type: 'authentication_error' },
-    });
+  const { model: requestedModel, stream, messages: rawMessages, ...passthroughOptions } = data;
+  const messages = normalizeMessages(rawMessages);
+
+  const estimatedInputTokens = estimateInputTokens(messages);
+  const estimatedTotal = estimatedInputTokens + (passthroughOptions.max_tokens ?? 1000);
+
+  // Model validation / lookup
+  const { preferredModel, errorResponse } = resolvePreferredModel(requestedModel, messages);
+  if (errorResponse) {
+    c.status(errorResponse.status);
+    return c.json(errorResponse.json);
   }
 
-  // Validate request
-  const body = await c.req.json();
-  const parsed = chatCompletionSchema.safeParse(body);
-  if (!parsed.success) {
-    c.status(400)
-    return c.json({
-      error: {
-        message: `Invalid request: ${parsed.error.errors.map(e => e.message).join(', ')}`,
-        type: 'invalid_request_error',
-      },
-    });
-  }
-
-  const { model: requestedModel, temperature, max_tokens, top_p, stream, tools, tool_choice, parallel_tool_calls } = parsed.data;
-  const messages: ChatMessage[] = parsed.data.messages.map((m): ChatMessage => {
-    if (m.role === 'assistant') {
-      return {
-        role: 'assistant',
-        content: m.content ?? null,
-        ...(m.name ? { name: m.name } : {}),
-        ...(m.tool_calls ? { tool_calls: m.tool_calls.map(tc => ({
-          id: tc.id,
-          type: tc.type,
-          function: tc.function,
-          thought_signature: tc.thought_signature,
-        })) } : {}),
-      };
-    }
-
-    if (m.role === 'tool') {
-      return {
-        role: 'tool',
-        content: m.content,
-        tool_call_id: m.tool_call_id,
-        ...(m.name ? { name: m.name } : {}),
-      };
-    }
-
-    return {
-      role: m.role,
-      content: m.content,
-      ...(m.name ? { name: m.name } : {}),
-    };
-  });
-
-  // Token estimation is intentionally a heuristic (~4 chars per token). Used
-  // for routing decisions (skip a model whose budget is too small) and for
-  // streaming bookkeeping where the provider doesn't echo a final usage count.
-  // Non-streaming requests reconcile against the provider's real `usage` block
-  // (see line ~340). Streaming will drift from real consumption — accepted
-  // tradeoff because per-request usage isn't always returned mid-stream.
-  const estimatedInputTokens = messages.reduce((sum, m) => {
-    if (typeof m.content !== 'string') return sum;
-    return sum + Math.ceil(m.content.length / 4);
-  }, 0);
-  const estimatedTotal = estimatedInputTokens + (max_tokens ?? 1000);
-
-  // Explicit `model` field pins routing. If the catalog has no enabled row
-  // matching the requested id, return 400 — silently auto-routing to a
-  // different model would be surprising to OpenAI-compatible clients.
-  // Sticky-session is the fallback when no `model` field was sent at all.
-  let preferredModel: number | undefined;
-  if (isAutoModel(requestedModel)) {
-    // Explicit "auto" → behave exactly like an omitted model field.
-    preferredModel = getStickyModel(messages);
-  } else if (requestedModel) {
-    const db = getDb();
-    const enabled = db.query('SELECT id FROM models WHERE model_id = ? AND enabled = 1').get(requestedModel) as { id: number } | undefined;
-    if (enabled) {
-      preferredModel = enabled.id;
-    } else {
-      const disabled = db.query('SELECT id FROM models WHERE model_id = ?').get(requestedModel) as { id: number } | undefined;
-      const reason = disabled ? 'is disabled' : 'is not in the catalog';
-      c.status(400)
-      return c.json({
-        error: {
-          message: `Model '${requestedModel}' ${reason}. Use 'auto' (or omit the 'model' field) to auto-route, or call /v1/models for the available list.`,
-          type: 'invalid_request_error',
-          code: 'model_not_found',
-        },
-      });
-    }
-  } else {
-    preferredModel = getStickyModel(messages);
-  }
-
-  // Retry loop: on 429/rate limit, skip that model+key and try the next one
   const skipKeys = new Set<string>();
   let lastError: string | null = null;
 
+  // Resilient Retry Loop
   for (let attempt = 0; attempt < MAX_RETRIES; attempt++) {
     let route: RouteResult;
     try {
       route = routeRequest(estimatedTotal, skipKeys.size > 0 ? skipKeys : undefined, preferredModel);
     } catch (err) {
-      // No more models available
       if (lastError) {
-        c.status(429)
-        return c.json({
-          error: {
-            message: `All models rate-limited. Last error: ${lastError}`,
-            type: 'rate_limit_error',
-          },
-        });
-      } else {
-        c.status(err.status ?? 503)
-        return c.json({
-          error: { message: err.message, type: 'routing_error' },
-        });
+        c.status(429);
+        return c.json({ error: { message: `All models rate-limited. Last error: ${lastError}`, type: 'rate_limit_error' } });
       }
+      c.status(err instanceof Error && 'status' in err ? (err as any).status : 503);
+      return c.json({ error: { message: err instanceof Error ? err.message : String(err), type: 'routing_error' } });
     }
 
     recordRequest(route.platform, route.modelId, route.keyId);
 
     try {
       if (stream) {
-        // Lazy header set: pre-stream errors stay retryable (no headers sent yet);
-        // mid-stream errors emit an `error` SSE frame so the client sees a real signal
-        // instead of a silently truncated stream.
-        let totalOutputTokens = 0;
-        let streamStarted = false;
-        try {
-          const gen = route.provider.streamChatCompletion(
-            route.apiKey, messages, route.modelId,
-            { temperature, max_tokens, top_p, tools, tool_choice, parallel_tool_calls },
-          );
-
-          // Set up streaming response
-          c.header('Content-Type', 'text/event-stream');
-          c.header('Cache-Control', 'no-cache');
-          c.header('Connection', 'keep-alive');
-          c.header('X-Routed-Via', `${route.platform}/${route.modelId}`);
-          if (attempt > 0) c.header('X-Fallback-Attempts', String(attempt));
-
-          for await (const chunk of gen) {
-            if (!streamStarted) {
-              streamStarted = true;
-            }
-            const text = chunk.choices[0]?.delta?.content ?? '';
-            totalOutputTokens += Math.ceil(text.length / 4);
-            await c.body.write(`data: ${JSON.stringify(chunk)}\n\n`);
-          }
-
-          if (!streamStarted) {
-            // Upstream returned no chunks — emit minimal successful stream.
-            await c.body.write('data: [DONE]\n\n');
-          } else {
-            await c.body.write('data: [DONE]\n\n');
-          }
-
-          await c.body.close();
-
-          recordTokens(route.platform, route.modelId, route.keyId, estimatedInputTokens + totalOutputTokens);
-          recordSuccess(route.modelDbId);
-          setStickyModel(messages, route.modelDbId);
-          logRequest(route.platform, route.modelId, 'success', estimatedInputTokens, totalOutputTokens, Date.now() - start, null);
-          return;
-        } catch (streamErr: unknown) {
-          // Extract a string message for logging
-          const streamErrorMessage = streamErr instanceof Error ? streamErr.message : String(streamErr);
-          if (streamStarted) {
-            // Mid-stream error — finish the SSE response cleanly instead of leaving
-            // the client hanging or letting the default handler take over.
-            // Full upstream message goes to the log; the client sees a generic
-            // message so we don't leak provider internals into a partial stream.
-            console.error(`[Proxy] Mid-stream error from ${route.displayName}:`, streamErrorMessage);
-            const payload = { error: { message: `Provider error (${route.displayName}): stream interrupted`, type: 'stream_error' } };
-            try { await c.body.write(`data: ${JSON.stringify(payload)}\n\n`); } catch { /* socket gone */ }
-            try { await c.body.write('data: [DONE]\n\n'); await c.body.close(); } catch { /* socket gone */ }
-            logRequest(route.platform, route.modelId, 'error', estimatedInputTokens, totalOutputTokens, Date.now() - start, streamErrorMessage);
-            return;
-          }
-          // Pre-stream error — bubble to outer retry/502 handler.
-          throw streamErr;
-        }
+        return await handleStreamingCompletion(c, route, {
+          messages,
+          options: passthroughOptions,
+          estimatedInputTokens,
+          start,
+          attempt
+        });
       } else {
-        const result = await route.provider.chatCompletion(
-          route.apiKey, messages, route.modelId,
-          { temperature, max_tokens, top_p, tools, tool_choice, parallel_tool_calls },
-        );
-
-        const totalTokens = result.usage?.total_tokens ?? 0;
-        recordTokens(route.platform, route.modelId, route.keyId, totalTokens);
-        recordSuccess(route.modelDbId);
-        setStickyModel(messages, route.modelDbId);
-
-        c.header('X-Routed-Via', `${route.platform}/${route.modelId}`);
-        if (attempt > 0) c.header('X-Fallback-Attempts', String(attempt));
-        return c.json(result);
+        return await handleStandardCompletion(c, route, {
+          messages,
+          options: passthroughOptions,
+          attempt
+        });
       }
     } catch (err: unknown) {
-      const latency = Date.now() - start;
-      // Extract a string message from err
       const errorMessage = err instanceof Error ? err.message : String(err);
-      logRequest(route.platform, route.modelId, 'error', estimatedInputTokens, 0, latency, errorMessage);
+      logRequest(route.platform, route.modelId, 'error', estimatedInputTokens, 0, Date.now() - start, errorMessage);
 
       if (isRetryableError(err)) {
-        // Put this model+key on cooldown and try the next one
-        const skipId = `${route.platform}:${route.modelId}:${route.keyId}`;
-        skipKeys.add(skipId);
+        skipKeys.add(`${route.platform}:${route.modelId}:${route.keyId}`);
         setCooldown(route.platform, route.modelId, route.keyId, 120_000);
         recordRateLimitHit(route.modelDbId);
         lastError = errorMessage;
-        console.log(`[Proxy] ${errorMessage.slice(0, 60)} from ${route.displayName}, falling back (attempt ${attempt + 1}/${MAX_RETRIES})`);
+        console.log(`[Proxy] ${errorMessage.slice(0, 60)} from ${route.displayName}, falling back (${attempt + 1}/${MAX_RETRIES})`);
         continue;
       }
 
-      // Non-retryable error (auth, 4xx, etc.): don't retry
-      c.status(502)
-      return c.json({
-        error: {
-          message: `Provider error (${route.displayName}): ${errorMessage}`,
-          type: 'provider_error',
-        },
-      });
+      // Non-retryable error structural failures
+      c.status(502);
+      return c.json({ error: { message: `Provider error (${route.displayName}): ${errorMessage}`, type: 'provider_error' } });
     }
   }
 
-  // Exhausted all retries
-  c.status(429)
-  return c.json({
-    error: {
-      message: `All models rate-limited after ${MAX_RETRIES} attempts. Last: ${lastError}`,
-      type: 'rate_limit_error',
-    },
-  });
+  // Exhausted Retries
+  c.status(429);
+  return c.json({ error: { message: `All models rate-limited after ${MAX_RETRIES} attempts. Last: ${lastError}`, type: 'rate_limit_error' } });
 });
-
 function logRequest(
   platform: string,
   modelId: string,

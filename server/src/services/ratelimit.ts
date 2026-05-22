@@ -147,3 +147,47 @@ export function getRateLimitStatus(
     tpm: { used: tpmUsed, limit: limits.tpm },
   };
 }
+
+// Sticky sessions: track which model served each "session"
+// Key: hash of first user message → model_db_id
+// This prevents model switching mid-conversation which causes hallucination
+const stickySessionMap = new Map<string, { modelDbId: number; lastUsed: number }>();
+const STICKY_TTL_MS = 30 * 60 * 1000; // 30 min session TTL
+
+export function getSessionKey(messages: { role: string; content: string }[]): string {
+  const firstUser = messages.find(m => m.role === 'user');
+  if (!firstUser || typeof firstUser.content !== 'string') return '';
+  const crypto = require('crypto');
+  const hash = crypto.createHash('sha1').update(firstUser.content).digest('hex');
+  return `${hash}:${messages.length > 2 ? 'multi' : 'single'}`;
+}
+
+export function getStickyModel(messages: { role: string; content: string }[]): number | undefined {
+  const hasAssistant = messages.some(m => m.role === 'assistant');
+  if (!hasAssistant) return undefined;
+
+  const key = getSessionKey(messages);
+  if (!key) return undefined;
+
+  const entry = stickySessionMap.get(key);
+  if (!entry) return undefined;
+
+  if (Date.now() - entry.lastUsed > STICKY_TTL_MS) {
+    stickySessionMap.delete(key);
+    return undefined;
+  }
+  return entry.modelDbId;
+}
+
+export function setStickyModel(messages: { role: string; content: string }[], modelDbId: number) {
+  const key = getSessionKey(messages);
+  if (!key) return;
+  stickySessionMap.set(key, { modelDbId, lastUsed: Date.now() });
+
+  if (stickySessionMap.size > 500) {
+    const now = Date.now();
+    for (const [k, v] of stickySessionMap) {
+      if (now - v.lastUsed > STICKY_TTL_MS) stickySessionMap.delete(k);
+    }
+  }
+}
