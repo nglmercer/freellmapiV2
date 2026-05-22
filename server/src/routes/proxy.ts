@@ -83,7 +83,13 @@ export const proxyRouter = new Hono();
 
 proxyRouter.get('/models', async (c) => {
   const db = getDb();
-  const models = db.query('SELECT platform, model_id, display_name, context_window FROM models WHERE enabled = 1 ORDER BY intelligence_rank').all() as any[];
+  interface ModelRow {
+    platform: string;
+    model_id: string;
+    display_name: string;
+    context_window: number | null;
+  }
+  const models = db.query('SELECT platform, model_id, display_name, context_window FROM models WHERE enabled = 1 ORDER BY intelligence_rank').all() as ModelRow[];
   return c.json({
     object: 'list',
     data: [
@@ -188,14 +194,17 @@ const chatCompletionSchema = z.object({
   parallel_tool_calls: z.boolean().optional(),
 });
 
-function isRetryableError(err: any): boolean {
-  const msg = (err.message ?? '').toLowerCase();
-  return msg.includes('429') || msg.includes('rate limit') || msg.includes('too many requests')
-    || msg.includes('quota') || msg.includes('resource_exhausted')
-    || msg.includes('aborted') || msg.includes('timeout') || msg.includes('etimedout')
-    || msg.includes('econnrefused') || msg.includes('econnreset')
-    || msg.includes('503') || msg.includes('unavailable')
-    || msg.includes('500') || msg.includes('internal server error');
+function isRetryableError(err: unknown): boolean {
+  if (err && typeof err === 'object' && 'message' in err && typeof err.message === 'string') {
+    const msg = err.message.toLowerCase();
+    return msg.includes('429') || msg.includes('rate limit') || msg.includes('too many requests')
+      || msg.includes('quota') || msg.includes('resource_exhausted')
+      || msg.includes('aborted') || msg.includes('timeout') || msg.includes('etimedout')
+      || msg.includes('econnrefused') || msg.includes('econnreset')
+      || msg.includes('503') || msg.includes('unavailable')
+      || msg.includes('500') || msg.includes('internal server error');
+  }
+  return false;
 }
 
 proxyRouter.post('/chat/completions', async (c) => {
@@ -217,7 +226,8 @@ proxyRouter.post('/chat/completions', async (c) => {
   const body = await c.req.json();
   const parsed = chatCompletionSchema.safeParse(body);
   if (!parsed.success) {
-    return c.status(400).json({
+    c.status(400)
+    return c.json({
       error: {
         message: `Invalid request: ${parsed.error.errors.map(e => e.message).join(', ')}`,
         type: 'invalid_request_error',
@@ -285,7 +295,8 @@ proxyRouter.post('/chat/completions', async (c) => {
     } else {
       const disabled = db.query('SELECT id FROM models WHERE model_id = ?').get(requestedModel) as { id: number } | undefined;
       const reason = disabled ? 'is disabled' : 'is not in the catalog';
-      return c.status(400).json({
+      c.status(400)
+      return c.json({
         error: {
           message: `Model '${requestedModel}' ${reason}. Use 'auto' (or omit the 'model' field) to auto-route, or call /v1/models for the available list.`,
           type: 'invalid_request_error',
@@ -299,7 +310,7 @@ proxyRouter.post('/chat/completions', async (c) => {
 
   // Retry loop: on 429/rate limit, skip that model+key and try the next one
   const skipKeys = new Set<string>();
-  let lastError: any = null;
+  let lastError: string | null = null;
 
   for (let attempt = 0; attempt < MAX_RETRIES; attempt++) {
     let route: RouteResult;
@@ -311,12 +322,13 @@ proxyRouter.post('/chat/completions', async (c) => {
         c.status(429)
         return c.json({
           error: {
-            message: `All models rate-limited. Last error: ${lastError.message}`,
+            message: `All models rate-limited. Last error: ${lastError}`,
             type: 'rate_limit_error',
           },
         });
       } else {
-        return c.status(err.status ?? 503).json({
+        c.status(err.status ?? 503)
+        return c.json({
           error: { message: err.message, type: 'routing_error' },
         });
       }
@@ -367,17 +379,19 @@ proxyRouter.post('/chat/completions', async (c) => {
           setStickyModel(messages, route.modelDbId);
           logRequest(route.platform, route.modelId, 'success', estimatedInputTokens, totalOutputTokens, Date.now() - start, null);
           return;
-        } catch (streamErr: any) {
+        } catch (streamErr: unknown) {
+          // Extract a string message for logging
+          const streamErrorMessage = streamErr instanceof Error ? streamErr.message : String(streamErr);
           if (streamStarted) {
             // Mid-stream error — finish the SSE response cleanly instead of leaving
             // the client hanging or letting the default handler take over.
             // Full upstream message goes to the log; the client sees a generic
             // message so we don't leak provider internals into a partial stream.
-            console.error(`[Proxy] Mid-stream error from ${route.displayName}:`, streamErr.message);
+            console.error(`[Proxy] Mid-stream error from ${route.displayName}:`, streamErrorMessage);
             const payload = { error: { message: `Provider error (${route.displayName}): stream interrupted`, type: 'stream_error' } };
             try { await c.body.write(`data: ${JSON.stringify(payload)}\n\n`); } catch { /* socket gone */ }
             try { await c.body.write('data: [DONE]\n\n'); await c.body.close(); } catch { /* socket gone */ }
-            logRequest(route.platform, route.modelId, 'error', estimatedInputTokens, totalOutputTokens, Date.now() - start, streamErr.message);
+            logRequest(route.platform, route.modelId, 'error', estimatedInputTokens, totalOutputTokens, Date.now() - start, streamErrorMessage);
             return;
           }
           // Pre-stream error — bubble to outer retry/502 handler.
@@ -398,9 +412,11 @@ proxyRouter.post('/chat/completions', async (c) => {
         if (attempt > 0) c.header('X-Fallback-Attempts', String(attempt));
         return c.json(result);
       }
-    } catch (err: any) {
+    } catch (err: unknown) {
       const latency = Date.now() - start;
-      logRequest(route.platform, route.modelId, 'error', estimatedInputTokens, 0, latency, err.message);
+      // Extract a string message from err
+      const errorMessage = err instanceof Error ? err.message : String(err);
+      logRequest(route.platform, route.modelId, 'error', estimatedInputTokens, 0, latency, errorMessage);
 
       if (isRetryableError(err)) {
         // Put this model+key on cooldown and try the next one
@@ -408,8 +424,8 @@ proxyRouter.post('/chat/completions', async (c) => {
         skipKeys.add(skipId);
         setCooldown(route.platform, route.modelId, route.keyId, 120_000);
         recordRateLimitHit(route.modelDbId);
-        lastError = err;
-        console.log(`[Proxy] ${err.message.slice(0, 60)} from ${route.displayName}, falling back (attempt ${attempt + 1}/${MAX_RETRIES})`);
+        lastError = errorMessage;
+        console.log(`[Proxy] ${errorMessage.slice(0, 60)} from ${route.displayName}, falling back (attempt ${attempt + 1}/${MAX_RETRIES})`);
         continue;
       }
 
@@ -417,7 +433,7 @@ proxyRouter.post('/chat/completions', async (c) => {
       c.status(502)
       return c.json({
         error: {
-          message: `Provider error (${route.displayName}): ${err.message}`,
+          message: `Provider error (${route.displayName}): ${errorMessage}`,
           type: 'provider_error',
         },
       });
@@ -428,7 +444,7 @@ proxyRouter.post('/chat/completions', async (c) => {
   c.status(429)
   return c.json({
     error: {
-      message: `All models rate-limited after ${MAX_RETRIES} attempts. Last: ${lastError?.message}`,
+      message: `All models rate-limited after ${MAX_RETRIES} attempts. Last: ${lastError}`,
       type: 'rate_limit_error',
     },
   });

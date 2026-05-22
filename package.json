@@ -9,7 +9,7 @@
 "scripts": {
      "dev": "cd server && bun run dev",
      "test": "cd server && bun run test",
-     "build": "bun run build.ts",
+     "build": "cd server && bun run build && cd ../client && bun run build",
      "build:server": "cd server && bun run build",
      "build:client": "cd client && bun run build"
    },
