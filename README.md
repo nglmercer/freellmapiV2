@@ -112,7 +112,7 @@ Open http://localhost:5173 (the Vite dev UI), add your provider keys on the **Ke
 For a production build:
 
 ```bash
-npm run build
+bun run build
 node server/dist/index.js     # server + dashboard both served on :3001
 ```
 

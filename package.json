@@ -6,11 +6,13 @@
     "server",
     "client"
   ],
-  "scripts": {
-    "dev": "cd server && bun run dev",
-    "test": "cd server && bun run test",
-    "build": "cd server && bun run build && cd ../client && bun run build"
-  },
+"scripts": {
+     "dev": "cd server && bun run dev",
+     "test": "cd server && bun run test",
+     "build": "bun run build.ts",
+     "build:server": "cd server && bun run build",
+     "build:client": "cd client && bun run build"
+   },
   "devDependencies": {
     "concurrently": "^9.1.2"
   },

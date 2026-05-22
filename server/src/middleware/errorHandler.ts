@@ -5,8 +5,9 @@ export function errorHandler(err: Error, _req: Request, res: Response, next: Nex
 
   if (res.headersSent) return next(err);
 
-  const status = (err as any).status ?? 500;
-  res.status(status).json({
+  const status = 'status' in err ? err.status : 500;
+  res.status(Number(status))
+  return res.json({
     error: {
       message: err.message,
       type: err.name ?? 'server_error',

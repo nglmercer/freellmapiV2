@@ -207,7 +207,8 @@ proxyRouter.post('/chat/completions', async (c) => {
   const token = c.req.header('authorization')?.replace(/^Bearer\s+/i, '');
   const unifiedKey = getUnifiedApiKey();
   if (!token || !timingSafeStringEqual(token, unifiedKey)) {
-    return c.status(401).json({
+    c.status(401)
+    return c.json({
       error: { message: 'Invalid API key', type: 'authentication_error' },
     });
   }
@@ -304,10 +305,11 @@ proxyRouter.post('/chat/completions', async (c) => {
     let route: RouteResult;
     try {
       route = routeRequest(estimatedTotal, skipKeys.size > 0 ? skipKeys : undefined, preferredModel);
-    } catch (err: any) {
+    } catch (err) {
       // No more models available
       if (lastError) {
-        return c.status(429).json({
+        c.status(429)
+        return c.json({
           error: {
             message: `All models rate-limited. Last error: ${lastError.message}`,
             type: 'rate_limit_error',
@@ -412,7 +414,8 @@ proxyRouter.post('/chat/completions', async (c) => {
       }
 
       // Non-retryable error (auth, 4xx, etc.): don't retry
-      return c.status(502).json({
+      c.status(502)
+      return c.json({
         error: {
           message: `Provider error (${route.displayName}): ${err.message}`,
           type: 'provider_error',
@@ -422,7 +425,8 @@ proxyRouter.post('/chat/completions', async (c) => {
   }
 
   // Exhausted all retries
-  return c.status(429).json({
+  c.status(429)
+  return c.json({
     error: {
       message: `All models rate-limited after ${MAX_RETRIES} attempts. Last: ${lastError?.message}`,
       type: 'rate_limit_error',
