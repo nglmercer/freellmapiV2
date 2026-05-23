@@ -181,6 +181,19 @@ export default function KeysPage() {
     },
   })
 
+  const [reEnterKeyId, setReEnterKeyId] = useState<number | null>(null)
+  const [reEnterValue, setReEnterValue] = useState('')
+  const reEnterKey = useMutation({
+    mutationFn: ({ id, key }: { id: number; key: string }) =>
+      apiFetch(`/api/keys/${id}`, { method: 'PATCH', body: JSON.stringify({ key }) }),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['keys'] })
+      queryClient.invalidateQueries({ queryKey: ['health'] })
+      setReEnterKeyId(null)
+      setReEnterValue('')
+    },
+  })
+
   const needsAccountId = platform === 'cloudflare'
 
   const handleSubmit = (e: React.FormEvent) => {
@@ -296,6 +309,42 @@ export default function KeysPage() {
                       const h = healthKeyMap.get(k.id)
                       const status = h?.status ?? k.status
                       const lastChecked = h?.lastCheckedAt
+                      const isDecryptFailed = k.maskedKey === '[decrypt failed]'
+                      const isReEntering = reEnterKeyId === k.id
+
+                      if (isReEntering) {
+                        return (
+                          <div key={k.id} className="flex items-center gap-3 px-4 py-3 bg-card">
+                            <span className={`size-1.5 rounded-full flex-shrink-0 ${statusDot[status] ?? statusDot.unknown}`} />
+                            <span className="text-xs text-muted-foreground">Re-enter key for</span>
+                            {k.label && <span className="text-xs font-medium">{k.label}</span>}
+                            <Input
+                              type="password"
+                              value={reEnterValue}
+                              onChange={e => setReEnterValue(e.target.value)}
+                              placeholder="paste key here"
+                              className="flex-1 font-mono text-xs h-8"
+                              autoFocus
+                            />
+                            <Button
+                              variant="default"
+                              size="xs"
+                              onClick={() => reEnterKey.mutate({ id: k.id, key: reEnterValue })}
+                              disabled={!reEnterValue || reEnterKey.isPending}
+                            >
+                              {reEnterKey.isPending ? 'Saving…' : 'Save'}
+                            </Button>
+                            <Button
+                              variant="ghost"
+                              size="xs"
+                              onClick={() => { setReEnterKeyId(null); setReEnterValue('') }}
+                            >
+                              Cancel
+                            </Button>
+                          </div>
+                        )
+                      }
+
                       return (
                         <div key={k.id} className="flex items-center gap-3 px-4 py-3 hover:bg-muted/40 transition-colors">
                           <span className={`size-1.5 rounded-full flex-shrink-0 ${statusDot[status] ?? statusDot.unknown}`} />
@@ -307,6 +356,11 @@ export default function KeysPage() {
                             <span className="text-[11px] text-muted-foreground tabular-nums">
                               {new Date(lastChecked).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
                             </span>
+                          )}
+                          {isDecryptFailed && (
+                            <Button variant="secondary" size="xs" onClick={() => setReEnterKeyId(k.id)}>
+                              Re-enter
+                            </Button>
                           )}
                           <Button variant="ghost" size="xs" onClick={() => checkKey.mutate(k.id)} disabled={checkKey.isPending}>
                             Check

@@ -20,24 +20,39 @@ function parseHexKey(value: string, source: 'env' | 'db'): Buffer {
 /**
  * Initialize encryption key from env, DB, or generate a new one.
  * Confeccionado para usar los métodos específicos de tu sqlite-napi.
+ *
+ * Priority: DB-stored key > ENCRYPTION_KEY env var > random generate.
+ * We prefer the DB key so that previously stored API keys remain decryptable
+ * even if the env var changes. If the env var differs from the DB key, we log
+ * a warning and use the DB key.
  */
 export function initEncryptionKey(db: Database): void {
-  // 1. Check env var
-  const envKey = process.env.ENCRYPTION_KEY;
-  if (envKey && envKey !== 'your-64-char-hex-key-here') {
-    cachedKey = parseHexKey(envKey, 'env');
-    return;
-  }
-
-  // 2. Check DB for persisted key
-  // Cambiado: db.query(...) -> db.query(...)
+  // 1. Always prefer an already-persisted key from the DB, so stored API keys
+  //    remain decryptable across restarts even if ENCRYPTION_KEY env changes.
   const row = db.query("SELECT value FROM settings WHERE key = 'encryption_key'").get() as { value: string } | undefined;
   if (row) {
+    const envKey = process.env.ENCRYPTION_KEY;
+    if (envKey && envKey !== 'your-64-char-hex-key-here' && envKey !== row.value) {
+      console.warn(
+        '[crypto] WARNING: ENCRYPTION_KEY env var differs from the key stored in the database.\n' +
+        '  Using the DB-stored key to keep existing API keys decryptable.\n' +
+        '  Remove ENCRYPTION_KEY from your environment if you want to use the DB key permanently.'
+      );
+    }
     cachedKey = parseHexKey(row.value, 'db');
     return;
   }
 
-  // 3. Generate and persist
+  // 2. No DB key yet. If ENCRYPTION_KEY env is set, persist it for consistency.
+  const envKey = process.env.ENCRYPTION_KEY;
+  if (envKey && envKey !== 'your-64-char-hex-key-here') {
+    cachedKey = parseHexKey(envKey, 'env');
+    db.query("INSERT INTO settings (key, value) VALUES ('encryption_key', ?)")
+      .run(cachedKey.toString('hex'));
+    return;
+  }
+
+  // 3. Generate and persist a new random key.
   cachedKey = crypto.randomBytes(KEY_BYTES);
 
   // Cambiado: db.query(...) -> db.query(...)

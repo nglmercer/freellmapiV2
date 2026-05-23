@@ -17,8 +17,28 @@ export async function checkKeyHealth(keyId: number): Promise<KeyStatus> {
   const provider = getProvider(row.platform as Platform);
   if (!provider) return 'error';
 
+  let apiKey: string;
   try {
-    const apiKey = decrypt(row.encrypted_key, row.iv, row.auth_tag);
+    apiKey = decrypt(row.encrypted_key, row.iv, row.auth_tag);
+  } catch {
+    // Decryption failed — the encryption key has changed since this key was stored.
+    // The key data is unrecoverable; mark as invalid and auto-disable.
+    console.error(`[Health] Key ${keyId} decryption failed — encryption key mismatch`);
+    const count = (failureCount.get(keyId) ?? 0) + 1;
+    failureCount.set(keyId, count);
+
+    db.query("UPDATE api_keys SET status = ?, last_checked_at = datetime('now') WHERE id = ?")
+      .run(['invalid', keyId]);
+
+    if (count >= CONSECUTIVE_FAILURES_TO_DISABLE) {
+      db.query('UPDATE api_keys SET enabled = 0 WHERE id = ?').run(keyId);
+      console.log(`[Health] Auto-disabled key ${keyId} after ${count} consecutive decryption failures`);
+      failureCount.delete(keyId);
+    }
+    return 'invalid';
+  }
+
+  try {
     const isValid = await provider.validateKey(apiKey);
 
     const status: KeyStatus = isValid ? 'healthy' : 'invalid';

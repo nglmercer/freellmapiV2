@@ -102,7 +102,7 @@ keysRouter.delete('/:id', async (c) => {
   return c.json({ success: true });
 });
 
-// Toggle enable/disable
+// Toggle enable/disable or re-encrypt key value
 keysRouter.patch('/:id', async (c) => {
   const id = parseInt(c.req.param('id'), 10);
   if (isNaN(id)) {
@@ -110,19 +110,44 @@ keysRouter.patch('/:id', async (c) => {
     return c.json({ error: { message: 'Invalid key ID' } });
   }
 
-  const { enabled } = await c.req.json();
-  if (typeof enabled !== 'boolean') {
+  let body: any;
+  try {
+    body = await c.req.json();
+  } catch {
     c.status(400)
-    return c.json({ error: { message: 'enabled must be a boolean' } });
+    return c.json({ error: { message: 'Malformed JSON body' } });
   }
 
   const db = getDb();
-  const result = db.query('UPDATE api_keys SET enabled = ? WHERE id = ?').run([enabled ? 1 : 0, id]);
 
-  if (result.changes === 0) {
-    c.status(400)
-    return c.json({ error: { message: 'Key not found' } });
+  // Re-encrypt: update the key value (for decryption-failed keys)
+  if (typeof body.key === 'string' && body.key.length > 0) {
+    const keyToEncrypt = body.key;
+    const { encrypted, iv, authTag } = encrypt(keyToEncrypt);
+    const result = db.query(
+      'UPDATE api_keys SET encrypted_key = ?, iv = ?, auth_tag = ?, status = \'unknown\' WHERE id = ?'
+    ).run([encrypted, iv, authTag, id]);
+
+    if (result.changes === 0) {
+      c.status(400)
+      return c.json({ error: { message: 'Key not found' } });
+    }
+
+    return c.json({ success: true, reEncrypted: true, maskedKey: maskKey(keyToEncrypt) });
   }
 
-  return c.json({ success: true, enabled });
+  // Toggle enabled
+  if (typeof body.enabled === 'boolean') {
+    const result = db.query('UPDATE api_keys SET enabled = ? WHERE id = ?').run([body.enabled ? 1 : 0, id]);
+
+    if (result.changes === 0) {
+      c.status(400)
+      return c.json({ error: { message: 'Key not found' } });
+    }
+
+    return c.json({ success: true, enabled: body.enabled });
+  }
+
+  c.status(400)
+  return c.json({ error: { message: 'Provide either "key" (string) or "enabled" (boolean)' } });
 });

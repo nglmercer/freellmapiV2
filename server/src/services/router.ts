@@ -133,6 +133,13 @@ export function getAllPenalties(): Array<{ modelDbId: number; count: number; pen
  */
 export function routeRequest(estimatedTokens = 1000, skipKeys?: Set<string>, preferredModelDbId?: number): RouteResult {
   const db = getDb();
+  const totalKeyCount = (db.query('SELECT COUNT(*) as cnt FROM api_keys WHERE enabled = 1').get() as { cnt: number }).cnt;
+
+  if (totalKeyCount === 0) {
+    const err = new Error('No API keys configured. Add at least one key in the dashboard first.') as any;
+    err.status = 503;
+    throw err;
+  }
 
   // Get fallback chain ordered by priority
   const fallbackChain = db.query(`
@@ -201,7 +208,13 @@ export function routeRequest(estimatedTokens = 1000, skipKeys?: Set<string>, pre
 
       // We found a working key for this model!
       roundRobinIndex.set(rrKey, idx);
-      const decryptedKey = decrypt(key.encrypted_key, key.iv, key.auth_tag);
+      let decryptedKey: string;
+      try {
+        decryptedKey = decrypt(key.encrypted_key, key.iv, key.auth_tag);
+      } catch {
+        // Decryption failed (mismatched encryption key). Skip this key.
+        continue;
+      }
 
       return {
         provider,
@@ -223,7 +236,21 @@ export function routeRequest(estimatedTokens = 1000, skipKeys?: Set<string>, pre
     // in the `sortedChain` for THIS specific request.
   }
 
-  const err = new Error('All models exhausted. Add more API keys or wait for rate limits to reset.') as any;
+  // Check if there are any non-invalid keys at all to give a better diagnostic
+  const decryptableCount = (db.query(
+    "SELECT COUNT(*) as cnt FROM api_keys WHERE enabled = 1 AND status != 'invalid'"
+  ).get() as { cnt: number }).cnt;
+
+  let message: string;
+  if (decryptableCount === 0) {
+    message = 'All configured API keys are invalid. Check your keys in the dashboard.';
+  } else if (totalKeyCount > 0 && skipKeys && skipKeys.size >= totalKeyCount) {
+    message = `All ${totalKeyCount} API key(s) have been tried and failed. Wait for rate-limit cooldown or add more keys.`;
+  } else {
+    message = 'All models are currently unavailable due to rate limits or cooldowns. Try again later.';
+  }
+
+  const err = new Error(message) as any;
   err.status = 429;
   throw err;
 }

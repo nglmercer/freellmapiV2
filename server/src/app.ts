@@ -14,6 +14,7 @@ import { settingsRouter } from './routes/settings.js';
 import { errorHandler } from './middleware/errorHandler.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
+const DIST_DIR = path.resolve(__dirname, '../../client/dist');
 
 export function createApp() {
   const app = new Hono();
@@ -49,12 +50,10 @@ export function createApp() {
     return c.text(`${err}`, 500)
   })
 
-  // Serve client static files (after API error handler)
-  app.use('*', serveStatic({ root: path.resolve(__dirname, '../../client/dist') }));
-  // SPA fallback — serve index.html for non-API routes
-  app.get('*', serveStatic({
-    root: './',
-    path: path.join(path.resolve(__dirname, '../../client/dist'), 'index.html')
+  // Serve client static files — SPA fallback included
+  app.use('*', serveStatic({
+    root: DIST_DIR,
+    rewriteRequestPath: (p) => p.startsWith('/') && !path.extname(p) ? '/index.html' : p,
   }));
 
   return app;

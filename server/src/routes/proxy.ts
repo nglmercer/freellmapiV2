@@ -113,23 +113,27 @@ proxyRouter.post('/chat/completions', apiKeyAuth, validateChatBody, async (c) =>
       return c.json({ error: { message: err instanceof Error ? err.message : String(err), type: 'routing_error' } });
     }
 
-    recordRequest(route.platform, route.modelId, route.keyId);
-
     try {
       if (stream) {
-        return await handleStreamingCompletion(c, route, {
+        const result = await handleStreamingCompletion(c, route, {
           messages,
           options: passthroughOptions,
           estimatedInputTokens,
           start,
           attempt
         });
+        // Record request only after the provider accepted it (pre-stream handshake passed)
+        recordRequest(route.platform, route.modelId, route.keyId);
+        return result;
       } else {
-        return await handleStandardCompletion(c, route, {
+        const result = await handleStandardCompletion(c, route, {
           messages,
           options: passthroughOptions,
           attempt
         });
+        // Record request only after the provider returned a successful response
+        recordRequest(route.platform, route.modelId, route.keyId);
+        return result;
       }
     } catch (err: unknown) {
       const errorMessage = err instanceof Error ? err.message : String(err);
