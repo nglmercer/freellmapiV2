@@ -15,6 +15,9 @@ export interface CompletionOptions {
   tools?: ChatToolDefinition[];
   tool_choice?: ChatToolChoice;
   parallel_tool_calls?: boolean;
+  stream_options?: {
+    include_usage?: boolean;
+  };
 }
 
 export abstract class BaseProvider {

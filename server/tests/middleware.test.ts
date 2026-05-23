@@ -116,3 +116,38 @@ describe('estimateInputTokens', () => {
     expect(estimateInputTokens(messages)).toBe(25);
   });
 });
+
+describe('stream_options validation', () => {
+  it('should accept stream_options with include_usage set to true', () => {
+    const { chatCompletionSchema } = require('../src/routes/middleware.js');
+    const result = chatCompletionSchema.safeParse({
+      messages: [{ role: 'user', content: 'Hello' }],
+      stream: true,
+      stream_options: { include_usage: true },
+    });
+    expect(result.success).toBe(true);
+    if (result.success) {
+      expect(result.data.stream_options?.include_usage).toBe(true);
+    }
+  });
+
+  it('should accept stream_options with include_usage set to false', () => {
+    const { chatCompletionSchema } = require('../src/routes/middleware.js');
+    const result = chatCompletionSchema.safeParse({
+      messages: [{ role: 'user', content: 'Hello' }],
+      stream: true,
+      stream_options: { include_usage: false },
+    });
+    expect(result.success).toBe(true);
+  });
+
+  it('should accept stream_options without include_usage', () => {
+    const { chatCompletionSchema } = require('../src/routes/middleware.js');
+    const result = chatCompletionSchema.safeParse({
+      messages: [{ role: 'user', content: 'Hello' }],
+      stream: true,
+      stream_options: {},
+    });
+    expect(result.success).toBe(true);
+  });
+});

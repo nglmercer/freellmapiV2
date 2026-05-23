@@ -94,7 +94,8 @@ proxyRouter.post('/chat/completions', apiKeyAuth, validateChatBody, async (c) =>
   const start = Date.now();
   const data = c.get('parsedData');
 
-  const { model: requestedModel, stream, messages: rawMessages, ...passthroughOptions } = data;
+  const { model: requestedModel, stream, messages: rawMessages, ...rest } = data;
+  const passthroughOptions = rest as typeof rest & { stream_options?: { include_usage?: boolean } };
   const messages = normalizeMessages(rawMessages);
 
   const estimatedInputTokens = estimateInputTokens(messages);

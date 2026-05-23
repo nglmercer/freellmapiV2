@@ -20,14 +20,19 @@ export async function handleStreamingCompletion(
   );
 
   const iterator = gen[Symbol.asyncIterator]();
+  const includeUsage = payload.options?.stream_options?.include_usage ?? false;
 
   // Pre-stream handshake: try to get the first chunk synchronously before the
   // Hono stream starts. If this throws, the error propagates to the retry loop
   // in proxy.ts so it can fail over to the next model.
   let firstChunk: ChatCompletionChunk | undefined;
+  let streamId: string | undefined;
   try {
     const result = await iterator.next();
-    if (!result.done) firstChunk = result.value;
+    if (!result.done) {
+      firstChunk = result.value;
+      streamId = result.value.id;
+    }
   } catch (err) {
     // Pre-stream error — bubble up for retry
     throw err;
@@ -61,6 +66,22 @@ export async function handleStreamingCompletion(
         await streamInstance.write(`data: ${JSON.stringify(chunk)}\n\n`);
       }
 
+      // Emit usage in final chunk if requested (OpenAI compatibility)
+      const finalChunk: ChatCompletionChunk = {
+        id: streamId ?? firstChunk?.id ?? `chatcmpl-${Date.now()}`,
+        object: 'chat.completion.chunk',
+        created: Math.floor(Date.now() / 1000),
+        model: route.modelId,
+        choices: [{ index: 0, delta: {}, finish_reason: 'stop' }],
+        ...(includeUsage ? {
+          usage: {
+            prompt_tokens: payload.estimatedInputTokens,
+            completion_tokens: totalOutputTokens,
+            total_tokens: payload.estimatedInputTokens + totalOutputTokens,
+          }
+        } : {})
+      };
+      await streamInstance.write(`data: ${JSON.stringify(finalChunk)}\n\n`);
       await streamInstance.write('data: [DONE]\n\n');
 
       // Side-effects / Bookkeeping

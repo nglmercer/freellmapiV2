@@ -75,6 +75,10 @@ export const toolChoiceSchema = z.union([
     }),
   }),
 ]);
+export const streamOptionsSchema = z.object({
+  include_usage: z.boolean().optional(),
+});
+
 export const chatCompletionSchema = z.object({
   messages: z.array(z.union([
     systemMessageSchema,
@@ -87,6 +91,7 @@ export const chatCompletionSchema = z.object({
   max_tokens: z.number().int().positive().optional(),
   top_p: z.number().min(0).max(1).optional(),
   stream: z.boolean().optional(),
+  stream_options: streamOptionsSchema.optional(),
   tools: z.array(toolDefinitionSchema).optional(),
   tool_choice: toolChoiceSchema.optional(),
   parallel_tool_calls: z.boolean().optional(),

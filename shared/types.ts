@@ -120,6 +120,9 @@ export interface ChatCompletionRequest {
   temperature?: number;
   max_tokens?: number;
   stream?: boolean;
+  stream_options?: {
+    include_usage?: boolean;
+  };
   top_p?: number;
   tools?: ChatToolDefinition[];
   tool_choice?: ChatToolChoice;
@@ -165,6 +168,7 @@ export interface ChatCompletionChunk {
     };
     finish_reason: string | null;
   }[];
+  usage?: TokenUsage;
 }
 
 // ---- Analytics Types ----
