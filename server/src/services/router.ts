@@ -176,8 +176,8 @@ export function routeRequest(estimatedTokens = 1000, skipKeys?: Set<string>, pre
 
     // Get all healthy, enabled keys for this platform
     const keys = db.query(
-      'SELECT * FROM api_keys WHERE platform = ? AND enabled = 1 AND status != ?'
-    ).all([model.platform, 'invalid']) as KeyRow[];
+      "SELECT * FROM api_keys WHERE platform = ? AND enabled = 1 AND status NOT IN ('invalid', 'rate_limited')"
+    ).all([model.platform]) as KeyRow[];
 
     if (keys.length === 0) continue;
 

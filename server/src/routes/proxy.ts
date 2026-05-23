@@ -57,7 +57,7 @@ proxyRouter.get('/models', async (c) => {
   });
 });
 
-const MAX_RETRIES = 20;
+const MAX_RETRIES = 10;
 const extractStatus = (err: unknown): StatusCode => {
   if (err instanceof Error && 'status' in err) {
     const statusValue = (err as { status: unknown }).status;
