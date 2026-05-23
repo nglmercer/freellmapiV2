@@ -6,6 +6,9 @@ import { recordRequest, recordTokens, setCooldown, getStickyModel, setStickyMode
 import { getDb } from '../db/index.js';
 import { handleStreamingCompletion, handleStandardCompletion } from './streamHandler.js';
 import type { StatusCode } from 'hono/utils/http-status';
+import * as schema from '../db/schema.js';
+import { eq, asc } from 'drizzle-orm';
+
 declare module 'hono' {
   interface ContextVariableMap {
     parsedData: z.infer<typeof chatCompletionSchema>;
@@ -27,13 +30,17 @@ export const proxyRouter = new Hono();
 
 proxyRouter.get('/models', async (c) => {
   const db = getDb();
-  interface ModelRow {
-    platform: string;
-    model_id: string;
-    display_name: string;
-    context_window: number | null;
-  }
-  const models = db.query('SELECT platform, model_id, display_name, context_window FROM models WHERE enabled = 1 ORDER BY intelligence_rank').all() as ModelRow[];
+  const models = db.select({
+    platform: schema.models.platform,
+    model_id: schema.models.modelId,
+    display_name: schema.models.displayName,
+    context_window: schema.models.contextWindow
+  })
+  .from(schema.models)
+  .where(eq(schema.models.enabled, 1))
+  .orderBy(schema.models.intelligenceRank)
+  .all();
+
   return c.json({
     object: 'list',
     data: [
@@ -169,10 +176,15 @@ function logRequest(
 ) {
   try {
     const db = getDb();
-    db.query(`
-      INSERT INTO requests (platform, model_id, status, input_tokens, output_tokens, latency_ms, error)
-      VALUES (?, ?, ?, ?, ?, ?, ?)
-    `).run([platform, modelId, status, inputTokens, outputTokens, latencyMs, error]);
+    db.insert(schema.requests).values({
+      platform,
+      modelId,
+      status,
+      inputTokens,
+      outputTokens,
+      latencyMs,
+      error
+    }).run();
   } catch (e) {
     console.error('Failed to log request:', e);
   }

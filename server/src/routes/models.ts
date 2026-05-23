@@ -1,46 +1,67 @@
 import { Hono } from 'hono';
 import { getDb } from '../db/index.js';
 import { hasProvider } from '../providers/index.js';
+import * as schema from '../db/schema.js';
+import { eq, sql, asc } from 'drizzle-orm';
 
 export const modelsRouter = new Hono();
 
 // List all models with availability info
 modelsRouter.get('/', async (c) => {
   const db = getDb();
-  const models = db.query(`
-    SELECT m.*, fc.priority, fc.enabled as fallback_enabled
-    FROM models m
-    LEFT JOIN fallback_config fc ON fc.model_db_id = m.id
-    ORDER BY COALESCE(fc.priority, m.intelligence_rank) ASC
-  `).all() as any[];
+
+  const modelsWithFallback = db.select({
+    id: schema.models.id,
+    platform: schema.models.platform,
+    modelId: schema.models.modelId,
+    displayName: schema.models.displayName,
+    intelligenceRank: schema.models.intelligenceRank,
+    speedRank: schema.models.speedRank,
+    sizeLabel: schema.models.sizeLabel,
+    rpmLimit: schema.models.rpmLimit,
+    rpdLimit: schema.models.rpdLimit,
+    tpmLimit: schema.models.tpmLimit,
+    tpdLimit: schema.models.tpdLimit,
+    monthlyTokenBudget: schema.models.monthlyTokenBudget,
+    contextWindow: schema.models.contextWindow,
+    enabled: schema.models.enabled,
+    priority: schema.fallbackConfig.priority,
+    fallbackEnabled: schema.fallbackConfig.enabled,
+  })
+  .from(schema.models)
+  .leftJoin(schema.fallbackConfig, eq(schema.fallbackConfig.modelDbId, schema.models.id))
+  .orderBy(sql`COALESCE(${schema.fallbackConfig.priority}, ${schema.models.intelligenceRank}) ASC`)
+  .all();
 
   // Count keys per platform
-  const keyCounts = db.query(`
-    SELECT platform, COUNT(*) as count
-    FROM api_keys
-    WHERE enabled = 1
-    GROUP BY platform
-  `).all() as { platform: string; count: number }[];
+  const keyCounts = db.select({
+    platform: schema.apiKeys.platform,
+    count: sql<number>`COUNT(*)`
+  })
+  .from(schema.apiKeys)
+  .where(eq(schema.apiKeys.enabled, 1))
+  .groupBy(schema.apiKeys.platform)
+  .all();
 
   const keyCountMap = new Map(keyCounts.map(k => [k.platform, k.count]));
 
-  const result = models.map(m => ({
+  const result = modelsWithFallback.map(m => ({
     id: m.id,
     platform: m.platform,
-    modelId: m.model_id,
-    displayName: m.display_name,
-    intelligenceRank: m.intelligence_rank,
-    speedRank: m.speed_rank,
-    sizeLabel: m.size_label,
-    rpmLimit: m.rpm_limit,
-    rpdLimit: m.rpd_limit,
-    tpmLimit: m.tpm_limit,
-    tpdLimit: m.tpd_limit,
-    monthlyTokenBudget: m.monthly_token_budget,
-    contextWindow: m.context_window,
+    modelId: m.modelId,
+    displayName: m.displayName,
+    intelligenceRank: m.intelligenceRank,
+    speedRank: m.speedRank,
+    sizeLabel: m.sizeLabel,
+    rpmLimit: m.rpmLimit,
+    rpdLimit: m.rpdLimit,
+    tpmLimit: m.tpmLimit,
+    tpdLimit: m.tpdLimit,
+    monthlyTokenBudget: m.monthlyTokenBudget,
+    contextWindow: m.contextWindow,
     enabled: m.enabled === 1,
     priority: m.priority,
-    fallbackEnabled: m.fallback_enabled === 1,
+    fallbackEnabled: m.fallbackEnabled === 1,
     hasProvider: hasProvider(m.platform),
     keyCount: keyCountMap.get(m.platform) ?? 0,
   }));

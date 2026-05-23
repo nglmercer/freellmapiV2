@@ -1,5 +1,5 @@
 import crypto from 'crypto';
-import { Database } from 'sqlite-napi'; // Tu librería nativa
+import { Database } from 'bun:sqlite';
 const ALGORITHM = 'aes-256-gcm';
 
 let cachedKey: Buffer | null = null;
@@ -19,16 +19,11 @@ function parseHexKey(value: string, source: 'env' | 'db'): Buffer {
 
 /**
  * Initialize encryption key from env, DB, or generate a new one.
- * Confeccionado para usar los métodos específicos de tu sqlite-napi.
  *
  * Priority: DB-stored key > ENCRYPTION_KEY env var > random generate.
- * We prefer the DB key so that previously stored API keys remain decryptable
- * even if the env var changes. If the env var differs from the DB key, we log
- * a warning and use the DB key.
  */
 export function initEncryptionKey(db: Database): void {
-  // 1. Always prefer an already-persisted key from the DB, so stored API keys
-  //    remain decryptable across restarts even if ENCRYPTION_KEY env changes.
+  // 1. Always prefer an already-persisted key from the DB
   const row = db.query("SELECT value FROM settings WHERE key = 'encryption_key'").get() as { value: string } | undefined;
   if (row) {
     const envKey = process.env.ENCRYPTION_KEY;
@@ -54,9 +49,6 @@ export function initEncryptionKey(db: Database): void {
 
   // 3. Generate and persist a new random key.
   cachedKey = crypto.randomBytes(KEY_BYTES);
-
-  // Cambiado: db.query(...) -> db.query(...)
-  // Pasamos el argumento directamente al método .run(...) del Statement de tu NAPI
   db.query("INSERT INTO settings (key, value) VALUES ('encryption_key', ?)")
     .run(cachedKey.toString('hex'));
 }

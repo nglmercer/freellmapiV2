@@ -2,6 +2,8 @@ import { getDb } from '../db/index.js';
 import { getProvider } from '../providers/index.js';
 import { decrypt } from '../lib/crypto.js';
 import type { Platform, KeyStatus } from '@freellmapi/shared/types.js';
+import * as schema from '../db/schema.js';
+import { eq, sql } from 'drizzle-orm';
 
 const CHECK_INTERVAL_MS = 5 * 60 * 1000; // 5 minutes
 const CONSECUTIVE_FAILURES_TO_DISABLE = 3;
@@ -11,7 +13,7 @@ const failureCount = new Map<number, number>();
 
 export async function checkKeyHealth(keyId: number): Promise<KeyStatus> {
   const db = getDb();
-  const row = db.query('SELECT * FROM api_keys WHERE id = ?').get(keyId) as any;
+  const row = db.select().from(schema.apiKeys).where(eq(schema.apiKeys.id, keyId)).get();
   if (!row) return 'error';
 
   const provider = getProvider(row.platform as Platform);
@@ -19,7 +21,7 @@ export async function checkKeyHealth(keyId: number): Promise<KeyStatus> {
 
   let apiKey: string;
   try {
-    apiKey = decrypt(row.encrypted_key, row.iv, row.auth_tag);
+    apiKey = decrypt(row.encryptedKey, row.iv, row.authTag);
   } catch {
     // Decryption failed — the encryption key has changed since this key was stored.
     // The key data is unrecoverable; mark as invalid and auto-disable.
@@ -27,11 +29,13 @@ export async function checkKeyHealth(keyId: number): Promise<KeyStatus> {
     const count = (failureCount.get(keyId) ?? 0) + 1;
     failureCount.set(keyId, count);
 
-    db.query("UPDATE api_keys SET status = ?, last_checked_at = datetime('now') WHERE id = ?")
-      .run(['invalid', keyId]);
+    db.update(schema.apiKeys)
+      .set({ status: 'invalid', lastCheckedAt: sql`(datetime('now'))` })
+      .where(eq(schema.apiKeys.id, keyId))
+      .run();
 
     if (count >= CONSECUTIVE_FAILURES_TO_DISABLE) {
-      db.query('UPDATE api_keys SET enabled = 0 WHERE id = ?').run(keyId);
+      db.update(schema.apiKeys).set({ enabled: 0 }).where(eq(schema.apiKeys.id, keyId)).run();
       console.log(`[Health] Auto-disabled key ${keyId} after ${count} consecutive decryption failures`);
       failureCount.delete(keyId);
     }
@@ -43,8 +47,10 @@ export async function checkKeyHealth(keyId: number): Promise<KeyStatus> {
 
     const status: KeyStatus = isValid ? 'healthy' : 'invalid';
 
-    db.query("UPDATE api_keys SET status = ?, last_checked_at = datetime('now') WHERE id = ?")
-      .run([status, keyId]);
+    db.update(schema.apiKeys)
+      .set({ status: status, lastCheckedAt: sql`(datetime('now'))` })
+      .where(eq(schema.apiKeys.id, keyId))
+      .run();
 
     if (isValid) {
       failureCount.delete(keyId);
@@ -53,7 +59,7 @@ export async function checkKeyHealth(keyId: number): Promise<KeyStatus> {
       failureCount.set(keyId, count);
 
       if (count >= CONSECUTIVE_FAILURES_TO_DISABLE) {
-        db.query('UPDATE api_keys SET enabled = 0 WHERE id = ?').run(keyId);
+        db.update(schema.apiKeys).set({ enabled: 0 }).where(eq(schema.apiKeys.id, keyId)).run();
         console.log(`[Health] Auto-disabled key ${keyId} after ${count} consecutive failures`);
       }
     }
@@ -64,15 +70,20 @@ export async function checkKeyHealth(keyId: number): Promise<KeyStatus> {
     // a bad key. Mark status='error' but do NOT increment failure counter — auto-
     // disable is reserved for confirmed 401/403 (returned by validateKey as false).
     console.error(`[Health] Key ${keyId} transport error:`, err.message);
-    db.query("UPDATE api_keys SET status = ?, last_checked_at = datetime('now') WHERE id = ?")
-      .run(['error', keyId]);
+    db.update(schema.apiKeys)
+      .set({ status: 'error', lastCheckedAt: sql`(datetime('now'))` })
+      .where(eq(schema.apiKeys.id, keyId))
+      .run();
     return 'error';
   }
 }
 
 export async function checkAllKeys(): Promise<void> {
   const db = getDb();
-  const keys = db.query('SELECT id, platform FROM api_keys WHERE enabled = 1').all() as { id: number; platform: string }[];
+  const keys = db.select({ id: schema.apiKeys.id, platform: schema.apiKeys.platform })
+    .from(schema.apiKeys)
+    .where(eq(schema.apiKeys.enabled, 1))
+    .all();
 
   console.log(`[Health] Checking ${keys.length} keys...`);
 

@@ -3,6 +3,7 @@ import { Hono } from 'hono';
 import { createApp } from '../src/app.js';
 import { initDb, getDb, getUnifiedApiKey } from '../src/db/index.js';
 import { encrypt } from '../src/lib/crypto.js';
+import * as schema from '../src/db/schema.js';
 
 describe('Health Endpoint', () => {
   let app: ReturnType<typeof createApp>;
@@ -37,9 +38,14 @@ describe('Health Endpoint', () => {
   it('should have correct platform shape', async () => {
     const db = getDb();
     const { encrypted, iv, authTag } = encrypt('shape-test-key');
-    db.query(
-      `INSERT INTO api_keys (platform, encrypted_key, iv, auth_tag, status, enabled) VALUES (?, ?, ?, ?, ?, ?)`
-    ).run(['google', encrypted, iv, authTag, 'healthy', 1]);
+    db.insert(schema.apiKeys).values({
+      platform: 'google',
+      encryptedKey: encrypted,
+      iv,
+      authTag,
+      status: 'healthy',
+      enabled: 1
+    }).run();
 
     const res = await app.request('/api/health');
     expect(res.status).toBe(200);
@@ -65,21 +71,13 @@ describe('Health Endpoint', () => {
     const { encrypted, iv, authTag } = encrypt('test-health-key');
 
     // Insert keys with various statuses
-    db.query(
-      `INSERT INTO api_keys (platform, encrypted_key, iv, auth_tag, status, enabled) VALUES (?, ?, ?, ?, ?, ?)`
-    ).run(['google', encrypted, iv, authTag, 'healthy', 1]);
-    db.query(
-      `INSERT INTO api_keys (platform, encrypted_key, iv, auth_tag, status, enabled) VALUES (?, ?, ?, ?, ?, ?)`
-    ).run(['google', encrypted, iv, authTag, 'healthy', 1]);
-    db.query(
-      `INSERT INTO api_keys (platform, encrypted_key, iv, auth_tag, status, enabled) VALUES (?, ?, ?, ?, ?, ?)`
-    ).run(['google', encrypted, iv, authTag, 'invalid', 1]);
-    db.query(
-      `INSERT INTO api_keys (platform, encrypted_key, iv, auth_tag, status, enabled) VALUES (?, ?, ?, ?, ?, ?)`
-    ).run(['groq', encrypted, iv, authTag, 'rate_limited', 1]);
-    db.query(
-      `INSERT INTO api_keys (platform, encrypted_key, iv, auth_tag, status, enabled) VALUES (?, ?, ?, ?, ?, ?)`
-    ).run(['groq', encrypted, iv, authTag, 'error', 0]);
+    db.insert(schema.apiKeys).values([
+      { platform: 'google', encryptedKey: encrypted, iv, authTag, status: 'healthy', enabled: 1 },
+      { platform: 'google', encryptedKey: encrypted, iv, authTag, status: 'healthy', enabled: 1 },
+      { platform: 'google', encryptedKey: encrypted, iv, authTag, status: 'invalid', enabled: 1 },
+      { platform: 'groq', encryptedKey: encrypted, iv, authTag, status: 'rate_limited', enabled: 1 },
+      { platform: 'groq', encryptedKey: encrypted, iv, authTag, status: 'error', enabled: 0 }
+    ]).run();
 
     const res = await app.request('/api/health');
     expect(res.status).toBe(200);
@@ -105,10 +103,15 @@ describe('Health Endpoint', () => {
     const db = getDb();
     const { encrypted, iv, authTag } = encrypt('health-key-1');
 
-    db.query(
-      `INSERT INTO api_keys (platform, encrypted_key, iv, auth_tag, status, enabled, label)
-       VALUES (?, ?, ?, ?, ?, ?, ?)`
-    ).run(['google', encrypted, iv, authTag, 'healthy', 1, 'Health Test Key']);
+    db.insert(schema.apiKeys).values({
+      platform: 'google',
+      encryptedKey: encrypted,
+      iv,
+      authTag,
+      status: 'healthy',
+      enabled: 1,
+      label: 'Health Test Key'
+    }).run();
 
     const res = await app.request('/api/health');
     expect(res.status).toBe(200);
@@ -166,10 +169,14 @@ describe('Health Endpoint', () => {
     it('should return 200 when keys exist', async () => {
       const db = getDb();
       const { encrypted, iv, authTag } = encrypt('check-all-key');
-      db.query(
-        `INSERT INTO api_keys (platform, encrypted_key, iv, auth_tag, status, enabled)
-         VALUES (?, ?, ?, ?, ?, ?)`
-      ).run(['google', encrypted, iv, authTag, 'unknown', 1]);
+      db.insert(schema.apiKeys).values({
+        platform: 'google',
+        encryptedKey: encrypted,
+        iv,
+        authTag,
+        status: 'unknown',
+        enabled: 1
+      }).run();
 
       const res = await app.request('/api/health/check-all', {
         method: 'POST',
