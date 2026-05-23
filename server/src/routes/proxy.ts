@@ -1,12 +1,11 @@
 import { Hono } from 'hono';
-import { z } from 'zod';
-import type { ChatMessage } from '@freellmapi/shared/types.js';
+import type { ChatCompletionChunk } from '@freellmapi/shared/types.js';
 import { routeRequest, recordRateLimitHit, recordSuccess, type RouteResult } from '../services/router.js';
-import { apiKeyAuth, validateChatBody, normalizeMessages, estimateInputTokens } from './middleware';
-import { recordRequest, recordTokens, setCooldown, getStickyModel } from '../services/ratelimit.js';
-import { getDb, getUnifiedApiKey } from '../db/index.js';
+import { apiKeyAuth, validateChatBody, normalizeMessages, estimateInputTokens, chatCompletionSchema, timingSafeStringEqual } from './middleware';
+import { recordRequest, recordTokens, setCooldown, getStickyModel, setStickyModel } from '../services/ratelimit.js';
+import { getDb } from '../db/index.js';
 import { handleStreamingCompletion, handleStandardCompletion } from './streamHandler.js';
-import crypto from 'crypto';
+import type { CompletionOptions } from '../providers/base.js';
 
 // Virtual "auto" model. Clients like Hermes require a non-empty `model` field
 // on every request, but freellmapi's whole point is to pick the model itself.
@@ -16,68 +15,6 @@ const AUTO_MODEL_ID = 'auto';
 
 function isAutoModel(modelId: string | undefined): boolean {
   return modelId === AUTO_MODEL_ID;
-}
-
-// Constant-time string comparison for the unified API key. Plain `===` leaks
-// length and per-character timing, which a network attacker could in principle
-// use to recover the key one byte at a time.
-function timingSafeStringEqual(provided: string, expected: string): boolean {
-  const a = Buffer.from(provided);
-  const b = Buffer.from(expected);
-  // Compare against a same-length buffer regardless of input length so the
-  // comparison itself runs in constant time; the explicit length check at the
-  // end is what actually decides equality when lengths differ.
-  const compareA = a.length === b.length ? a : Buffer.alloc(b.length);
-  return crypto.timingSafeEqual(compareA, b) && a.length === b.length;
-}
-
-// Sticky sessions: track which model served each "session"
-// Key: hash of first user message → model_db_id
-// This prevents model switching mid-conversation which causes hallucination
-const stickySessionMap = new Map<string, { modelDbId: number; lastUsed: number }>();
-const STICKY_TTL_MS = 30 * 60 * 1000; // 30 min session TTL
-
-function getSessionKey(messages: ChatMessage[]): string {
-  // Use the first user message as session identifier — clients like Hermes
-  // re-send the full conversation each turn, so the first user message is
-  // stable across turns. Hash the FULL message (not a 100-char slice) so
-  // distinct conversations with identical openings don't collide.
-  const firstUser = messages.find(m => m.role === 'user');
-  if (!firstUser || typeof firstUser.content !== 'string') return '';
-  const hash = crypto.createHash('sha1').update(firstUser.content).digest('hex');
-  return `${hash}:${messages.length > 2 ? 'multi' : 'single'}`;
-}
-
-function getStickyModel(messages: ChatMessage[]): number | undefined {
-  // Only apply sticky for multi-turn (has assistant messages = continuation)
-  const hasAssistant = messages.some(m => m.role === 'assistant');
-  if (!hasAssistant) return undefined;
-
-  const key = getSessionKey(messages);
-  if (!key) return undefined;
-
-  const entry = stickySessionMap.get(key);
-  if (!entry) return undefined;
-
-  if (Date.now() - entry.lastUsed > STICKY_TTL_MS) {
-    stickySessionMap.delete(key);
-    return undefined;
-  }
-  return entry.modelDbId;
-}
-
-function setStickyModel(messages: ChatMessage[], modelDbId: number) {
-  const key = getSessionKey(messages);
-  if (!key) return;
-  stickySessionMap.set(key, { modelDbId, lastUsed: Date.now() });
-
-  // Cleanup old entries
-  if (stickySessionMap.size > 500) {
-    const now = Date.now();
-    for (const [k, v] of stickySessionMap) {
-      if (now - v.lastUsed > STICKY_TTL_MS) stickySessionMap.delete(k);
-    }
-  }
 }
 
 // OpenAI-compatible /models endpoint (used by Hermes for metadata)
@@ -117,85 +54,6 @@ proxyRouter.get('/models', async (c) => {
 
 const MAX_RETRIES = 20;
 
-const toolCallSchema = z.object({
-  id: z.string().min(1),
-  type: z.literal('function'),
-  function: z.object({
-    name: z.string().min(1),
-    arguments: z.string(),
-  }),
-  thought_signature: z.string().optional(),
-});
-
-const systemMessageSchema = z.object({
-  role: z.literal('system'),
-  content: z.string(),
-  name: z.string().optional(),
-});
-
-const userMessageSchema = z.object({
-  role: z.literal('user'),
-  content: z.string(),
-  name: z.string().optional(),
-});
-
-const assistantMessageSchema = z.object({
-  role: z.literal('assistant'),
-  content: z.string().nullable().optional(),
-  name: z.string().optional(),
-  tool_calls: z.array(toolCallSchema).optional(),
-}).refine((msg) => {
-  const hasContent = typeof msg.content === 'string' && msg.content.length > 0;
-  const hasToolCalls = (msg.tool_calls?.length ?? 0) > 0;
-  return hasContent || hasToolCalls;
-}, {
-  message: 'assistant messages must include non-empty content or tool_calls',
-});
-
-const toolMessageSchema = z.object({
-  role: z.literal('tool'),
-  content: z.string(),
-  tool_call_id: z.string().min(1),
-  name: z.string().optional(),
-});
-
-const toolDefinitionSchema = z.object({
-  type: z.literal('function'),
-  function: z.object({
-    name: z.string().min(1),
-    description: z.string().optional(),
-    parameters: z.record(z.string(), z.unknown()).optional(),
-    strict: z.boolean().optional(),
-  }),
-});
-
-const toolChoiceSchema = z.union([
-  z.enum(['none', 'auto', 'required']),
-  z.object({
-    type: z.literal('function'),
-    function: z.object({
-      name: z.string().min(1),
-    }),
-  }),
-]);
-
-const chatCompletionSchema = z.object({
-  messages: z.array(z.union([
-    systemMessageSchema,
-    userMessageSchema,
-    assistantMessageSchema,
-    toolMessageSchema,
-  ])).min(1),
-  model: z.string().optional(),
-  temperature: z.number().min(0).max(2).optional(),
-  max_tokens: z.number().int().positive().optional(),
-  top_p: z.number().min(0).max(1).optional(),
-  stream: z.boolean().optional(),
-  tools: z.array(toolDefinitionSchema).optional(),
-  tool_choice: toolChoiceSchema.optional(),
-  parallel_tool_calls: z.boolean().optional(),
-});
-
 function isRetryableError(err: unknown): boolean {
   if (err && typeof err === 'object' && 'message' in err && typeof err.message === 'string') {
     const msg = err.message.toLowerCase();
@@ -211,7 +69,7 @@ function isRetryableError(err: unknown): boolean {
 
 proxyRouter.post('/chat/completions', apiKeyAuth, validateChatBody, async (c) => {
   const start = Date.now();
-  const data = c.get('parsedData'); // Retreived from validation middleware
+  const data = c.get('parsedData');
 
   const { model: requestedModel, stream, messages: rawMessages, ...passthroughOptions } = data;
   const messages = normalizeMessages(rawMessages);
@@ -219,12 +77,8 @@ proxyRouter.post('/chat/completions', apiKeyAuth, validateChatBody, async (c) =>
   const estimatedInputTokens = estimateInputTokens(messages);
   const estimatedTotal = estimatedInputTokens + (passthroughOptions.max_tokens ?? 1000);
 
-  // Model validation / lookup
-  const { preferredModel, errorResponse } = resolvePreferredModel(requestedModel, messages);
-  if (errorResponse) {
-    c.status(errorResponse.status);
-    return c.json(errorResponse.json);
-  }
+  // Resolve preferred model: use sticky session for multi-turn, auto for new conversations
+  const preferredModel = isAutoModel(requestedModel) ? getStickyModel(messages) : undefined;
 
   const skipKeys = new Set<string>();
   let lastError: string | null = null;

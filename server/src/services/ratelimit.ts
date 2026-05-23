@@ -1,4 +1,6 @@
 // In-memory sliding window rate limit tracker
+import crypto from 'crypto';
+import type { ChatMessage } from '@freellmapi/shared/types.js'; // Imported to keep types unified
 
 interface Window {
   timestamps: number[];
@@ -150,19 +152,20 @@ export function getRateLimitStatus(
 
 // Sticky sessions: track which model served each "session"
 // Key: hash of first user message → model_db_id
-// This prevents model switching mid-conversation which causes hallucination
 const stickySessionMap = new Map<string, { modelDbId: number; lastUsed: number }>();
 const STICKY_TTL_MS = 30 * 60 * 1000; // 30 min session TTL
 
-export function getSessionKey(messages: { role: string; content: string }[]): string {
+export function getSessionKey(messages: ChatMessage[]): string {
   const firstUser = messages.find(m => m.role === 'user');
+
+  // Guard clause checking that content is a valid, non-null string before hashing
   if (!firstUser || typeof firstUser.content !== 'string') return '';
-  const crypto = require('crypto');
+
   const hash = crypto.createHash('sha1').update(firstUser.content).digest('hex');
   return `${hash}:${messages.length > 2 ? 'multi' : 'single'}`;
 }
 
-export function getStickyModel(messages: { role: string; content: string }[]): number | undefined {
+export function getStickyModel(messages: ChatMessage[]): number | undefined {
   const hasAssistant = messages.some(m => m.role === 'assistant');
   if (!hasAssistant) return undefined;
 
@@ -179,7 +182,7 @@ export function getStickyModel(messages: { role: string; content: string }[]): n
   return entry.modelDbId;
 }
 
-export function setStickyModel(messages: { role: string; content: string }[], modelDbId: number) {
+export function setStickyModel(messages: ChatMessage[], modelDbId: number) {
   const key = getSessionKey(messages);
   if (!key) return;
   stickySessionMap.set(key, { modelDbId, lastUsed: Date.now() });
