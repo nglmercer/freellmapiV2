@@ -1,11 +1,16 @@
 import { Hono } from 'hono';
-import type { ChatCompletionChunk } from '@freellmapi/shared/types.js';
+import { z } from 'zod';
 import { routeRequest, recordRateLimitHit, recordSuccess, type RouteResult } from '../services/router.js';
-import { apiKeyAuth, validateChatBody, normalizeMessages, estimateInputTokens, chatCompletionSchema, timingSafeStringEqual } from './middleware';
+import { apiKeyAuth, validateChatBody, normalizeMessages, estimateInputTokens, chatCompletionSchema } from './middleware';
 import { recordRequest, recordTokens, setCooldown, getStickyModel, setStickyModel } from '../services/ratelimit.js';
 import { getDb } from '../db/index.js';
 import { handleStreamingCompletion, handleStandardCompletion } from './streamHandler.js';
-import type { CompletionOptions } from '../providers/base.js';
+import type { StatusCode } from 'hono/utils/http-status';
+declare module 'hono' {
+  interface ContextVariableMap {
+    parsedData: z.infer<typeof chatCompletionSchema>;
+  }
+}
 
 // Virtual "auto" model. Clients like Hermes require a non-empty `model` field
 // on every request, but freellmapi's whole point is to pick the model itself.
@@ -53,7 +58,18 @@ proxyRouter.get('/models', async (c) => {
 });
 
 const MAX_RETRIES = 20;
+const extractStatus = (err: unknown): StatusCode => {
+  if (err instanceof Error && 'status' in err) {
+    const statusValue = (err as { status: unknown }).status;
+    const parsed = Number(statusValue);
 
+    // Garante que o número está no range válido de HTTP Status Codes
+    if (!isNaN(parsed) && parsed >= 100 && parsed < 600) {
+      return parsed as StatusCode;
+    }
+  }
+  return 503; // Fallback padrão seguro
+};
 function isRetryableError(err: unknown): boolean {
   if (err && typeof err === 'object' && 'message' in err && typeof err.message === 'string') {
     const msg = err.message.toLowerCase();
@@ -93,7 +109,7 @@ proxyRouter.post('/chat/completions', apiKeyAuth, validateChatBody, async (c) =>
         c.status(429);
         return c.json({ error: { message: `All models rate-limited. Last error: ${lastError}`, type: 'rate_limit_error' } });
       }
-      c.status(err instanceof Error && 'status' in err ? (err as any).status : 503);
+      c.status(extractStatus(err));
       return c.json({ error: { message: err instanceof Error ? err.message : String(err), type: 'routing_error' } });
     }
 
