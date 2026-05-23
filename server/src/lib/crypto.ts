@@ -1,5 +1,8 @@
 import crypto from 'crypto';
-import { Database } from 'bun:sqlite';
+import type { BunSQLiteDatabase } from 'drizzle-orm/bun-sqlite';
+import * as schema from '../db/schema.js';
+import { eq } from 'drizzle-orm';
+
 const ALGORITHM = 'aes-256-gcm';
 
 let cachedKey: Buffer | null = null;
@@ -22,9 +25,9 @@ function parseHexKey(value: string, source: 'env' | 'db'): Buffer {
  *
  * Priority: DB-stored key > ENCRYPTION_KEY env var > random generate.
  */
-export function initEncryptionKey(db: Database): void {
+export function initEncryptionKey(db: BunSQLiteDatabase<typeof schema>): void {
   // 1. Always prefer an already-persisted key from the DB
-  const row = db.query("SELECT value FROM settings WHERE key = 'encryption_key'").get() as { value: string } | undefined;
+  const row = db.select({ value: schema.settings.value }).from(schema.settings).where(eq(schema.settings.key, 'encryption_key')).get();
   if (row) {
     const envKey = process.env.ENCRYPTION_KEY;
     if (envKey && envKey !== 'your-64-char-hex-key-here' && envKey !== row.value) {
@@ -42,15 +45,13 @@ export function initEncryptionKey(db: Database): void {
   const envKey = process.env.ENCRYPTION_KEY;
   if (envKey && envKey !== 'your-64-char-hex-key-here') {
     cachedKey = parseHexKey(envKey, 'env');
-    db.query("INSERT INTO settings (key, value) VALUES ('encryption_key', ?)")
-      .run(cachedKey.toString('hex'));
+    db.insert(schema.settings).values({ key: 'encryption_key', value: cachedKey.toString('hex') }).run();
     return;
   }
 
   // 3. Generate and persist a new random key.
   cachedKey = crypto.randomBytes(KEY_BYTES);
-  db.query("INSERT INTO settings (key, value) VALUES ('encryption_key', ?)")
-    .run(cachedKey.toString('hex'));
+  db.insert(schema.settings).values({ key: 'encryption_key', value: cachedKey.toString('hex') }).run();
 }
 
 function getEncryptionKey(): Buffer {

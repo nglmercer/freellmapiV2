@@ -4,7 +4,9 @@ import { decrypt } from '../lib/crypto.js';
 import { canMakeRequest, canUseTokens, isOnCooldown } from './ratelimit.js';
 import type { BaseProvider } from '../providers/base.js';
 import * as schema from '../db/schema.js';
-import { eq, and, sql, asc, notInArray, count } from 'drizzle-orm';
+import { eq, and, sql, asc, notInArray } from 'drizzle-orm';
+import type { Platform } from '@freellmapi/shared/types.js';
+import { HTTPException } from 'hono/http-exception';
 
 export interface RouteResult {
   provider: BaseProvider;
@@ -112,9 +114,7 @@ export function routeRequest(estimatedTokens = 1000, skipKeys?: Set<string>, pre
   const totalKeyCount = totalKeyCountResult?.count ?? 0;
 
   if (totalKeyCount === 0) {
-    const err = new Error('No API keys configured. Add at least one key in the dashboard first.') as any;
-    err.status = 503;
-    throw err;
+    throw new HTTPException(503, { message: 'No API keys configured. Add at least one key in the dashboard first.' });
   }
 
   // Get fallback chain ordered by priority
@@ -150,7 +150,7 @@ export function routeRequest(estimatedTokens = 1000, skipKeys?: Set<string>, pre
     if (!model) continue;
 
     // Check if we have a provider for this platform
-    const provider = getProvider(model.platform as any);
+    const provider = getProvider(model.platform as Platform);
     if (!provider) continue;
 
     // Get all healthy, enabled keys for this platform
@@ -236,7 +236,5 @@ export function routeRequest(estimatedTokens = 1000, skipKeys?: Set<string>, pre
     message = 'All models are currently unavailable due to rate limits or cooldowns. Try again later.';
   }
 
-  const err = new Error(message) as any;
-  err.status = 429;
-  throw err;
+  throw new HTTPException(429, { message });
 }
