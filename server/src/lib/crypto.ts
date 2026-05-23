@@ -1,5 +1,8 @@
 import crypto from 'crypto';
-import { Database } from 'sqlite-napi'; // Tu librería nativa
+import type { BunSQLiteDatabase } from 'drizzle-orm/bun-sqlite';
+import * as schema from '../db/schema.js';
+import { eq } from 'drizzle-orm';
+
 const ALGORITHM = 'aes-256-gcm';
 
 let cachedKey: Buffer | null = null;
@@ -19,17 +22,12 @@ function parseHexKey(value: string, source: 'env' | 'db'): Buffer {
 
 /**
  * Initialize encryption key from env, DB, or generate a new one.
- * Confeccionado para usar los métodos específicos de tu sqlite-napi.
  *
  * Priority: DB-stored key > ENCRYPTION_KEY env var > random generate.
- * We prefer the DB key so that previously stored API keys remain decryptable
- * even if the env var changes. If the env var differs from the DB key, we log
- * a warning and use the DB key.
  */
-export function initEncryptionKey(db: Database): void {
-  // 1. Always prefer an already-persisted key from the DB, so stored API keys
-  //    remain decryptable across restarts even if ENCRYPTION_KEY env changes.
-  const row = db.query("SELECT value FROM settings WHERE key = 'encryption_key'").get() as { value: string } | undefined;
+export function initEncryptionKey(db: BunSQLiteDatabase<typeof schema>): void {
+  // 1. Always prefer an already-persisted key from the DB
+  const row = db.select({ value: schema.settings.value }).from(schema.settings).where(eq(schema.settings.key, 'encryption_key')).get();
   if (row) {
     const envKey = process.env.ENCRYPTION_KEY;
     if (envKey && envKey !== 'your-64-char-hex-key-here' && envKey !== row.value) {
@@ -47,18 +45,13 @@ export function initEncryptionKey(db: Database): void {
   const envKey = process.env.ENCRYPTION_KEY;
   if (envKey && envKey !== 'your-64-char-hex-key-here') {
     cachedKey = parseHexKey(envKey, 'env');
-    db.query("INSERT INTO settings (key, value) VALUES ('encryption_key', ?)")
-      .run(cachedKey.toString('hex'));
+    db.insert(schema.settings).values({ key: 'encryption_key', value: cachedKey.toString('hex') }).run();
     return;
   }
 
   // 3. Generate and persist a new random key.
   cachedKey = crypto.randomBytes(KEY_BYTES);
-
-  // Cambiado: db.query(...) -> db.query(...)
-  // Pasamos el argumento directamente al método .run(...) del Statement de tu NAPI
-  db.query("INSERT INTO settings (key, value) VALUES ('encryption_key', ?)")
-    .run(cachedKey.toString('hex'));
+  db.insert(schema.settings).values({ key: 'encryption_key', value: cachedKey.toString('hex') }).run();
 }
 
 function getEncryptionKey(): Buffer {

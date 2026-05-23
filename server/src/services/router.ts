@@ -3,33 +3,10 @@ import { getProvider } from '../providers/index.js';
 import { decrypt } from '../lib/crypto.js';
 import { canMakeRequest, canUseTokens, isOnCooldown } from './ratelimit.js';
 import type { BaseProvider } from '../providers/base.js';
-
-interface ModelRow {
-  id: number;
-  platform: string;
-  model_id: string;
-  display_name: string;
-  rpm_limit: number | null;
-  rpd_limit: number | null;
-  tpm_limit: number | null;
-  tpd_limit: number | null;
-}
-
-interface KeyRow {
-  id: number;
-  platform: string;
-  encrypted_key: string;
-  iv: string;
-  auth_tag: string;
-  status: string;
-  enabled: number;
-}
-
-interface FallbackRow {
-  model_db_id: number;
-  priority: number;
-  enabled: number;
-}
+import * as schema from '../db/schema.js';
+import { eq, and, sql, asc, notInArray } from 'drizzle-orm';
+import type { Platform } from '@freellmapi/shared/types.js';
+import { HTTPException } from 'hono/http-exception';
 
 export interface RouteResult {
   provider: BaseProvider;
@@ -133,30 +110,32 @@ export function getAllPenalties(): Array<{ modelDbId: number; count: number; pen
  */
 export function routeRequest(estimatedTokens = 1000, skipKeys?: Set<string>, preferredModelDbId?: number): RouteResult {
   const db = getDb();
-  const totalKeyCount = (db.query('SELECT COUNT(*) as cnt FROM api_keys WHERE enabled = 1').get() as { cnt: number }).cnt;
+  const totalKeyCountResult = db.select({ count: sql<number>`count(*)` }).from(schema.apiKeys).where(eq(schema.apiKeys.enabled, 1)).get();
+  const totalKeyCount = totalKeyCountResult?.count ?? 0;
 
   if (totalKeyCount === 0) {
-    const err = new Error('No API keys configured. Add at least one key in the dashboard first.') as any;
-    err.status = 503;
-    throw err;
+    throw new HTTPException(503, { message: 'No API keys configured. Add at least one key in the dashboard first.' });
   }
 
   // Get fallback chain ordered by priority
-  const fallbackChain = db.query(`
-    SELECT fc.model_db_id, fc.priority, fc.enabled
-    FROM fallback_config fc
-    ORDER BY fc.priority ASC
-  `).all() as FallbackRow[];
+  const fallbackChain = db.select({
+    modelDbId: schema.fallbackConfig.modelDbId,
+    priority: schema.fallbackConfig.priority,
+    enabled: schema.fallbackConfig.enabled
+  })
+  .from(schema.fallbackConfig)
+  .orderBy(asc(schema.fallbackConfig.priority))
+  .all();
 
   // Apply dynamic penalties: sort by (base priority + penalty)
   const sortedChain = fallbackChain.map(entry => ({
     ...entry,
-    effectivePriority: entry.priority + getPenalty(entry.model_db_id),
+    effectivePriority: entry.priority + getPenalty(entry.modelDbId),
   })).sort((a, b) => a.effectivePriority - b.effectivePriority);
 
   // Sticky session: move preferred model to front of chain
   if (preferredModelDbId) {
-    const idx = sortedChain.findIndex(e => e.model_db_id === preferredModelDbId);
+    const idx = sortedChain.findIndex(e => e.modelDbId === preferredModelDbId);
     if (idx > 0) {
       const [preferred] = sortedChain.splice(idx, 1);
       sortedChain.unshift(preferred);
@@ -164,53 +143,58 @@ export function routeRequest(estimatedTokens = 1000, skipKeys?: Set<string>, pre
   }
 
   for (const entry of sortedChain) {
-    if (!entry.enabled) continue;
+    if (entry.enabled !== 1) continue;
 
     // Get model details
-    const model = db.query('SELECT * FROM models WHERE id = ? AND enabled = 1').get(entry.model_db_id) as ModelRow | undefined;
+    const model = db.select().from(schema.models).where(and(eq(schema.models.id, entry.modelDbId), eq(schema.models.enabled, 1))).get();
     if (!model) continue;
 
     // Check if we have a provider for this platform
-    const provider = getProvider(model.platform as any);
+    const provider = getProvider(model.platform as Platform);
     if (!provider) continue;
 
     // Get all healthy, enabled keys for this platform
-    const keys = db.query(
-      "SELECT * FROM api_keys WHERE platform = ? AND enabled = 1 AND status NOT IN ('invalid', 'rate_limited')"
-    ).all([model.platform]) as KeyRow[];
+    const keys = db.select()
+      .from(schema.apiKeys)
+      .where(and(
+        eq(schema.apiKeys.platform, model.platform),
+        eq(schema.apiKeys.enabled, 1),
+        notInArray(schema.apiKeys.status, ['invalid', 'rate_limited'])
+      ))
+      .all();
 
     if (keys.length === 0) continue;
 
     // Get limits once for this model
     const limits = {
-      rpm: model.rpm_limit,
-      rpd: model.rpd_limit,
-      tpm: model.tpm_limit,
-      tpd: model.tpd_limit,
+      rpm: model.rpmLimit,
+      rpd: model.rpdLimit,
+      tpm: model.tpmLimit,
+      tpd: model.tpdLimit,
     };
 
     // Try all keys for this model before giving up on it
-    const rrKey = `${model.platform}:${model.model_id}`;
+    const rrKey = `${model.platform}:${model.modelId}`;
     let idx = roundRobinIndex.get(rrKey) ?? 0;
 
     for (let attempt = 0; attempt < keys.length; attempt++) {
       const key = keys[idx % keys.length];
       idx++;
 
-      const skipId = `${model.platform}:${model.model_id}:${key.id}`;
+      const skipId = `${model.platform}:${model.modelId}:${key.id}`;
       if (skipKeys?.has(skipId)) continue;
 
       // Check cooldown (from previous 429s)
-      if (isOnCooldown(model.platform, model.model_id, key.id)) continue;
+      if (isOnCooldown(model.platform, model.modelId, key.id)) continue;
 
-      if (!canMakeRequest(model.platform, model.model_id, key.id, limits)) continue;
-      if (!canUseTokens(model.platform, model.model_id, key.id, estimatedTokens, limits)) continue;
+      if (!canMakeRequest(model.platform, model.modelId, key.id, limits)) continue;
+      if (!canUseTokens(model.platform, model.modelId, key.id, estimatedTokens, limits)) continue;
 
       // We found a working key for this model!
       roundRobinIndex.set(rrKey, idx);
       let decryptedKey: string;
       try {
-        decryptedKey = decrypt(key.encrypted_key, key.iv, key.auth_tag);
+        decryptedKey = decrypt(key.encryptedKey, key.iv, key.authTag);
       } catch {
         // Decryption failed (mismatched encryption key). Skip this key.
         continue;
@@ -218,12 +202,12 @@ export function routeRequest(estimatedTokens = 1000, skipKeys?: Set<string>, pre
 
       return {
         provider,
-        modelId: model.model_id,
+        modelId: model.modelId,
         modelDbId: model.id,
         apiKey: decryptedKey,
         keyId: key.id,
         platform: model.platform,
-        displayName: model.display_name,
+        displayName: model.displayName,
       };
     }
 
@@ -237,9 +221,11 @@ export function routeRequest(estimatedTokens = 1000, skipKeys?: Set<string>, pre
   }
 
   // Check if there are any non-invalid keys at all to give a better diagnostic
-  const decryptableCount = (db.query(
-    "SELECT COUNT(*) as cnt FROM api_keys WHERE enabled = 1 AND status != 'invalid'"
-  ).get() as { cnt: number }).cnt;
+  const decryptableCountResult = db.select({ count: sql<number>`count(*)` })
+    .from(schema.apiKeys)
+    .where(and(eq(schema.apiKeys.enabled, 1), sql`${schema.apiKeys.status} != 'invalid'`))
+    .get();
+  const decryptableCount = decryptableCountResult?.count ?? 0;
 
   let message: string;
   if (decryptableCount === 0) {
@@ -250,7 +236,5 @@ export function routeRequest(estimatedTokens = 1000, skipKeys?: Set<string>, pre
     message = 'All models are currently unavailable due to rate limits or cooldowns. Try again later.';
   }
 
-  const err = new Error(message) as any;
-  err.status = 429;
-  throw err;
+  throw new HTTPException(429, { message });
 }

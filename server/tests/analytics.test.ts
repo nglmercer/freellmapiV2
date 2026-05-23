@@ -1,6 +1,7 @@
 import { describe, it, expect, beforeEach, afterEach } from 'vitest';
 import { createApp } from '../src/app.js';
 import { initDb, getDb } from '../src/db/index.js';
+import * as schema from '../src/db/schema.js';
 
 describe('Analytics Endpoint', () => {
   let app: ReturnType<typeof createApp>;
@@ -215,15 +216,13 @@ describe('Analytics Endpoint', () => {
     beforeEach(() => {
       const db = getDb();
       // Insert some test requests using ISO timestamps (matching analytics query format)
-      const stmt = db.query(
-        `INSERT INTO requests (platform, model_id, status, input_tokens, output_tokens, latency_ms, error, created_at)
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?)`
-      );
-      stmt.run(['google', 'gemini-2.5-flash', 'success', 100, 50, 500, null, hoursAgo(1)]);
-      stmt.run(['google', 'gemini-2.5-flash', 'success', 200, 100, 600, null, hoursAgo(2)]);
-      stmt.run(['google', 'gemini-2.5-flash', 'error', 50, 0, 300, '429 rate limit', hoursAgo(3)]);
-      stmt.run(['groq', 'llama-3.3-70b-versatile', 'success', 150, 80, 200, null, hoursAgo(5)]);
-      stmt.run(['groq', 'llama-3.3-70b-versatile', 'error', 30, 0, 150, '500 internal server', hoursAgo(6)]);
+      db.insert(schema.requests).values([
+        { platform: 'google', modelId: 'gemini-2.5-flash', status: 'success', inputTokens: 100, outputTokens: 50, latencyMs: 500, error: null, createdAt: hoursAgo(1) },
+        { platform: 'google', modelId: 'gemini-2.5-flash', status: 'success', inputTokens: 200, outputTokens: 100, latencyMs: 600, error: null, createdAt: hoursAgo(2) },
+        { platform: 'google', modelId: 'gemini-2.5-flash', status: 'error', inputTokens: 50, outputTokens: 0, latencyMs: 300, error: '429 rate limit', createdAt: hoursAgo(3) },
+        { platform: 'groq', modelId: 'llama-3.3-70b-versatile', status: 'success', inputTokens: 150, outputTokens: 80, latencyMs: 200, error: null, createdAt: hoursAgo(5) },
+        { platform: 'groq', modelId: 'llama-3.3-70b-versatile', status: 'error', inputTokens: 30, outputTokens: 0, latencyMs: 150, error: '500 internal server', createdAt: hoursAgo(6) }
+      ]).run();
     });
 
     it('should return summary with calculated stats', async () => {

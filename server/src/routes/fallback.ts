@@ -2,27 +2,42 @@ import { Hono } from 'hono';
 import { z } from 'zod';
 import { getDb, runInTransaction } from '../db/index.js';
 import { getAllPenalties } from '../services/router.js';
+import * as schema from '../db/schema.js';
+import { eq, sql, asc, and, inArray } from 'drizzle-orm';
 
 export const fallbackRouter = new Hono();
 // Get fallback chain (with dynamic penalties)
 fallbackRouter.get('/', async (c) => {
   const db = getDb();
-  const rows = db.query(`
-    SELECT fc.model_db_id, fc.priority, fc.enabled,
-           m.platform, m.model_id, m.display_name, m.intelligence_rank,
-           m.speed_rank, m.size_label, m.rpm_limit, m.rpd_limit,
-           m.monthly_token_budget
-    FROM fallback_config fc
-    JOIN models m ON m.id = fc.model_db_id
-    ORDER BY fc.priority ASC
-  `).all() as any[];
+
+  const rows = db.select({
+    modelDbId: schema.fallbackConfig.modelDbId,
+    priority: schema.fallbackConfig.priority,
+    enabled: schema.fallbackConfig.enabled,
+    platform: schema.models.platform,
+    modelId: schema.models.modelId,
+    displayName: schema.models.displayName,
+    intelligenceRank: schema.models.intelligenceRank,
+    speedRank: schema.models.speedRank,
+    sizeLabel: schema.models.sizeLabel,
+    rpmLimit: schema.models.rpmLimit,
+    rpdLimit: schema.models.rpdLimit,
+    monthlyTokenBudget: schema.models.monthlyTokenBudget,
+  })
+  .from(schema.fallbackConfig)
+  .innerJoin(schema.models, eq(schema.models.id, schema.fallbackConfig.modelDbId))
+  .orderBy(asc(schema.fallbackConfig.priority))
+  .all();
 
   // Count enabled keys per platform
-  const keyCounts = db.query(`
-    SELECT platform, COUNT(*) as count
-    FROM api_keys WHERE enabled = 1
-    GROUP BY platform
-  `).all() as { platform: string; count: number }[];
+  const keyCounts = db.select({
+    platform: schema.apiKeys.platform,
+    count: sql<number>`COUNT(*)`
+  })
+  .from(schema.apiKeys)
+  .where(eq(schema.apiKeys.enabled, 1))
+  .groupBy(schema.apiKeys.platform)
+  .all();
   const keyCountMap = new Map(keyCounts.map(k => [k.platform, k.count]));
 
   // Get current dynamic penalties
@@ -30,23 +45,23 @@ fallbackRouter.get('/', async (c) => {
   const penaltyMap = new Map(penalties.map(p => [p.modelDbId, p]));
 
   return c.json(rows.map(r => {
-    const penalty = penaltyMap.get(r.model_db_id);
+    const penalty = penaltyMap.get(r.modelDbId);
     return {
-      modelDbId: r.model_db_id,
+      modelDbId: r.modelDbId,
       priority: r.priority,
       effectivePriority: r.priority + (penalty?.penalty ?? 0),
       penalty: penalty?.penalty ?? 0,
       rateLimitHits: penalty?.count ?? 0,
       enabled: r.enabled === 1,
       platform: r.platform,
-      modelId: r.model_id,
-      displayName: r.display_name,
-      intelligenceRank: r.intelligence_rank,
-      speedRank: r.speed_rank,
-      sizeLabel: r.size_label,
-      rpmLimit: r.rpm_limit,
-      rpdLimit: r.rpd_limit,
-      monthlyTokenBudget: r.monthly_token_budget,
+      modelId: r.modelId,
+      displayName: r.displayName,
+      intelligenceRank: r.intelligenceRank,
+      speedRank: r.speedRank,
+      sizeLabel: r.sizeLabel,
+      rpmLimit: r.rpmLimit,
+      rpdLimit: r.rpdLimit,
+      monthlyTokenBudget: r.monthlyTokenBudget,
       keyCount: keyCountMap.get(r.platform) ?? 0,
     };
   }));
@@ -67,13 +82,13 @@ fallbackRouter.put('/', async (c) => {
   }
 
   const db = getDb();
-  const update = db.query(`
-    UPDATE fallback_config SET priority = ?, enabled = ? WHERE model_db_id = ?
-  `);
 
-  runInTransaction(db, () => {
+  runInTransaction(() => {
     for (const entry of parsed.data) {
-      update.run([entry.priority, entry.enabled ? 1 : 0, entry.modelDbId]);
+      db.update(schema.fallbackConfig)
+        .set({ priority: entry.priority, enabled: entry.enabled ? 1 : 0 })
+        .where(eq(schema.fallbackConfig.modelDbId, entry.modelDbId))
+        .run();
     }
   });
 
@@ -82,10 +97,10 @@ fallbackRouter.put('/', async (c) => {
 
 // Sort presets — `orderBy` is selected from a fixed whitelist, never from
 // user input directly, so the interpolation below is safe.
-const SORT_PRESETS: Record<string, string> = {
-  intelligence: 'm.intelligence_rank ASC',
-  speed: 'm.speed_rank ASC',
-  budget: "CASE m.monthly_token_budget WHEN '~120M' THEN 1 WHEN '~50-100M' THEN 2 WHEN '~30M' THEN 3 WHEN '~18-45M' THEN 4 WHEN '~18M' THEN 5 WHEN '~15M' THEN 6 WHEN '~12M' THEN 7 WHEN '~6M' THEN 8 WHEN '~5-10M' THEN 9 WHEN '~4M' THEN 10 ELSE 11 END ASC",
+const SORT_PRESETS: Record<string, any> = {
+  intelligence: asc(schema.models.intelligenceRank),
+  speed: asc(schema.models.speedRank),
+  budget: sql`CASE ${schema.models.monthlyTokenBudget} WHEN '~120M' THEN 1 WHEN '~50-100M' THEN 2 WHEN '~30M' THEN 3 WHEN '~18-45M' THEN 4 WHEN '~18M' THEN 5 WHEN '~15M' THEN 6 WHEN '~12M' THEN 7 WHEN '~6M' THEN 8 WHEN '~5-10M' THEN 9 WHEN '~4M' THEN 10 ELSE 11 END ASC`,
 };
 
 fallbackRouter.post('/sort/:preset', async (c) => {
@@ -97,12 +112,17 @@ fallbackRouter.post('/sort/:preset', async (c) => {
   }
 
   const db = getDb();
-  const models = db.query(`SELECT m.id FROM models m ORDER BY ${orderBy}`).all() as { id: number }[];
+  const models = db.select({ id: schema.models.id })
+    .from(schema.models)
+    .orderBy(orderBy)
+    .all();
 
-  const update = db.query('UPDATE fallback_config SET priority = ? WHERE model_db_id = ?');
-  runInTransaction(db, () => {
+  runInTransaction(() => {
     for (let i = 0; i < models.length; i++) {
-      update.run([i + 1, models[i].id]);
+      db.update(schema.fallbackConfig)
+        .set({ priority: i + 1 })
+        .where(eq(schema.fallbackConfig.modelDbId, models[i].id))
+        .run();
     }
   });
 
@@ -114,22 +134,25 @@ fallbackRouter.get('/token-usage', async (c) => {
   const db = getDb();
 
   // Get platforms that have enabled keys
-  const platforms = db.query(`
-    SELECT DISTINCT ak.platform
-    FROM api_keys ak
-    WHERE ak.enabled = 1
-  `).all() as { platform: string }[];
+  const platforms = db.selectDistinct({ platform: schema.apiKeys.platform })
+    .from(schema.apiKeys)
+    .where(eq(schema.apiKeys.enabled, 1))
+    .all();
   const platformSet = new Set(platforms.map(p => p.platform));
 
   // Get monthly budget per model, ordered by fallback priority
-  const models = db.query(`
-    SELECT m.platform, m.model_id, m.display_name, m.monthly_token_budget,
-           fc.priority
-    FROM models m
-    JOIN fallback_config fc ON fc.model_db_id = m.id
-    WHERE m.enabled = 1
-    ORDER BY fc.priority ASC
-  `).all() as { platform: string; model_id: string; display_name: string; monthly_token_budget: string; priority: number }[];
+  const models = db.select({
+    platform: schema.models.platform,
+    modelId: schema.models.modelId,
+    displayName: schema.models.displayName,
+    monthlyTokenBudget: schema.models.monthlyTokenBudget,
+    priority: schema.fallbackConfig.priority
+  })
+  .from(schema.models)
+  .innerJoin(schema.fallbackConfig, eq(schema.fallbackConfig.modelDbId, schema.models.id))
+  .where(eq(schema.models.enabled, 1))
+  .orderBy(asc(schema.fallbackConfig.priority))
+  .all();
 
   function parseBudget(s: string): number {
     const m = s.match(/~?([\d.]+)(?:-([\d.]+))?([MK])?/);
@@ -143,24 +166,24 @@ fallbackRouter.get('/token-usage', async (c) => {
   const modelBudgets = models
     .filter(m => platformSet.has(m.platform))
     .map(m => ({
-      displayName: m.display_name,
+      displayName: m.displayName,
       platform: m.platform,
-      budget: parseBudget(m.monthly_token_budget),
+      budget: parseBudget(m.monthlyTokenBudget),
     }));
 
   const totalBudget = modelBudgets.reduce((s, m) => s + m.budget, 0);
 
   // Tokens used this month
-  const usage = db.query(`
-    SELECT
-      COALESCE(SUM(input_tokens + output_tokens), 0) as total_used
-    FROM requests
-    WHERE created_at >= datetime('now', 'start of month')
-  `).get() as { total_used: number };
+  const usage = db.select({
+    total_used: sql<number>`COALESCE(SUM(${schema.requests.inputTokens} + ${schema.requests.outputTokens}), 0)`
+  })
+  .from(schema.requests)
+  .where(sql`${schema.requests.createdAt} >= datetime('now', 'start of month')`)
+  .get();
 
   return c.json({
     totalBudget,
-    totalUsed: usage.total_used,
+    totalUsed: usage?.total_used ?? 0,
     models: modelBudgets,
   });
 });

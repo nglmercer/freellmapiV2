@@ -2,6 +2,8 @@ import { Hono } from 'hono';
 import { z } from 'zod';
 import { getDb } from '../db/index.js';
 import { encrypt, decrypt, maskKey } from '../lib/crypto.js';
+import * as schema from '../db/schema.js';
+import { eq, desc } from 'drizzle-orm';
 
 // Active providers — must match providers/index.ts registrations + shared/types.ts Platform.
 // Hugging Face, Moonshot, and MiniMax direct integrations were dropped in V4
@@ -23,12 +25,12 @@ const addKeySchema = z.object({
 // List all keys (masked)
 keysRouter.get('/', async (c) => {
   const db = getDb();
-  const rows = db.query('SELECT * FROM api_keys ORDER BY created_at DESC, id DESC').all() as any[];
+  const rows = db.select().from(schema.apiKeys).orderBy(desc(schema.apiKeys.createdAt), desc(schema.apiKeys.id)).all();
 
   const keys = rows.map(row => {
     let maskedKey = '****';
     try {
-      const realKey = decrypt(row.encrypted_key, row.iv, row.auth_tag);
+      const realKey = decrypt(row.encryptedKey, row.iv, row.authTag);
       maskedKey = maskKey(realKey);
     } catch {
       maskedKey = '[decrypt failed]';
@@ -40,8 +42,8 @@ keysRouter.get('/', async (c) => {
       maskedKey,
       status: row.status,
       enabled: row.enabled === 1,
-      createdAt: row.created_at,
-      lastCheckedAt: row.last_checked_at,
+      createdAt: row.createdAt,
+      lastCheckedAt: row.lastCheckedAt,
     };
   });
 
@@ -67,10 +69,15 @@ keysRouter.post('/', async (c) => {
   const { encrypted, iv, authTag } = encrypt(key);
 
   const db = getDb();
-  const result = db.query(`
-    INSERT INTO api_keys (platform, label, encrypted_key, iv, auth_tag, status, enabled)
-    VALUES (?, ?, ?, ?, ?, 'unknown', 1)
-  `).run([platform, label ?? '', encrypted, iv, authTag]);
+  const result = db.insert(schema.apiKeys).values({
+    platform,
+    label: label ?? '',
+    encryptedKey: encrypted,
+    iv,
+    authTag,
+    status: 'unknown',
+    enabled: 1
+  }).run();
 
   c.status(201)
   return c.json({
@@ -92,7 +99,7 @@ keysRouter.delete('/:id', async (c) => {
   }
 
   const db = getDb();
-  const result = db.query('DELETE FROM api_keys WHERE id = ?').run(id);
+  const result = db.delete(schema.apiKeys).where(eq(schema.apiKeys.id, id)).run();
 
   if (result.changes === 0) {
     c.status(404)
@@ -124,9 +131,10 @@ keysRouter.patch('/:id', async (c) => {
   if (typeof body.key === 'string' && body.key.length > 0) {
     const keyToEncrypt = body.key;
     const { encrypted, iv, authTag } = encrypt(keyToEncrypt);
-    const result = db.query(
-      'UPDATE api_keys SET encrypted_key = ?, iv = ?, auth_tag = ?, status = \'unknown\' WHERE id = ?'
-    ).run([encrypted, iv, authTag, id]);
+    const result = db.update(schema.apiKeys)
+      .set({ encryptedKey: encrypted, iv, authTag, status: 'unknown' })
+      .where(eq(schema.apiKeys.id, id))
+      .run();
 
     if (result.changes === 0) {
       c.status(400)
@@ -138,7 +146,10 @@ keysRouter.patch('/:id', async (c) => {
 
   // Toggle enabled
   if (typeof body.enabled === 'boolean') {
-    const result = db.query('UPDATE api_keys SET enabled = ? WHERE id = ?').run([body.enabled ? 1 : 0, id]);
+    const result = db.update(schema.apiKeys)
+      .set({ enabled: body.enabled ? 1 : 0 })
+      .where(eq(schema.apiKeys.id, id))
+      .run();
 
     if (result.changes === 0) {
       c.status(400)
