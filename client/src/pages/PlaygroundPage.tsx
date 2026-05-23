@@ -68,6 +68,7 @@ export default function PlaygroundPage() {
 
       const body: any = {
         messages: newMessages.map(m => ({ role: m.role, content: m.content })),
+        stream: true
       }
       if (selectedModel !== 'auto') body.model = selectedModel
 
@@ -92,28 +93,88 @@ export default function PlaygroundPage() {
         return
       }
 
-      const data = await res.json()
-      const content = data.choices?.[0]?.message?.content ?? JSON.stringify(data, null, 2)
-      const via = data._routed_via ?? (routedVia ? {
-        platform: routedVia.split('/')[0],
-        model: routedVia.split('/').slice(1).join('/'),
-      } : undefined)
+      const reader = res.body?.getReader()
+      if (!reader) throw new Error('No response body')
 
-      setMessages([...newMessages, {
+      const decoder = new TextDecoder()
+      let assistantMsg: ChatMessage = {
         role: 'assistant',
-        content,
+        content: '',
         meta: {
-          platform: via?.platform,
-          model: via?.model,
+          platform: routedVia?.split('/')[0],
+          model: routedVia?.split('/').slice(1).join('/'),
           latency,
           fallbackAttempts: fallbackAttempts ? parseInt(fallbackAttempts) : undefined,
-        },
-      }])
+        }
+      }
+
+      setMessages([...newMessages, assistantMsg])
+
+      let buffer = ''
+      let isDone = false
+      while (!isDone) {
+        const { done, value } = await reader.read()
+        if (done) break
+
+        buffer += decoder.decode(value, { stream: true })
+        const lines = buffer.split('\n')
+        buffer = lines.pop() ?? ''
+
+        for (const line of lines) {
+          const trimmed = line.trim()
+          if (!trimmed || !trimmed.startsWith('data: ')) continue
+
+          const dataStr = trimmed.slice(6)
+          if (dataStr === '[DONE]') {
+            isDone = true
+            break
+          }
+
+          try {
+            const data = JSON.parse(dataStr)
+            const content = data.choices?.[0]?.delta?.content ?? ''
+            if (content) {
+              assistantMsg.content += content
+              setMessages(msgs => {
+                const updated = [...msgs]
+                updated[updated.length - 1] = { ...assistantMsg }
+                return updated
+              })
+            }
+            if (data._routed_via) {
+              assistantMsg.meta = {
+                ...assistantMsg.meta,
+                platform: data._routed_via.platform,
+                model: data._routed_via.model,
+              }
+              setMessages(msgs => {
+                const updated = [...msgs]
+                updated[updated.length - 1] = { ...assistantMsg }
+                return updated
+              })
+            }
+          } catch (e) {
+            console.error('Error parsing SSE chunk', e)
+          }
+        }
+      }
     } catch (err: any) {
-      setMessages([...newMessages, {
-        role: 'assistant',
-        content: `Error: ${err.message}`,
-      }])
+      setMessages(msgs => {
+        const lastMsg = msgs[msgs.length - 1]
+        if (lastMsg?.role === 'assistant' && lastMsg.content) {
+          // If we already have some content, just append the error
+          const updated = [...msgs]
+          updated[updated.length - 1] = {
+            ...lastMsg,
+            content: lastMsg.content + `\n\n[Stream Error: ${err.message}]`
+          }
+          return updated
+        }
+        return [...msgs, {
+          role: 'assistant',
+          content: `Error: ${err.message}`,
+        }]
+      })
     } finally {
       setLoading(false)
       setTimeout(() => inputRef.current?.focus(), 0)
