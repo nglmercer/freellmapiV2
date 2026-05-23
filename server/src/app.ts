@@ -11,7 +11,6 @@ import { fallbackRouter } from './routes/fallback.js';
 import { analyticsRouter } from './routes/analytics.js';
 import { healthRouter } from './routes/health.js';
 import { settingsRouter } from './routes/settings.js';
-import { errorHandler } from './middleware/errorHandler.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const DIST_DIR = path.resolve(__dirname, '../../client/dist');
@@ -19,7 +18,7 @@ const DIST_DIR = path.resolve(__dirname, '../../client/dist');
 export function createApp() {
   const app = new Hono();
 
-  // Middleware
+  // Middleware - Allow all origins by default (as requested)
   app.use('*', cors());
   app.use(bodyLimit({
     maxSize: 1024 * 1024,

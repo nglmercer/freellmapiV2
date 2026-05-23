@@ -2,6 +2,7 @@ import { Hono } from 'hono';
 import { getDb } from '../db/index.js';
 import { checkKeyHealth, checkAllKeys } from '../services/health.js';
 import { hasProvider } from '../providers/index.js';
+import type { Platform } from '@freellmapi/shared/types.js';
 import * as schema from '../db/schema.js';
 import { sql, eq, desc, asc } from 'drizzle-orm';
 
@@ -38,28 +39,28 @@ healthRouter.get('/', async (c) => {
   .orderBy(schema.apiKeys.platform, desc(schema.apiKeys.createdAt))
   .all();
 
-  return c.json({
-    platforms: platforms.map(p => ({
-      platform: p.platform,
-      hasProvider: hasProvider(p.platform),
-      totalKeys: p.total_keys,
-      healthyKeys: p.healthy_keys ?? 0,
-      rateLimitedKeys: p.rate_limited_keys ?? 0,
-      invalidKeys: p.invalid_keys ?? 0,
-      errorKeys: p.error_keys ?? 0,
-      unknownKeys: p.unknown_keys ?? 0,
-      enabledKeys: p.enabled_keys ?? 0,
-    })),
-    keys: keys.map(k => ({
-      id: k.id,
-      platform: k.platform,
-      label: k.label,
-      status: k.status,
-      enabled: k.enabled === 1,
-      createdAt: k.createdAt,
-      lastCheckedAt: k.lastCheckedAt,
-    })),
-  });
+   return c.json({
+     platforms: platforms.map(p => ({
+       platform: p.platform as Platform,
+       hasProvider: hasProvider(p.platform as Platform),
+       totalKeys: p.total_keys,
+       healthyKeys: p.healthy_keys ?? 0,
+       rateLimitedKeys: p.rate_limited_keys ?? 0,
+       invalidKeys: p.invalid_keys ?? 0,
+       errorKeys: p.error_keys ?? 0,
+       unknownKeys: p.unknown_keys ?? 0,
+       enabledKeys: p.enabled_keys ?? 0,
+     })),
+     keys: keys.map(k => ({
+       id: k.id,
+       platform: k.platform as Platform,
+       label: k.label,
+       status: k.status,
+       enabled: k.enabled === 1,
+       createdAt: k.createdAt,
+       lastCheckedAt: k.lastCheckedAt,
+     })),
+   });
 });
 
 // Check a specific key

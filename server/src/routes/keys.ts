@@ -79,9 +79,14 @@ keysRouter.post('/', async (c) => {
     enabled: 1
   }).run();
 
+  // Handle drizzle-orm bun-sqlite return type
+  const lastInsertRowid = typeof result === 'object' && result !== null && 'lastInsertRowid' in result 
+    ? (result as any).lastInsertRowid 
+    : undefined;
+
   c.status(201)
   return c.json({
-    id: result.lastInsertRowid,
+    id: lastInsertRowid,
     platform,
     label: label ?? '',
     maskedKey: maskKey(key),
@@ -101,7 +106,12 @@ keysRouter.delete('/:id', async (c) => {
   const db = getDb();
   const result = db.delete(schema.apiKeys).where(eq(schema.apiKeys.id, id)).run();
 
-  if (result.changes === 0) {
+  // Handle drizzle-orm bun-sqlite return type
+  const changes = typeof result === 'object' && result !== null && 'changes' in result 
+    ? (result as any).changes 
+    : 0;
+
+  if (changes === 0) {
     c.status(404)
     return c.json({ error: { message: 'Key not found' } });
   }
@@ -136,7 +146,12 @@ keysRouter.patch('/:id', async (c) => {
       .where(eq(schema.apiKeys.id, id))
       .run();
 
-    if (result.changes === 0) {
+    // Handle drizzle-orm bun-sqlite return type
+    const changes = typeof result === 'object' && result !== null && 'changes' in result 
+      ? (result as any).changes 
+      : 0;
+
+    if (changes === 0) {
       c.status(400)
       return c.json({ error: { message: 'Key not found' } });
     }
@@ -151,7 +166,12 @@ keysRouter.patch('/:id', async (c) => {
       .where(eq(schema.apiKeys.id, id))
       .run();
 
-    if (result.changes === 0) {
+    // Handle drizzle-orm bun-sqlite return type
+    const changes = typeof result === 'object' && result !== null && 'changes' in result 
+      ? (result as any).changes 
+      : 0;
+
+    if (changes === 0) {
       c.status(400)
       return c.json({ error: { message: 'Key not found' } });
     }

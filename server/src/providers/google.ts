@@ -230,10 +230,13 @@ export class GoogleProvider extends BaseProvider {
     };
     if (systemInstruction) body.systemInstruction = systemInstruction;
 
-    const url = `${API_BASE}/models/${modelId}:generateContent?key=${apiKey}`;
+    const url = `${API_BASE}/models/${modelId}:generateContent`;
     const res = await this.fetchWithTimeout(url, {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
+      headers: {
+        'Authorization': `Bearer ${apiKey}`,
+        'Content-Type': 'application/json',
+      },
       body: JSON.stringify(body),
     });
 
@@ -293,10 +296,13 @@ export class GoogleProvider extends BaseProvider {
     };
     if (systemInstruction) body.systemInstruction = systemInstruction;
 
-    const url = `${API_BASE}/models/${modelId}:streamGenerateContent?alt=sse&key=${apiKey}`;
+    const url = `${API_BASE}/models/${modelId}:streamGenerateContent?alt=sse`;
     const res = await this.fetchWithTimeout(url, {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
+      headers: {
+        'Authorization': `Bearer ${apiKey}`,
+        'Content-Type': 'application/json',
+      },
       body: JSON.stringify(body),
     });
 
@@ -417,14 +423,13 @@ export class GoogleProvider extends BaseProvider {
     }
   }
 
-  async validateKey(apiKey: string): Promise<boolean> {
-    // Transport errors propagate — health.ts marks status='error' without
-    // counting toward auto-disable. Only confirmed 401/403 disables a key.
-    const res = await this.fetchWithTimeout(
-      `${API_BASE}/models?key=${apiKey}`,
-      { method: 'GET' },
-      10000,
-    );
-    return res.status !== 401 && res.status !== 403;
-  }
+   async validateKey(apiKey: string): Promise<boolean> {
+     // Transport errors propagate — health.ts marks status='error' without
+     // counting toward auto-disable. Only confirmed 401/403 disables a key.
+     const res = await this.fetchWithTimeout(`${API_BASE}/models`, {
+       method: 'GET',
+       headers: { 'Authorization': `Bearer ${apiKey}` },
+     }, 10000);
+     return res.status !== 401 && res.status !== 403;
+   }
 }

@@ -1,6 +1,7 @@
 import { Hono } from 'hono';
 import { getDb } from '../db/index.js';
 import { hasProvider } from '../providers/index.js';
+import type { Platform } from '@freellmapi/shared/types.js';
 import * as schema from '../db/schema.js';
 import { eq, sql, asc } from 'drizzle-orm';
 
@@ -45,26 +46,26 @@ modelsRouter.get('/', async (c) => {
 
   const keyCountMap = new Map(keyCounts.map(k => [k.platform, k.count]));
 
-  const result = modelsWithFallback.map(m => ({
-    id: m.id,
-    platform: m.platform,
-    modelId: m.modelId,
-    displayName: m.displayName,
-    intelligenceRank: m.intelligenceRank,
-    speedRank: m.speedRank,
-    sizeLabel: m.sizeLabel,
-    rpmLimit: m.rpmLimit,
-    rpdLimit: m.rpdLimit,
-    tpmLimit: m.tpmLimit,
-    tpdLimit: m.tpdLimit,
-    monthlyTokenBudget: m.monthlyTokenBudget,
-    contextWindow: m.contextWindow,
-    enabled: m.enabled === 1,
-    priority: m.priority,
-    fallbackEnabled: m.fallbackEnabled === 1,
-    hasProvider: hasProvider(m.platform),
-    keyCount: keyCountMap.get(m.platform) ?? 0,
-  }));
+   const result = modelsWithFallback.map(m => ({
+     id: m.id,
+     platform: m.platform,
+     modelId: m.modelId,
+     displayName: m.displayName,
+     intelligenceRank: m.intelligenceRank,
+     speedRank: m.speedRank,
+     sizeLabel: m.sizeLabel,
+     rpmLimit: m.rpmLimit,
+     rpdLimit: m.rpdLimit,
+     tpmLimit: m.tpmLimit,
+     tpdLimit: m.tpdLimit,
+     monthlyTokenBudget: m.monthlyTokenBudget,
+     contextWindow: m.contextWindow,
+     enabled: m.enabled === 1,
+     priority: m.priority,
+     fallbackEnabled: m.fallbackEnabled === 1,
+     hasProvider: hasProvider(m.platform as Platform),
+     keyCount: keyCountMap.get(m.platform) ?? 0,
+   }));
 
   return c.json(result);
 });
