@@ -7,7 +7,7 @@ import { getDb } from '../db/index.js';
 import { handleStreamingCompletion, handleStandardCompletion } from './streamHandler.js';
 import type { StatusCode } from 'hono/utils/http-status';
 import * as schema from '../db/schema.js';
-import { eq, asc } from 'drizzle-orm';
+import { eq, asc, and, sql } from 'drizzle-orm';
 
 declare module 'hono' {
   interface ContextVariableMap {
@@ -64,7 +64,7 @@ proxyRouter.get('/models', async (c) => {
   });
 });
 
-const MAX_RETRIES = 10;
+const MAX_RETRIES = 30;
 const extractStatus = (err: unknown): StatusCode => {
   if (err instanceof Error && 'status' in err) {
     const statusValue = (err as { status: unknown }).status;
@@ -143,23 +143,52 @@ proxyRouter.post('/chat/completions', apiKeyAuth, validateChatBody, async (c) =>
         recordRequest(route.platform, route.modelId, route.keyId);
         return result;
       }
-    } catch (err: unknown) {
-      const errorMessage = err instanceof Error ? err.message : String(err);
-      logRequest(route.platform, route.modelId, 'error', estimatedInputTokens, 0, Date.now() - start, errorMessage);
+     } catch (err: unknown) {
+       const errorMessage = err instanceof Error ? err.message : String(err);
+       logRequest(route.platform, route.modelId, 'error', estimatedInputTokens, 0, Date.now() - start, errorMessage);
 
-      if (isRetryableError(err)) {
-        skipKeys.add(`${route.platform}:${route.modelId}:${route.keyId}`);
-        setCooldown(route.platform, route.modelId, route.keyId, 600_000);
-        recordRateLimitHit(route.modelDbId);
-        lastError = errorMessage;
-        console.log(`[Proxy] ${errorMessage.slice(0, 60)} from ${route.displayName}, falling back (${attempt + 1}/${MAX_RETRIES})`);
-        continue;
-      }
+       if (isRetryableError(err)) {
+         skipKeys.add(`${route.platform}:${route.modelId}:${route.keyId}`);
+         setCooldown(route.platform, route.modelId, route.keyId, 600_000);
+         recordRateLimitHit(route.modelDbId);
+         lastError = errorMessage;
+         console.log(`[Proxy] ${errorMessage.slice(0, 60)} from ${route.displayName}, falling back (${attempt + 1}/${MAX_RETRIES})`);
+         continue;
+       }
 
-      // Non-retryable error structural failures
-      c.status(502);
-      return c.json({ error: { message: `Provider error (${route.displayName}): ${errorMessage}`, type: 'provider_error' } });
-    }
+       // Check if this is a 404 error indicating model no longer available
+       const isModelNotFound = errorMessage.includes('404') &&
+         (errorMessage.includes('no longer available') ||
+          errorMessage.includes('paid model') ||
+          errorMessage.includes('not found') ||
+          errorMessage.includes('model.*not found'));
+
+       if (isModelNotFound) {
+         // Mark the key as invalid for this specific model since it's no longer available
+         try {
+           const db = getDb();
+           db.update(schema.apiKeys)
+             .set({ status: 'invalid', lastCheckedAt: sql`(datetime('now'))` })
+             .where(and(
+               eq(schema.apiKeys.platform, route.platform),
+               eq(schema.apiKeys.id, route.keyId)
+             ))
+             .run();
+
+           console.log(`[Proxy] Marked key ${route.keyId} (${route.platform}:${route.modelId}) as invalid due to 404: ${errorMessage}`);
+         } catch (dbError) {
+           console.error('[Proxy] Failed to update key status:', dbError);
+         }
+
+         // Treat as a provider error but don't retry since the model is genuinely unavailable
+         c.status(502);
+         return c.json({ error: { message: `Provider error (${route.displayName}): ${errorMessage}`, type: 'provider_error' } });
+       }
+
+       // Non-retryable error structural failures
+       c.status(502);
+       return c.json({ error: { message: `Provider error (${route.displayName}): ${errorMessage}`, type: 'provider_error' } });
+     }
   }
 
   // Exhausted Retries
