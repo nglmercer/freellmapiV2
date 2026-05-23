@@ -141,7 +141,7 @@ proxyRouter.post('/chat/completions', apiKeyAuth, validateChatBody, async (c) =>
 
       if (isRetryableError(err)) {
         skipKeys.add(`${route.platform}:${route.modelId}:${route.keyId}`);
-        setCooldown(route.platform, route.modelId, route.keyId, 120_000);
+        setCooldown(route.platform, route.modelId, route.keyId, 600_000);
         recordRateLimitHit(route.modelDbId);
         lastError = errorMessage;
         console.log(`[Proxy] ${errorMessage.slice(0, 60)} from ${route.displayName}, falling back (${attempt + 1}/${MAX_RETRIES})`);

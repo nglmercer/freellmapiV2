@@ -49,9 +49,9 @@ const roundRobinIndex = new Map<string, number>();
 const rateLimitPenalties = new Map<number, { count: number; lastHit: number; penalty: number }>();
 
 // Penalty decays over time so models recover
-const PENALTY_PER_429 = 3;        // each 429 adds this many priority positions
-const MAX_PENALTY = 10;            // cap so a model doesn't sink forever
-const DECAY_INTERVAL_MS = 2 * 60 * 1000; // penalty decays every 2 minutes
+const PENALTY_PER_429 = 5;        // each 429 adds this many priority positions
+const MAX_PENALTY = 15;            // cap so a model doesn't sink forever
+const DECAY_INTERVAL_MS = 5 * 60 * 1000; // penalty decays every 5 minutes
 const DECAY_AMOUNT = 1;            // remove this much penalty per decay interval
 
 /**

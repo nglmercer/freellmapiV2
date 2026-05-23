@@ -15,34 +15,43 @@ export const toolCallSchema = z.object({
   thought_signature: z.string().optional(),
 });
 
+const contentPartSchema = z.object({
+  type: z.string(),
+  text: z.string().optional(),
+  image_url: z.object({ url: z.string(), detail: z.string().optional() }).optional(),
+});
+
+const contentSchema = z.union([z.string(), z.array(contentPartSchema)]);
+
 export const systemMessageSchema = z.object({
   role: z.literal('system'),
-  content: z.string(),
+  content: contentSchema,
   name: z.string().optional(),
 });
 
 export const userMessageSchema = z.object({
   role: z.literal('user'),
-  content: z.string(),
+  content: contentSchema,
   name: z.string().optional(),
 });
 
 export const assistantMessageSchema = z.object({
   role: z.literal('assistant'),
-  content: z.string().nullable().optional(),
+  content: contentSchema.nullable().optional(),
   name: z.string().optional(),
   tool_calls: z.array(toolCallSchema).optional(),
 }).refine((msg) => {
   const hasContent = typeof msg.content === 'string' && msg.content.length > 0;
+  const hasArrayContent = Array.isArray(msg.content) && msg.content.length > 0;
   const hasToolCalls = (msg.tool_calls?.length ?? 0) > 0;
-  return hasContent || hasToolCalls;
+  return hasContent || hasArrayContent || hasToolCalls;
 }, {
   message: 'assistant messages must include non-empty content or tool_calls',
 });
 
 export const toolMessageSchema = z.object({
   role: z.literal('tool'),
-  content: z.string(),
+  content: contentSchema,
   tool_call_id: z.string().min(1),
   name: z.string().optional(),
 });
@@ -134,20 +143,45 @@ export async function validateChatBody(c: Context, next: Next) {
   }
 }
 
+interface ContentPart {
+  type: string;
+  text?: string;
+}
+
+function normalizeContent(content: unknown): string | null {
+  if (typeof content === 'string') return content;
+  if (Array.isArray(content)) {
+    const parts = content as ContentPart[];
+    return parts
+      .filter((p): p is ContentPart & { text: string } => p.type === 'text' && typeof p.text === 'string')
+      .map(p => p.text)
+      .join(' ') || null;
+  }
+  return null;
+}
+
+interface RawMessage {
+  role: string;
+  content?: unknown;
+  name?: string;
+  tool_calls?: Array<{ id: string; type: string; function: unknown; thought_signature?: string }>;
+  tool_call_id?: string;
+}
+
 // Helper: Normalize Messages to Provider Expectations
-export function normalizeMessages(messages: any[]): ChatMessage[] {
+export function normalizeMessages(messages: RawMessage[]): ChatMessage[] {
   return messages.map((m): ChatMessage => {
     const base: ChatMessage = {
-      role: m.role,
-      content: m.content ?? null,
+      role: m.role as ChatMessage['role'],
+      content: normalizeContent(m.content),
       ...(m.name ? { name: m.name } : {}),
     };
 
     if (m.role === 'assistant' && m.tool_calls) {
-      base.tool_calls = m.tool_calls.map((tc: any) => ({
+      base.tool_calls = m.tool_calls.map(tc => ({
         id: tc.id,
-        type: tc.type,
-        function: tc.function,
+        type: 'function' as const,
+        function: tc.function as { name: string; arguments: string },
         thought_signature: tc.thought_signature,
       }));
     }
