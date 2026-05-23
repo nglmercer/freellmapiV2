@@ -23,7 +23,7 @@ const addKeySchema = z.object({
 // List all keys (masked)
 keysRouter.get('/', async (c) => {
   const db = getDb();
-  const rows = db.query('SELECT * FROM api_keys ORDER BY created_at DESC').all() as any[];
+  const rows = db.query('SELECT * FROM api_keys ORDER BY created_at DESC, id DESC').all() as any[];
 
   const keys = rows.map(row => {
     let maskedKey = '****';
@@ -50,7 +50,14 @@ keysRouter.get('/', async (c) => {
 
 // Add a key
 keysRouter.post('/', async (c) => {
-  const parsed = addKeySchema.safeParse(await c.req.json());
+  let body: unknown;
+  try {
+    body = await c.req.json();
+  } catch {
+    c.status(400)
+    return c.json({ error: { message: 'Malformed JSON body' } });
+  }
+  const parsed = addKeySchema.safeParse(body);
   if (!parsed.success) {
     c.status(400)
     return c.json({ error: { message: parsed.error.errors.map(e => e.message).join(', ') } });

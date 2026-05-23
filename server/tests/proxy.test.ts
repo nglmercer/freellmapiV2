@@ -150,28 +150,28 @@ describe('Proxy Endpoint', () => {
   // ─────────────────────────────────────────────────────────────
 
   describe('POST /v1/chat/completions — request validation', () => {
-    const authHeaders = {
+    const authHeaders = () => ({
       'Content-Type': 'application/json',
       Authorization: `Bearer ${apiKey}`,
-    };
+    });
 
     it('should return 400 for an empty body', async () => {
       const res = await app.request('/v1/chat/completions', {
         method: 'POST',
-        headers: authHeaders,
-        body: '',
-      });
-      expect(res.status).toBe(400);
-      const data = await res.json();
-      expect(data.error).toBeDefined();
-      expect(data.error.type).toBe('invalid_request_error');
+      headers: authHeaders(),
+      body: '',
     });
+    expect(res.status).toBe(400);
+    const data = await res.json();
+    expect(data.error).toBeDefined();
+    expect(data.error.type).toBe('invalid_request_error');
+  });
 
-    it('should return 400 for malformed JSON', async () => {
-      const res = await app.request('/v1/chat/completions', {
-        method: 'POST',
-        headers: authHeaders,
-        body: 'not json at all',
+  it('should return 400 for malformed JSON', async () => {
+    const res = await app.request('/v1/chat/completions', {
+      method: 'POST',
+      headers: authHeaders(),
+      body: 'not json at all',
       });
       expect(res.status).toBe(400);
       const data = await res.json();
@@ -181,7 +181,7 @@ describe('Proxy Endpoint', () => {
     it('should return 400 when messages field is missing', async () => {
       const res = await app.request('/v1/chat/completions', {
         method: 'POST',
-        headers: authHeaders,
+        headers: authHeaders(),
         body: JSON.stringify({ model: 'auto' }),
       });
       expect(res.status).toBe(400);
@@ -193,7 +193,7 @@ describe('Proxy Endpoint', () => {
     it('should return 400 when messages array is empty', async () => {
       const res = await app.request('/v1/chat/completions', {
         method: 'POST',
-        headers: authHeaders,
+        headers: authHeaders(),
         body: JSON.stringify({ model: 'auto', messages: [] }),
       });
       expect(res.status).toBe(400);
@@ -204,7 +204,7 @@ describe('Proxy Endpoint', () => {
     it('should return 400 when a message has no role', async () => {
       const res = await app.request('/v1/chat/completions', {
         method: 'POST',
-        headers: authHeaders,
+        headers: authHeaders(),
         body: JSON.stringify({ messages: [{ content: 'hi' }] }),
       });
       expect(res.status).toBe(400);
@@ -215,7 +215,7 @@ describe('Proxy Endpoint', () => {
     it('should return 400 for negative temperature', async () => {
       const res = await app.request('/v1/chat/completions', {
         method: 'POST',
-        headers: authHeaders,
+        headers: authHeaders(),
         body: JSON.stringify({
           model: 'auto',
           messages: [{ role: 'user', content: 'hi' }],
@@ -228,7 +228,7 @@ describe('Proxy Endpoint', () => {
     it('should return 400 for temperature > 2', async () => {
       const res = await app.request('/v1/chat/completions', {
         method: 'POST',
-        headers: authHeaders,
+        headers: authHeaders(),
         body: JSON.stringify({
           model: 'auto',
           messages: [{ role: 'user', content: 'hi' }],
@@ -241,7 +241,7 @@ describe('Proxy Endpoint', () => {
     it('should return 400 when max_tokens is not a positive integer', async () => {
       const res = await app.request('/v1/chat/completions', {
         method: 'POST',
-        headers: authHeaders,
+        headers: authHeaders(),
         body: JSON.stringify({
           model: 'auto',
           messages: [{ role: 'user', content: 'hi' }],
@@ -254,7 +254,7 @@ describe('Proxy Endpoint', () => {
     it('should return 400 when top_p is outside [0, 1]', async () => {
       const res = await app.request('/v1/chat/completions', {
         method: 'POST',
-        headers: authHeaders,
+        headers: authHeaders(),
         body: JSON.stringify({
           model: 'auto',
           messages: [{ role: 'user', content: 'hi' }],
@@ -267,7 +267,7 @@ describe('Proxy Endpoint', () => {
     it('should accept a valid user message', async () => {
       const res = await app.request('/v1/chat/completions', {
         method: 'POST',
-        headers: authHeaders,
+        headers: authHeaders(),
         body: JSON.stringify({
           model: 'auto',
           messages: [{ role: 'user', content: 'Hello world' }],
@@ -281,7 +281,7 @@ describe('Proxy Endpoint', () => {
     it('should accept a system + user message pair', async () => {
       const res = await app.request('/v1/chat/completions', {
         method: 'POST',
-        headers: authHeaders,
+        headers: authHeaders(),
         body: JSON.stringify({
           model: 'auto',
           messages: [
@@ -297,7 +297,7 @@ describe('Proxy Endpoint', () => {
     it('should accept an assistant message with role and non-empty content', async () => {
       const res = await app.request('/v1/chat/completions', {
         method: 'POST',
-        headers: authHeaders,
+        headers: authHeaders(),
         body: JSON.stringify({
           model: 'auto',
           messages: [
@@ -317,17 +317,17 @@ describe('Proxy Endpoint', () => {
   // ─────────────────────────────────────────────────────────────
 
   describe('POST /v1/chat/completions — handler results (fresh in-memory DB)', () => {
-    const authHeaders = {
+    const authHeaders = () => ({
       'Content-Type': 'application/json',
       Authorization: `Bearer ${apiKey}`,
-    };
+    });
 
     it('should return an error response when no external provider keys are configured', async () => {
       // Fresh in-memory DB: seeded models + fallback_config, but zero key rows.
       // routeRequest() finds no usable keys → throws → handler catches.
       const res = await app.request('/v1/chat/completions', {
         method: 'POST',
-        headers: authHeaders,
+        headers: authHeaders(),
         body: JSON.stringify({
           model: 'auto',
           messages: [{ role: 'user', content: 'test' }],
@@ -342,7 +342,7 @@ describe('Proxy Endpoint', () => {
     it('should return a structured error object', async () => {
       const res = await app.request('/v1/chat/completions', {
         method: 'POST',
-        headers: authHeaders,
+        headers: authHeaders(),
         body: JSON.stringify({
           model: 'auto',
           messages: [{ role: 'user', content: 'test' }],

@@ -68,13 +68,15 @@ describe('Fallback Endpoint', () => {
   });
 
   describe('PUT /api/fallback', () => {
+    const authHeaders = () => ({
+      'Content-Type': 'application/json',
+      'Authorization': `Bearer ${apiKey}`,
+    });
+
     it('should update fallback chain successfully', async () => {
       const res = await app.request('/api/fallback', {
         method: 'PUT',
-        headers: {
-          'Content-Type': 'application/json',
-          'Authorization': `Bearer ${apiKey}`,
-        },
+        headers: authHeaders(),
         body: JSON.stringify([
           { modelDbId: 1, priority: 2, enabled: true },
           { modelDbId: 2, priority: 1, enabled: true },
@@ -85,13 +87,28 @@ describe('Fallback Endpoint', () => {
       expect(data.success).toBe(true);
     });
 
+    it('should persist updated priorities in subsequent GET', async () => {
+      await app.request('/api/fallback', {
+        method: 'PUT',
+        headers: authHeaders(),
+        body: JSON.stringify([
+          { modelDbId: 1, priority: 10, enabled: true },
+          { modelDbId: 2, priority: 5, enabled: true },
+        ]),
+      });
+
+      const res = await app.request('/api/fallback');
+      expect(res.status).toBe(200);
+      const data = await res.json();
+      const model1 = data.find((e: any) => e.modelDbId === 1);
+      expect(model1).toBeDefined();
+      expect(model1.priority).toBe(10);
+    });
+
     it('should return 400 for invalid body', async () => {
       const res = await app.request('/api/fallback', {
         method: 'PUT',
-        headers: {
-          'Content-Type': 'application/json',
-          'Authorization': `Bearer ${apiKey}`,
-        },
+        headers: authHeaders(),
         body: JSON.stringify('not an array'),
       });
       expect(res.status).toBe(400);
@@ -102,10 +119,7 @@ describe('Fallback Endpoint', () => {
     it('should return 400 when modelDbId is not a number', async () => {
       const res = await app.request('/api/fallback', {
         method: 'PUT',
-        headers: {
-          'Content-Type': 'application/json',
-          'Authorization': `Bearer ${apiKey}`,
-        },
+        headers: authHeaders(),
         body: JSON.stringify([{ modelDbId: 'abc', priority: 1, enabled: true }]),
       });
       expect(res.status).toBe(400);
@@ -116,15 +130,21 @@ describe('Fallback Endpoint', () => {
     it('should return 400 when enabled is not a boolean', async () => {
       const res = await app.request('/api/fallback', {
         method: 'PUT',
-        headers: {
-          'Content-Type': 'application/json',
-          'Authorization': `Bearer ${apiKey}`,
-        },
+        headers: authHeaders(),
         body: JSON.stringify([{ modelDbId: 1, priority: 1, enabled: 'yes' }]),
       });
       expect(res.status).toBe(400);
       const data = await res.json();
       expect(data.error).toBeDefined();
+    });
+
+    it('should work without auth header (route is not protected)', async () => {
+      const res = await app.request('/api/fallback', {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify([{ modelDbId: 1, priority: 1, enabled: true }]),
+      });
+      expect(res.status).toBe(200);
     });
   });
 
@@ -184,6 +204,14 @@ describe('Fallback Endpoint', () => {
       const data = await res.json();
       expect(data.error).toBeDefined();
       expect(data.error.message).toContain('Unknown preset');
+    });
+
+    it('should work without auth header on sort route (not protected)', async () => {
+      const res = await app.request('/api/fallback/sort/intelligence', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+      });
+      expect(res.status).toBe(200);
     });
   });
 

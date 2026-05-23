@@ -55,7 +55,8 @@ describe('Keys Endpoint', () => {
       });
       expect(res.status).toBe(201);
       const data = await res.json();
-      expect(data.maskedKey).toBe('abcd...nop');
+      // maskKey returns first 4 + '...' + last 4 = 'abcd...mnop'
+      expect(data.maskedKey).toBe('abcd...mnop');
     });
 
     it('should mask short keys as ****+last4', async () => {

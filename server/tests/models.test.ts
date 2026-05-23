@@ -80,4 +80,23 @@ describe('Models Endpoint', () => {
     // Seeded models should maintain priority ordering via fallback_config join
     expect(data.length).toBeGreaterThan(0);
   });
+
+  it('should have keyCount starting at 0 with no keys', async () => {
+    const res = await app.request('/api/models');
+    expect(res.status).toBe(200);
+    const data = await res.json();
+    for (const m of data) {
+      expect(typeof m.keyCount).toBe('number');
+    }
+  });
+
+  it('should include model fields from fallback_config', async () => {
+    const res = await app.request('/api/models');
+    expect(res.status).toBe(200);
+    const data = await res.json();
+    const first = data[0];
+    expect(first).toHaveProperty('priority');
+    expect(first).toHaveProperty('fallbackEnabled');
+    expect(typeof first.fallbackEnabled).toBe('boolean');
+  });
 });

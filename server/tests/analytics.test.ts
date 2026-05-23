@@ -1,6 +1,6 @@
 import { describe, it, expect, beforeEach, afterEach } from 'vitest';
 import { createApp } from '../src/app.js';
-import { initDb } from '../src/db/index.js';
+import { initDb, getDb } from '../src/db/index.js';
 
 describe('Analytics Endpoint', () => {
   let app: ReturnType<typeof createApp>;
@@ -204,6 +204,76 @@ describe('Analytics Endpoint', () => {
       const res = await app.request('/api/analytics/errors?range=24h');
       expect(res.status).toBe(200);
       expect(Array.isArray(await res.json())).toBe(true);
+    });
+  });
+
+  describe('Analytics with request data', () => {
+    function hoursAgo(h: number): string {
+      return new Date(Date.now() - h * 60 * 60 * 1000).toISOString();
+    }
+
+    beforeEach(() => {
+      const db = getDb();
+      // Insert some test requests using ISO timestamps (matching analytics query format)
+      const stmt = db.query(
+        `INSERT INTO requests (platform, model_id, status, input_tokens, output_tokens, latency_ms, error, created_at)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?)`
+      );
+      stmt.run(['google', 'gemini-2.5-flash', 'success', 100, 50, 500, null, hoursAgo(1)]);
+      stmt.run(['google', 'gemini-2.5-flash', 'success', 200, 100, 600, null, hoursAgo(2)]);
+      stmt.run(['google', 'gemini-2.5-flash', 'error', 50, 0, 300, '429 rate limit', hoursAgo(3)]);
+      stmt.run(['groq', 'llama-3.3-70b-versatile', 'success', 150, 80, 200, null, hoursAgo(5)]);
+      stmt.run(['groq', 'llama-3.3-70b-versatile', 'error', 30, 0, 150, '500 internal server', hoursAgo(6)]);
+    });
+
+    it('should return summary with calculated stats', async () => {
+      const res = await app.request('/api/analytics/summary?range=24h');
+      expect(res.status).toBe(200);
+      const data = await res.json();
+      expect(data.totalRequests).toBe(5);
+      expect(data.totalInputTokens).toBe(530);
+      expect(data.totalOutputTokens).toBe(230);
+    });
+
+    it('should return by-model breakdown', async () => {
+      const res = await app.request('/api/analytics/by-model?range=24h');
+      const data = await res.json();
+      expect(data.length).toBe(2);
+      const google = data.find((d: any) => d.platform === 'google');
+      expect(google).toBeDefined();
+      expect(google.requests).toBe(3);
+    });
+
+    it('should return by-platform breakdown', async () => {
+      const res = await app.request('/api/analytics/by-platform?range=24h');
+      const data = await res.json();
+      expect(data.length).toBe(2);
+    });
+
+    it('should return timeline entries', async () => {
+      const res = await app.request('/api/analytics/timeline?range=24h&interval=hour');
+      const data = await res.json();
+      expect(data.length).toBeGreaterThan(0);
+      expect(data[0]).toHaveProperty('timestamp');
+      expect(data[0]).toHaveProperty('requests');
+      expect(data[0]).toHaveProperty('successCount');
+      expect(data[0]).toHaveProperty('failureCount');
+    });
+
+    it('should return error distribution with categories', async () => {
+      const res = await app.request('/api/analytics/error-distribution?range=24h');
+      const data = await res.json();
+      expect(data.byCategory.length).toBeGreaterThan(0);
+      expect(data.byPlatform.length).toBeGreaterThan(0);
+      expect(data.detailed.length).toBeGreaterThan(0);
+    });
+
+    it('should return recent errors list', async () => {
+      const res = await app.request('/api/analytics/errors?range=24h');
+      const data = await res.json();
+      expect(data.length).toBe(2);
+      expect(data[0]).toHaveProperty('platform');
+      expect(data[0]).toHaveProperty('error');
     });
   });
 });
