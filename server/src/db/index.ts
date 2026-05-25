@@ -598,9 +598,30 @@ function ensureUnifiedKey(tx: Transaction) {
 }
 
 export function getUnifiedApiKey(): string {
-  const db = getDb();
+  // Priority 1: ENCRYPTION_KEY from .env (auto-fix: sync to DB)
+  const envKey = process.env.ENCRYPTION_KEY;
+  if (envKey && envKey !== 'your-64-char-hex-key-here') {
+    const db = getDb();
+    const row = db.select({ value: schema.settings.value }).from(schema.settings).where(eq(schema.settings.key, 'unified_api_key')).get();
+    if (!row) {
+      // Auto-fix: sync env key to DB
+      db.insert(schema.settings).values({ key: 'unified_api_key', value: envKey }).run();
+      return envKey;
+    } else if (row.value !== envKey) {
+      // Auto-fix: update DB to match env
+      db.update(schema.settings).set({ value: envKey }).where(eq(schema.settings.key, 'unified_api_key')).run();
+    }
+    return envKey;
+  }
+
+  // Priority 2: DB-stored key
   const row = db.select({ value: schema.settings.value }).from(schema.settings).where(eq(schema.settings.key, 'unified_api_key')).get();
-  if (!row) throw new Error('unified_api_key not found');
+  if (!row) {
+    // Generate a default key if not found in DB
+    const defaultKey = `freellmapi-${crypto.randomBytes(24).toString('hex')}`;
+    db.insert(schema.settings).values({ key: 'unified_api_key', value: defaultKey }).run();
+    return defaultKey;
+  }
   return row.value;
 }
 

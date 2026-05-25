@@ -23,29 +23,33 @@ function parseHexKey(value: string, source: 'env' | 'db'): Buffer {
 /**
  * Initialize encryption key from env, DB, or generate a new one.
  *
- * Priority: DB-stored key > ENCRYPTION_KEY env var > random generate.
+ * Priority: ENCRYPTION_KEY env var > DB-stored key > random generate.
+ *
+ * Auto-fix: If ENCRYPTION_KEY differs from DB key, updates DB to match env.
  */
 export function initEncryptionKey(db: BunSQLiteDatabase<typeof schema>): void {
-  // 1. Always prefer an already-persisted key from the DB
-  const row = db.select({ value: schema.settings.value }).from(schema.settings).where(eq(schema.settings.key, 'encryption_key')).get();
-  if (row) {
-    const envKey = process.env.ENCRYPTION_KEY;
-    if (envKey && envKey !== 'your-64-char-hex-key-here' && envKey !== row.value) {
-      console.warn(
-        '[crypto] WARNING: ENCRYPTION_KEY env var differs from the key stored in the database.\n' +
-        '  Using the DB-stored key to keep existing API keys decryptable.\n' +
-        '  Remove ENCRYPTION_KEY from your environment if you want to use the DB key permanently.'
-      );
+  // 1. Check ENCRYPTION_KEY env var first (auto-fix priority)
+  const envKey = process.env.ENCRYPTION_KEY;
+  if (envKey && envKey !== 'your-64-char-hex-key-here') {
+    const parsedKey = parseHexKey(envKey, 'env');
+    cachedKey = parsedKey;
+
+    // Auto-fix: Update DB to match env key to prevent conflicts
+    const existingRow = db.select({ value: schema.settings.value }).from(schema.settings).where(eq(schema.settings.key, 'encryption_key')).get();
+    if (!existingRow) {
+      db.insert(schema.settings).values({ key: 'encryption_key', value: cachedKey.toString('hex') }).run();
+    } else {
+      db.update(schema.settings).set({ value: cachedKey.toString('hex') }).where(eq(schema.settings.key, 'encryption_key')).run();
     }
-    cachedKey = parseHexKey(row.value, 'db');
+
+    console.log('[crypto] Using ENCRYPTION_KEY from env and syncing with database');
     return;
   }
 
-  // 2. No DB key yet. If ENCRYPTION_KEY env is set, persist it for consistency.
-  const envKey = process.env.ENCRYPTION_KEY;
-  if (envKey && envKey !== 'your-64-char-hex-key-here') {
-    cachedKey = parseHexKey(envKey, 'env');
-    db.insert(schema.settings).values({ key: 'encryption_key', value: cachedKey.toString('hex') }).run();
+  // 2. No ENCRYPTION_KEY. Check DB for stored key.
+  const row = db.select({ value: schema.settings.value }).from(schema.settings).where(eq(schema.settings.key, 'encryption_key')).get();
+  if (row) {
+    cachedKey = parseHexKey(row.value, 'db');
     return;
   }
 
