@@ -62,7 +62,7 @@ export function initDb(dbPath?: string): BunSQLiteDatabase<typeof schema> {
     ensureUnifiedKey(tx);
   });
 
-  console.log(`Database initialized at ${resolvedPath}`);
+  //console.log(`Database initialized at ${resolvedPath}`);
   return db;
 }
 
@@ -202,7 +202,7 @@ function seedModels(tx: Transaction) {
 
   tx.insert(schema.fallbackConfig).values(fallbackData).run();
 
-  console.log(`Seeded ${modelsData.length} models and fallback config`);
+  //console.log(`Seeded ${modelsData.length} models and fallback config`);
 }
 
 function migrateModels(tx: Transaction) {
@@ -593,7 +593,7 @@ function ensureUnifiedKey(tx: Transaction) {
   if (!existing) {
     const key = `freellmapi-${crypto.randomBytes(24).toString('hex')}`;
     tx.insert(schema.settings).values({ key: 'unified_api_key', value: key }).run();
-    console.log(`\n  Your unified API key: ${key}\n`);
+    //console.log(`\n  Your unified API key: ${key}\n`);
   }
 }
 

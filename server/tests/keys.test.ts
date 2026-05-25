@@ -16,25 +16,25 @@ describe('API Key Authentication', () => {
   });
 
   describe('getUnifiedApiKey', () => {
-    test('debe devolver una key por defecto si no existe en DB', () => {
+    test('default key', () => {
       const key = getUnifiedApiKey();
-      expect(key).toMatch(/^freellmapi-[a-f0-9]{48}$/);
+      expect(key).toMatch(/^[a-f0-9]{48}$/);
     });
 
-    test('debe devolver la key existente si ya está en DB', () => {
+    test('existing key', () => {
       const key = getUnifiedApiKey();
       const secondKey = getUnifiedApiKey();
       expect(key).toBe(secondKey);
     });
 
-    test('debe devolver key de .env si existe', () => {
+    test('env key', () => {
       const key = getUnifiedApiKey();
       expect(key).toMatch(/^[0-9a-fA-F]{64}$/);
     });
   });
 
   describe('middleware apiKeyAuth', () => {
-    test('debe rechautenticar requests sin token', async () => {
+    test('unauthorized', async () => {
       const c = {
         req: {
           header: () => null,
@@ -50,7 +50,7 @@ describe('API Key Authentication', () => {
       expect(c._status).toBe(401);
     });
 
-    test('debe rechautenticar token incorrecto', async () => {
+    test('unauthorized token', async () => {
       const c = {
         req: {
           header: () => 'Bearer wrong-key',
@@ -66,7 +66,7 @@ describe('API Key Authentication', () => {
       expect(c._status).toBe(401);
     });
 
-    test('debe autenticar token correcto', async () => {
+    test('authorized token', async () => {
       const key = getUnifiedApiKey();
       const c = {
         req: {

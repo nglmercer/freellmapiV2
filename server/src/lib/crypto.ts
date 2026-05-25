@@ -42,7 +42,7 @@ export function initEncryptionKey(db: BunSQLiteDatabase<typeof schema>): void {
       db.update(schema.settings).set({ value: cachedKey.toString('hex') }).where(eq(schema.settings.key, 'encryption_key')).run();
     }
 
-    console.log('[crypto] Using ENCRYPTION_KEY from env and syncing with database');
+    //console.log('[crypto] Using ENCRYPTION_KEY from env and syncing with database');
     return;
   }
 
