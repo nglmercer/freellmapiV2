@@ -1,0 +1,3 @@
+[submodule "getmodelsapi"]
+	path = getmodelsapi
+	url = https://github.com/nglmercer/getmodelsapi
