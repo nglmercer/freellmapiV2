@@ -119,9 +119,11 @@ fallbackRouter.post('/sort/:preset', async (c) => {
 
   runInTransaction(() => {
     for (let i = 0; i < models.length; i++) {
+      const model = models[i];
+      if (!model) continue;
       db.update(schema.fallbackConfig)
         .set({ priority: i + 1 })
-        .where(eq(schema.fallbackConfig.modelDbId, models[i].id))
+        .where(eq(schema.fallbackConfig.modelDbId, model.id))
         .run();
     }
   });
@@ -154,10 +156,12 @@ fallbackRouter.get('/token-usage', async (c) => {
   .orderBy(asc(schema.fallbackConfig.priority))
   .all();
 
-  function parseBudget(s: string): number {
+  function parseBudget(s: string | undefined): number {
+    if (!s) return 0;
     const m = s.match(/~?([\d.]+)(?:-([\d.]+))?([MK])?/);
-    if (!m) return 0;
-    const high = parseFloat(m[2] ?? m[1]);
+    if (!m || !m[1]) return 0;
+    const value = m[2] ?? m[1];
+    const high = parseFloat(value);
     const unit = m[3] === 'M' ? 1_000_000 : m[3] === 'K' ? 1_000 : 1;
     return high * unit;
   }

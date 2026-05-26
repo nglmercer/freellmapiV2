@@ -13,20 +13,8 @@ export function ensureUnifiedKey(tx: Transaction): void {
 }
 
 export function getUnifiedApiKey(): string {
-  const envKey = process.env.ENCRYPTION_KEY;
   const db = getDb();
-  
-  if (envKey && envKey !== 'your-64-char-hex-key-here') {
-    const row = db.select({ value: schema.settings.value }).from(schema.settings).where(eq(schema.settings.key, 'unified_api_key')).get();
-    if (!row) {
-      db.insert(schema.settings).values({ key: 'unified_api_key', value: envKey }).run();
-      return envKey;
-    } else if (row.value !== envKey) {
-      db.update(schema.settings).set({ value: envKey }).where(eq(schema.settings.key, 'unified_api_key')).run();
-    }
-    return envKey;
-  }
-
+   
   const row = db.select({ value: schema.settings.value }).from(schema.settings).where(eq(schema.settings.key, 'unified_api_key')).get();
   if (!row) {
     const defaultKey = crypto.randomBytes(24).toString('hex');

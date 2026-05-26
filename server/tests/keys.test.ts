@@ -1,20 +1,18 @@
 import { describe, test, expect, beforeAll, afterAll } from 'bun:test';
-import { Database } from 'bun:sqlite';
 import { initDb, resetDb, runInTransaction, runMigrations, getUnifiedApiKey } from '../src/db/index.js';
 import { regenerateUnifiedKey } from '../src/db/unified-key.js';
 import * as schema from '../src/db/schema.js';
 import { eq } from 'drizzle-orm';
 
 describe('API Key Authentication', () => {
-  let db: Database;
-
   beforeAll(() => {
     resetDb();
-    db = initDb(':memory:');
+    initDb(':memory:');
     runInTransaction(runMigrations);
   });
 
   afterAll(() => {
+    const db = require('../src/db/index.js').getDb();
     db.delete(schema.settings).run();
   });
 

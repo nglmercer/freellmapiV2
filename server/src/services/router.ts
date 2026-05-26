@@ -137,8 +137,8 @@ export function routeRequest(estimatedTokens = 1000, skipKeys?: Set<string>, pre
   if (preferredModelDbId) {
     const idx = sortedChain.findIndex(e => e.modelDbId === preferredModelDbId);
     if (idx > 0) {
-      const [preferred] = sortedChain.splice(idx, 1);
-      sortedChain.unshift(preferred);
+      const preferred = sortedChain.splice(idx, 1)[0];
+      if (preferred) sortedChain.unshift(preferred);
     }
   }
 
@@ -177,18 +177,20 @@ export function routeRequest(estimatedTokens = 1000, skipKeys?: Set<string>, pre
     const rrKey = `${model.platform}:${model.modelId}`;
     let idx = roundRobinIndex.get(rrKey) ?? 0;
 
-    for (let attempt = 0; attempt < keys.length; attempt++) {
-      const key = keys[idx % keys.length];
-      idx++;
+for (let attempt = 0; attempt < keys.length; attempt++) {
+       const key = keys[idx % keys.length];
+       idx++;
 
-      const skipId = `${model.platform}:${model.modelId}:${key.id}`;
-      if (skipKeys?.has(skipId)) continue;
+       if (!key) continue;
 
-      // Check cooldown (from previous 429s)
-      if (isOnCooldown(model.platform, model.modelId, key.id)) continue;
+       const skipId = `${model.platform}:${model.modelId}:${key.id}`;
+       if (skipKeys?.has(skipId)) continue;
 
-      if (!canMakeRequest(model.platform, model.modelId, key.id, limits)) continue;
-      if (!canUseTokens(model.platform, model.modelId, key.id, estimatedTokens, limits)) continue;
+       // Check cooldown (from previous 429s)
+       if (isOnCooldown(model.platform, model.modelId, key.id)) continue;
+
+       if (!canMakeRequest(model.platform, model.modelId, key.id, limits)) continue;
+       if (!canUseTokens(model.platform, model.modelId, key.id, estimatedTokens, limits)) continue;
 
       // We found a working key for this model!
       roundRobinIndex.set(rrKey, idx);

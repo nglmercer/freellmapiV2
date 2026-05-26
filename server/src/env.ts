@@ -42,8 +42,8 @@ function ensureEncryptionKey(): void {
     let hasValidKey = false;
 
     if (keyMatch) {
-      const keyValue = keyMatch[1].trim();
-      if (/^[0-9a-fA-F]{64}$/.test(keyValue)) {
+      const keyValue = keyMatch[1]?.trim();
+      if (keyValue && /^[0-9a-fA-F]{64}$/.test(keyValue)) {
         hasValidKey = true;
       }
     }
