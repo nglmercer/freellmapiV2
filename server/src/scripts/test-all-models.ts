@@ -65,7 +65,8 @@ for (const row of modelsWithKeys) {
   const start = Date.now();
   try {
     const res = await provider.chatCompletion(apiKey, [{ role: 'user', content: 'hi' }], row.modelId, { max_tokens: 5 });
-    const reply = res.choices?.[0]?.message?.content?.slice(0, 40) ?? '';
+    const replyContent = res.choices?.[0]?.message?.content;
+    const reply = typeof replyContent === 'string' ? replyContent.slice(0, 40) : '';
     results.push({ row, ok: true, ms: Date.now() - start, reply });
   } catch (err: unknown) {
     const message = err instanceof Error ? err.message : String(err);

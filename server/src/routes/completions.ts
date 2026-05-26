@@ -50,7 +50,8 @@ async function runSingleCompletion(
     },
   );
 
-  const text = result.choices[0]?.message.content ?? '';
+  const rawContent = result.choices[0]?.message.content ?? '';
+  const text = typeof rawContent === 'string' ? rawContent : '';
   const usage = result.usage ?? { prompt_tokens: 0, completion_tokens: 0, total_tokens: 0 };
   return { text, usage };
 }
