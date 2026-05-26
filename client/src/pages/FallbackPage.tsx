@@ -29,6 +29,7 @@ interface FallbackEntry {
   penalty: number
   rateLimitHits: number
   enabled: boolean
+  freeTier: boolean
   platform: string
   modelId: string
   displayName: string
@@ -272,6 +273,19 @@ export default function FallbackPage() {
 
   const hasChanges = localEntries !== null
 
+  function handleBulkToggleFree() {
+    const freeEntries = allEntries.filter(e => e.freeTier)
+    if (freeEntries.length === 0) return
+    const anyEnabled = freeEntries.some(e => e.enabled)
+    const updated = allEntries.map(e =>
+      e.freeTier ? { ...e, enabled: !anyEnabled } : e
+    )
+    setLocalEntries(updated)
+  }
+
+  const freeEntries = allEntries.filter(e => e.freeTier)
+  const allFreeEnabled = freeEntries.length > 0 && freeEntries.every(e => e.enabled)
+
   return (
     <div>
       <PageHeader
@@ -288,6 +302,15 @@ export default function FallbackPage() {
             <Button variant="outline" size="sm" onClick={() => sortMutation.mutate('budget')} disabled={sortMutation.isPending}>
               Sort by budget
             </Button>
+            {freeEntries.length > 0 && (
+              <Button
+                variant="outline"
+                size="sm"
+                onClick={handleBulkToggleFree}
+              >
+                {allFreeEnabled ? 'Disable free' : 'Enable free'}
+              </Button>
+            )}
           </>
         }
       />

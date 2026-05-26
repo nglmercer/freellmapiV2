@@ -23,6 +23,7 @@ fallbackRouter.get('/', async (c) => {
     rpmLimit: schema.models.rpmLimit,
     rpdLimit: schema.models.rpdLimit,
     monthlyTokenBudget: schema.models.monthlyTokenBudget,
+    freeTier: schema.models.freeTier,
   })
   .from(schema.fallbackConfig)
   .innerJoin(schema.models, eq(schema.models.id, schema.fallbackConfig.modelDbId))
@@ -62,6 +63,7 @@ fallbackRouter.get('/', async (c) => {
       rpmLimit: r.rpmLimit,
       rpdLimit: r.rpdLimit,
       monthlyTokenBudget: r.monthlyTokenBudget,
+      freeTier: r.freeTier === 1,
       keyCount: keyCountMap.get(r.platform) ?? 0,
     };
   }));
