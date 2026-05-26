@@ -6,6 +6,8 @@ import KeysPage from '@/pages/KeysPage'
 import PlaygroundPage from '@/pages/PlaygroundPage'
 import FallbackPage from '@/pages/FallbackPage'
 import AnalyticsPage from '@/pages/AnalyticsPage'
+import ProvidersPage from '@/pages/ProvidersPage'
+import ProviderModelsPage from '@/pages/ProviderModelsPage'
 
 const queryClient = new QueryClient()
 
@@ -88,6 +90,8 @@ function App() {
           <main className="max-w-6xl mx-auto px-6 py-8">
             <Routes>
               <Route path="/" element={<Navigate to="/playground" replace />} />
+              <Route path="/providers" element={<ProvidersPage />} />
+              <Route path="/providers/:id/models" element={<ProviderModelsPage />} />
               <Route path="/playground" element={<PlaygroundPage />} />
               <Route path="/keys" element={<KeysPage />} />
               <Route path="/fallback" element={<FallbackPage />} />

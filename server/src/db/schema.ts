@@ -1,4 +1,4 @@
-import { sqliteTable, text, integer, uniqueIndex, index } from 'drizzle-orm/sqlite-core';
+import { sqliteTable, text, integer, real, uniqueIndex, index } from 'drizzle-orm/sqlite-core';
 import { sql } from 'drizzle-orm';
 
 export const models = sqliteTable('models', {
@@ -16,9 +16,44 @@ export const models = sqliteTable('models', {
   monthlyTokenBudget: text('monthly_token_budget').notNull().default(''),
   contextWindow: integer('context_window'),
   enabled: integer('enabled').notNull().default(1),
+  pricingPrompt: real('pricing_prompt'),
+  pricingCompletion: real('pricing_completion'),
+  freeTier: integer('free_tier').notNull().default(0),
+  gateway: text('gateway'),
+  supportedFeatures: text('supported_features'),
+  externalUrl: text('external_url'),
+  description: text('description'),
+  lastSyncedAt: text('last_synced_at'),
+  source: text('source').notNull().default('manual'),
 }, (table) => ({
   unq: uniqueIndex('models_platform_model_id_unique').on(table.platform, table.modelId),
 }));
+
+export const syncLog = sqliteTable('sync_log', {
+  id: integer('id').primaryKey({ autoIncrement: true }),
+  startedAt: text('started_at').notNull(),
+  completedAt: text('completed_at'),
+  status: text('status').notNull().default('running'),
+  totalDiscovered: integer('total_discovered').default(0),
+  added: integer('added').default(0),
+  updated: integer('updated').default(0),
+  disabled: integer('disabled').default(0),
+  freeToPaid: integer('free_to_paid').default(0),
+  paidToFree: integer('paid_to_free').default(0),
+  storedDisabled: integer('stored_disabled').default(0),
+  error: text('error'),
+});
+
+export const syncChanges = sqliteTable('sync_changes', {
+  id: integer('id').primaryKey({ autoIncrement: true }),
+  syncLogId: integer('sync_log_id').notNull().references(() => syncLog.id),
+  changeType: text('change_type').notNull(),
+  platform: text('platform').notNull(),
+  modelId: text('model_id').notNull(),
+  displayName: text('display_name'),
+  details: text('details'),
+  createdAt: text('created_at').notNull().default(sql`(datetime('now'))`),
+});
 
 export const apiKeys = sqliteTable('api_keys', {
   id: integer('id').primaryKey({ autoIncrement: true }),
@@ -57,6 +92,19 @@ export const fallbackConfig = sqliteTable('fallback_config', {
   enabled: integer('enabled').notNull().default(1),
 }, (table) => ({
   modelDbIdUnq: uniqueIndex('fallback_config_model_db_id_unique').on(table.modelDbId),
+}));
+
+export const customProviders = sqliteTable('custom_providers', {
+  id: integer('id').primaryKey({ autoIncrement: true }),
+  name: text('name').notNull(),
+  baseUrl: text('base_url').notNull(),
+  timeoutMs: integer('timeout_ms').default(15000),
+  extraHeaders: text('extra_headers'),
+  enabled: integer('enabled').notNull().default(1),
+  createdAt: text('created_at').notNull().default(sql`(datetime('now'))`),
+  updatedAt: text('updated_at').notNull().default(sql`(datetime('now'))`),
+}, (table) => ({
+  nameUnq: uniqueIndex('custom_providers_name_unique').on(table.name),
 }));
 
 export const settings = sqliteTable('settings', {

@@ -4,11 +4,9 @@ import { getDb } from '../db/index.js';
 import { encrypt, decrypt, maskKey } from '../lib/crypto.js';
 import * as schema from '../db/schema.js';
 import { eq, desc } from 'drizzle-orm';
+import { hasCustomProvider, platformToProviderId } from '../providers/custom.js';
 
-// Active providers — must match providers/index.ts registrations + shared/types.ts Platform.
-// Hugging Face, Moonshot, and MiniMax direct integrations were dropped in V4
-// (see migrateModelsV4 comment block).
-const PLATFORMS = [
+const BUILTIN_PLATFORMS = [
   'google', 'groq', 'cerebras', 'sambanova', 'nvidia', 'mistral',
   'openrouter', 'github', 'cohere', 'cloudflare', 'zhipu', 'ollama',
   'kilo', 'pollinations', 'llm7',
@@ -16,8 +14,19 @@ const PLATFORMS = [
 
 export const keysRouter = new Hono();
 
+function isCustomPlatform(platform: string): boolean {
+  return platformToProviderId(platform) !== null;
+}
+
+function platformExists(platform: string): boolean {
+  if ((BUILTIN_PLATFORMS as readonly string[]).includes(platform)) return true;
+  return hasCustomProvider(platform);
+}
+
 const addKeySchema = z.object({
-  platform: z.enum(PLATFORMS),
+  platform: z.string().min(1).refine(platformExists, {
+    message: 'Unknown platform. Use a built-in platform or custom provider id.',
+  }),
   key: z.string().min(1),
   label: z.string().optional(),
 });

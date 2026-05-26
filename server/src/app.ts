@@ -11,6 +11,7 @@ import { fallbackRouter } from './routes/fallback.js';
 import { analyticsRouter } from './routes/analytics.js';
 import { healthRouter } from './routes/health.js';
 import { settingsRouter } from './routes/settings.js';
+import { providersRouter } from './routes/providers.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const DIST_DIR = path.resolve(__dirname, '../../client/dist');
@@ -34,6 +35,7 @@ export function createApp() {
   app.route('/api/analytics', analyticsRouter);
   app.route('/api/health', healthRouter);
   app.route('/api/settings', settingsRouter);
+  app.route('/api/providers', providersRouter);
 
   // OpenAI-compatible proxy
   app.route('/v1', proxyRouter);

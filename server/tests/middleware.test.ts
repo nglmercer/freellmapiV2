@@ -1,4 +1,4 @@
-import { describe, it, expect } from 'vitest';
+import { describe, it, expect } from 'bun:test';
 import { timingSafeStringEqual, normalizeMessages, estimateInputTokens } from '../src/routes/middleware.js';
 import type { ChatMessage } from '@freellmapi/shared/types.js';
 
@@ -25,66 +25,66 @@ describe('timingSafeStringEqual', () => {
 });
 
 describe('normalizeMessages', () => {
-  it('should normalize a basic user message', () => {
-    const messages = [{ role: 'user', content: 'Hello' }];
-    const result = normalizeMessages(messages);
-    expect(result).toHaveLength(1);
-    expect(result[0].role).toBe('user');
-    expect(result[0].content).toBe('Hello');
-  });
+   it('should normalize a basic user message', () => {
+     const messages = [{ role: 'user', content: 'Hello' }];
+     const result = normalizeMessages(messages);
+     expect(result).toHaveLength(1);
+     expect(result[0]!.role).toBe('user');
+     expect(result[0]!.content).toBe('Hello');
+   });
 
-  it('should preserve system messages', () => {
-    const messages = [{ role: 'system', content: 'You are a bot.' }];
-    const result = normalizeMessages(messages);
-    expect(result[0].role).toBe('system');
-    expect(result[0].content).toBe('You are a bot.');
-  });
+   it('should preserve system messages', () => {
+     const messages = [{ role: 'system', content: 'You are a bot.' }];
+     const result = normalizeMessages(messages);
+     expect(result[0]!.role).toBe('system');
+     expect(result[0]!.content).toBe('You are a bot.');
+   });
 
-  it('should handle null content in assistant messages', () => {
-    const messages = [{ role: 'assistant', content: null }];
-    const result = normalizeMessages(messages);
-    expect(result[0].content).toBeNull();
-  });
+   it('should handle null content in assistant messages', () => {
+     const messages = [{ role: 'assistant', content: null }];
+     const result = normalizeMessages(messages);
+     expect(result[0]!.content).toBeNull();
+   });
 
-  it('should preserve assistant tool_calls', () => {
-    const messages = [{
-      role: 'assistant',
-      content: 'Calling tool...',
-      tool_calls: [{ id: 'call_1', type: 'function', function: { name: 'get_weather', arguments: '{}' } }],
-    }];
-    const result = normalizeMessages(messages);
-    expect(result[0].tool_calls).toBeDefined();
-    expect(result[0].tool_calls).toHaveLength(1);
-    expect(result[0].tool_calls![0].id).toBe('call_1');
-  });
+   it('should preserve assistant tool_calls', () => {
+     const messages = [{
+       role: 'assistant',
+       content: 'Calling tool...',
+       tool_calls: [{ id: 'call_1', type: 'function', function: { name: 'get_weather', arguments: '{}' } }],
+     }];
+     const result = normalizeMessages(messages);
+     expect(result[0]!.tool_calls).toBeDefined();
+     expect(result[0]!.tool_calls).toHaveLength(1);
+     expect(result[0]!.tool_calls![0]!.id).toBe('call_1');
+   });
 
-  it('should preserve tool_call_id for tool messages', () => {
-    const messages = [{
-      role: 'tool',
-      content: 'Sunny',
-      tool_call_id: 'call_1',
-    }];
-    const result = normalizeMessages(messages);
-    expect(result[0].tool_call_id).toBe('call_1');
-  });
+   it('should preserve tool_call_id for tool messages', () => {
+     const messages = [{
+       role: 'tool',
+       content: 'Sunny',
+       tool_call_id: 'call_1',
+     }];
+     const result = normalizeMessages(messages);
+     expect(result[0]!.tool_call_id).toBe('call_1');
+   });
 
-  it('should preserve name field', () => {
-    const messages = [{ role: 'user', content: 'Hi', name: 'Alice' }];
-    const result = normalizeMessages(messages);
-    expect(result[0].name).toBe('Alice');
-  });
+   it('should preserve name field', () => {
+     const messages = [{ role: 'user', content: 'Hi', name: 'Alice' }];
+     const result = normalizeMessages(messages);
+     expect(result[0]!.name).toBe('Alice');
+   });
 
-  it('should handle mixed conversation', () => {
-    const messages = [
-      { role: 'system', content: 'You are helpful.' },
-      { role: 'user', content: 'Hello' },
-      { role: 'assistant', content: 'Hi there', tool_calls: [] },
-      { role: 'user', content: 'How are you?' },
-    ];
-    const result = normalizeMessages(messages);
-    expect(result).toHaveLength(4);
-  });
-});
+   it('should handle mixed conversation', () => {
+     const messages = [
+       { role: 'system', content: 'You are helpful.' },
+       { role: 'user', content: 'Hello' },
+       { role: 'assistant', content: 'Hi there', tool_calls: [] },
+       { role: 'user', content: 'How are you?' },
+     ];
+     const result = normalizeMessages(messages);
+     expect(result).toHaveLength(4);
+   });
+ });
 
 describe('estimateInputTokens', () => {
   it('should return 0 for empty messages', () => {

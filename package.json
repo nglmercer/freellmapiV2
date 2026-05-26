@@ -4,7 +4,8 @@
   "workspaces": [
     "shared",
     "server",
-    "client"
+    "client",
+    "getmodelsapi"
   ],
   "scripts": {
     "dev": "cd server && bun run dev",

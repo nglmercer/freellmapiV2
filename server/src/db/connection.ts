@@ -48,7 +48,42 @@ function createTables(sqlite: Database): void {
       monthly_token_budget TEXT NOT NULL DEFAULT '',
       context_window INTEGER,
       enabled INTEGER NOT NULL DEFAULT 1,
+      pricing_prompt REAL,
+      pricing_completion REAL,
+      free_tier INTEGER NOT NULL DEFAULT 0,
+      gateway TEXT,
+      supported_features TEXT,
+      external_url TEXT,
+      description TEXT,
+      last_synced_at TEXT,
+      source TEXT NOT NULL DEFAULT 'manual',
       UNIQUE(platform, model_id)
+    );
+
+    CREATE TABLE IF NOT EXISTS sync_log (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      started_at TEXT NOT NULL,
+      completed_at TEXT,
+      status TEXT NOT NULL DEFAULT 'running',
+      total_discovered INTEGER DEFAULT 0,
+      added INTEGER DEFAULT 0,
+      updated INTEGER DEFAULT 0,
+      disabled INTEGER DEFAULT 0,
+      free_to_paid INTEGER DEFAULT 0,
+      paid_to_free INTEGER DEFAULT 0,
+      stored_disabled INTEGER DEFAULT 0,
+      error TEXT
+    );
+
+    CREATE TABLE IF NOT EXISTS sync_changes (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      sync_log_id INTEGER NOT NULL REFERENCES sync_log(id),
+      change_type TEXT NOT NULL,
+      platform TEXT NOT NULL,
+      model_id TEXT NOT NULL,
+      display_name TEXT,
+      details TEXT,
+      created_at TEXT NOT NULL DEFAULT (datetime('now'))
     );
 
     CREATE TABLE IF NOT EXISTS api_keys (
@@ -89,10 +124,44 @@ function createTables(sqlite: Database): void {
       value TEXT NOT NULL
     );
 
+    CREATE TABLE IF NOT EXISTS custom_providers (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      name TEXT NOT NULL UNIQUE,
+      base_url TEXT NOT NULL,
+      timeout_ms INTEGER DEFAULT 15000,
+      extra_headers TEXT,
+      enabled INTEGER NOT NULL DEFAULT 1,
+      created_at TEXT NOT NULL DEFAULT (datetime('now')),
+      updated_at TEXT NOT NULL DEFAULT (datetime('now'))
+    );
+
     CREATE INDEX IF NOT EXISTS idx_requests_created_at ON requests(created_at);
     CREATE INDEX IF NOT EXISTS idx_requests_platform ON requests(platform);
     CREATE INDEX IF NOT EXISTS idx_api_keys_platform ON api_keys(platform);
+    CREATE INDEX IF NOT EXISTS idx_sync_changes_log_id ON sync_changes(sync_log_id);
   `);
+
+  // Add columns that may not exist on pre-existing databases (idempotent)
+  const existingCols = new Set(
+    sqlite.prepare('PRAGMA table_info(models)').all()
+      .map((r: any) => r.name)
+  );
+  const newCols = [
+    ['pricing_prompt', 'REAL'],
+    ['pricing_completion', 'REAL'],
+    ['free_tier', 'INTEGER NOT NULL DEFAULT 0'],
+    ['gateway', 'TEXT'],
+    ['supported_features', 'TEXT'],
+    ['external_url', 'TEXT'],
+    ['description', 'TEXT'],
+    ['last_synced_at', 'TEXT'],
+    ['source', "TEXT NOT NULL DEFAULT 'manual'"],
+  ];
+  for (const [name, def] of newCols) {
+    if (!existingCols.has(name)) {
+      sqlite.exec(`ALTER TABLE models ADD COLUMN ${name} ${def}`);
+    }
+  }
 }
 
 export function initDb(dbPath?: string): BunSQLiteDatabase<typeof schema> {

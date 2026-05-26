@@ -4,6 +4,7 @@ import { GoogleProvider } from './google.js';
 import { OpenAICompatProvider } from './openai-compat.js';
 import { CohereProvider } from './cohere.js';
 import { CloudflareProvider } from './cloudflare.js';
+import { loadCustomProvider, loadAllCustomProviders, platformToProviderId } from './custom.js';
 
 const providers = new Map<Platform, BaseProvider>();
 
@@ -138,14 +139,20 @@ register(new OpenAICompatProvider({
 // $0.0, please pay with fiat or send tao". The "free" tier requires a
 // non-zero balance, which conflicts with the project's no-card criterion.
 
-export function getProvider(platform: Platform): BaseProvider | undefined {
-  return providers.get(platform);
+export function getProvider(platform: Platform | string): BaseProvider | undefined {
+  const builtin = providers.get(platform as Platform);
+  if (builtin) return builtin;
+  return loadCustomProvider(platform);
 }
 
 export function getAllProviders(): BaseProvider[] {
-  return Array.from(providers.values());
+  const all = Array.from(providers.values());
+  const custom = loadAllCustomProviders();
+  for (const p of custom.values()) all.push(p);
+  return all;
 }
 
-export function hasProvider(platform: Platform): boolean {
-  return providers.has(platform);
+export function hasProvider(platform: Platform | string): boolean {
+  if (providers.has(platform as Platform)) return true;
+  return loadCustomProvider(platform) !== undefined;
 }

@@ -29,55 +29,55 @@ describe('API Key Authentication', () => {
     });
   });
 
-  describe('middleware apiKeyAuth', () => {
-    test('unauthorized', async () => {
-      const c = {
-        req: {
-          header: () => null,
-        },
-        status: (s: number) => { c._status = s; },
-        json: (d: any) => { c._data = d; },
-      } as any;
-      const next = () => {};
+describe('middleware apiKeyAuth', () => {
+     test('unauthorized', async () => {
+       const c = {
+         req: {
+           header: () => null,
+         },
+         status: (s: number) => { c._status = s; },
+         json: (d: any) => { c._data = d; },
+       } as any;
+       const next = async (): Promise<void> => {};
 
-      const { apiKeyAuth } = await import('../src/routes/middleware.js');
-      await apiKeyAuth(c, next);
+       const { apiKeyAuth } = await import('../src/routes/middleware.js');
+       await apiKeyAuth(c, next);
 
-      expect(c._status).toBe(401);
-    });
+       expect(c._status).toBe(401);
+     });
 
-    test('unauthorized token', async () => {
-      const c = {
-        req: {
-          header: () => 'Bearer wrong-key',
-        },
-        status: (s: number) => { c._status = s; },
-        json: (d: any) => { c._data = d; },
-      } as any;
-      const next = () => {};
+     test('unauthorized token', async () => {
+       const c = {
+         req: {
+           header: () => 'Bearer wrong-key',
+         },
+         status: (s: number) => { c._status = s; },
+         json: (d: any) => { c._data = d; },
+       } as any;
+       const next = async (): Promise<void> => {};
 
-      const { apiKeyAuth } = await import('../src/routes/middleware.js');
-      await apiKeyAuth(c, next);
+       const { apiKeyAuth } = await import('../src/routes/middleware.js');
+       await apiKeyAuth(c, next);
 
-      expect(c._status).toBe(401);
-    });
+       expect(c._status).toBe(401);
+     });
 
-    test('authorized token', async () => {
-      const key = getUnifiedApiKey();
-      let nextCalled = false;
-      const c = {
-        req: {
-          header: () => `Bearer ${key}`,
-        },
-        status: (s: number) => { c._status = s; },
-        json: (d: any) => { c._data = d; },
-      } as any;
-      const next = () => { nextCalled = true; };
+     test('authorized token', async () => {
+       const key = getUnifiedApiKey();
+       let nextCalled = false;
+       const c = {
+         req: {
+           header: () => `Bearer ${key}`,
+         },
+         status: (s: number) => { c._status = s; },
+         json: (d: any) => { c._data = d; },
+       } as any;
+       const next = async (): Promise<void> => { nextCalled = true; };
 
-      const { apiKeyAuth } = await import('../src/routes/middleware.js');
-      await apiKeyAuth(c, next);
+       const { apiKeyAuth } = await import('../src/routes/middleware.js');
+       await apiKeyAuth(c, next);
 
-      expect(nextCalled).toBe(true);
-    });
-  });
+       expect(nextCalled).toBe(true);
+     });
+   });
 });
