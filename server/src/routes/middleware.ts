@@ -91,11 +91,21 @@ export const chatCompletionSchema = z.object({
   max_tokens: z.number().int().positive().optional(),
   n: z.number().int().min(1).max(10).optional().default(1),
   top_p: z.number().min(0).max(1).optional(),
+  seed: z.number().int().optional(),
+  frequency_penalty: z.number().min(-2).max(2).optional(),
+  presence_penalty: z.number().min(-2).max(2).optional(),
+  user: z.string().optional(),
+  response_format: z.object({
+    type: z.enum(['text', 'json_object', 'json_schema']),
+    json_schema: z.record(z.string(), z.unknown()).optional(),
+  }).optional(),
   stream: z.boolean().optional(),
   stream_options: streamOptionsSchema.optional(),
   tools: z.array(toolDefinitionSchema).optional(),
   tool_choice: toolChoiceSchema.optional(),
   parallel_tool_calls: z.boolean().optional(),
+  logprobs: z.boolean().optional(),
+  top_logprobs: z.number().int().min(0).max(5).optional(),
 });
 
 export const completionSchema = z.object({
@@ -106,6 +116,11 @@ export const completionSchema = z.object({
   temperature: z.number().min(0).max(2).optional(),
   top_p: z.number().min(0).max(1).optional(),
   n: z.number().int().min(1).max(10).optional().default(1),
+  seed: z.number().int().optional(),
+  frequency_penalty: z.number().min(-2).max(2).optional(),
+  presence_penalty: z.number().min(-2).max(2).optional(),
+  user: z.string().optional(),
+  logprobs: z.number().int().min(0).max(5).optional(),
   stream: z.boolean().optional(),
   stream_options: streamOptionsSchema.optional(),
   stop: z.union([z.string(), z.array(z.string())]).optional().transform(v => v ? (Array.isArray(v) ? v : [v]) : undefined),

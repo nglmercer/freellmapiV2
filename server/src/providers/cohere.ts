@@ -23,8 +23,15 @@ export class CohereProvider extends BaseProvider {
       temperature: options?.temperature,
       max_tokens: options?.max_tokens,
       top_p: options?.top_p,
+      seed: options?.seed,
+      frequency_penalty: options?.frequency_penalty,
+      presence_penalty: options?.presence_penalty,
+      user: options?.user,
+      response_format: options?.response_format,
       tools: options?.tools,
       tool_choice: options?.tool_choice,
+      logprobs: options?.logprobs,
+      top_logprobs: options?.top_logprobs,
     };
 
     const res = await this.fetchWithTimeout(`${API_BASE}/chat/completions`, {
@@ -58,8 +65,15 @@ export class CohereProvider extends BaseProvider {
       temperature: options?.temperature,
       max_tokens: options?.max_tokens,
       top_p: options?.top_p,
+      seed: options?.seed,
+      frequency_penalty: options?.frequency_penalty,
+      presence_penalty: options?.presence_penalty,
+      user: options?.user,
+      response_format: options?.response_format,
       tools: options?.tools,
       tool_choice: options?.tool_choice,
+      logprobs: options?.logprobs,
+      top_logprobs: options?.top_logprobs,
       stream: true,
     };
 

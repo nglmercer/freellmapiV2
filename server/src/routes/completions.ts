@@ -47,6 +47,12 @@ async function runSingleCompletion(
       temperature: options.temperature,
       max_tokens: options.max_tokens,
       top_p: options.top_p,
+      seed: options.seed,
+      frequency_penalty: options.frequency_penalty,
+      presence_penalty: options.presence_penalty,
+      user: options.user,
+      logprobs: options.logprobs != null ? true : undefined,
+      top_logprobs: options.logprobs ?? undefined,
     },
   );
 
@@ -189,6 +195,12 @@ async function handleCompletionStream(
       temperature: rest.temperature,
       max_tokens: rest.max_tokens,
       top_p: rest.top_p,
+      seed: rest.seed,
+      frequency_penalty: rest.frequency_penalty,
+      presence_penalty: rest.presence_penalty,
+      user: rest.user,
+      logprobs: rest.logprobs != null ? true : undefined,
+      top_logprobs: rest.logprobs ?? undefined,
       stream_options: rest.stream_options,
     });
 

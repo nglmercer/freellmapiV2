@@ -134,12 +134,40 @@ export interface ChatCompletionRequest {
     include_usage?: boolean;
   };
   top_p?: number;
+  seed?: number;
+  frequency_penalty?: number;
+  presence_penalty?: number;
+  user?: string;
+  response_format?: {
+    type: 'text' | 'json_object' | 'json_schema';
+    json_schema?: Record<string, unknown>;
+  };
   tools?: ChatToolDefinition[];
   tool_choice?: ChatToolChoice;
   parallel_tool_calls?: boolean;
+  logprobs?: boolean;
+  top_logprobs?: number;
 }
 
 // ---- OpenAI-Compatible Completions (Legacy) ----
+
+export interface LogprobToken {
+  token: string;
+  logprob: number;
+  bytes: number[] | null;
+  top_logprobs?: {
+    token: string;
+    logprob: number;
+    bytes: number[] | null;
+  }[];
+}
+
+export interface Logprobs {
+  text_offset?: number[];
+  token_logprobs?: number[];
+  tokens?: string[];
+  top_logprobs?: Record<string, number>[];
+}
 
 export interface CompletionRequest {
   model: string;
@@ -156,12 +184,17 @@ export interface CompletionRequest {
   stop?: string[];
   echo?: boolean;
   best_of?: number;
+  seed?: number;
+  frequency_penalty?: number;
+  presence_penalty?: number;
+  user?: string;
+  logprobs?: number;
 }
 
 export interface CompletionChoice {
   text: string;
   index: number;
-  logprobs: null;
+  logprobs: Logprobs | null;
   finish_reason: string | null;
 }
 
@@ -186,7 +219,7 @@ export interface CompletionChunk {
   choices: {
     text: string;
     index: number;
-    logprobs: null;
+    logprobs: Logprobs | null;
     finish_reason: string | null;
   }[];
   usage?: TokenUsage;
@@ -196,6 +229,9 @@ export interface ChatCompletionChoice {
   index: number;
   message: ChatMessage;
   finish_reason: string | null;
+  logprobs?: {
+    content: LogprobToken[] | null;
+  } | null;
 }
 
 export interface TokenUsage {
@@ -230,6 +266,9 @@ export interface ChatCompletionChunk {
       tool_calls?: ChatToolCall[];
     };
     finish_reason: string | null;
+    logprobs?: {
+      content: LogprobToken[] | null;
+    } | null;
   }[];
   usage?: TokenUsage;
 }

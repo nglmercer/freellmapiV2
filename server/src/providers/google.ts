@@ -268,17 +268,25 @@ export class GoogleProvider extends BaseProvider {
   ): Promise<ChatCompletionResponse> {
     const { contents, systemInstruction } = toGeminiContents(messages);
 
+    const generationConfig: Record<string, unknown> = {
+      temperature: options?.temperature,
+      maxOutputTokens: options?.max_tokens,
+      topP: options?.top_p,
+    };
+    if (options?.seed !== undefined) generationConfig.seed = options.seed;
+    if (options?.frequency_penalty !== undefined) generationConfig.frequencyPenalty = options.frequency_penalty;
+    if (options?.presence_penalty !== undefined) generationConfig.presencePenalty = options.presence_penalty;
+
     const body: Record<string, unknown> = {
       contents,
-      generationConfig: {
-        temperature: options?.temperature,
-        maxOutputTokens: options?.max_tokens,
-        topP: options?.top_p,
-      },
+      generationConfig,
       tools: toGeminiTools(options?.tools),
       toolConfig: toGeminiToolConfig(options?.tool_choice),
     };
     if (systemInstruction) body.systemInstruction = systemInstruction;
+    if (options?.response_format?.type === 'json_object' || options?.response_format?.type === 'json_schema') {
+      body.responseSchema = options.response_format.json_schema ?? { type: 'OBJECT' };
+    }
 
     const url = `${API_BASE}/models/${modelId}:generateContent`;
     const res = await this.fetchWithTimeout(url, {
@@ -334,17 +342,25 @@ export class GoogleProvider extends BaseProvider {
   ): AsyncGenerator<ChatCompletionChunk> {
     const { contents, systemInstruction } = toGeminiContents(messages);
 
+    const generationConfig: Record<string, unknown> = {
+      temperature: options?.temperature,
+      maxOutputTokens: options?.max_tokens,
+      topP: options?.top_p,
+    };
+    if (options?.seed !== undefined) generationConfig.seed = options.seed;
+    if (options?.frequency_penalty !== undefined) generationConfig.frequencyPenalty = options.frequency_penalty;
+    if (options?.presence_penalty !== undefined) generationConfig.presencePenalty = options.presence_penalty;
+
     const body: Record<string, unknown> = {
       contents,
-      generationConfig: {
-        temperature: options?.temperature,
-        maxOutputTokens: options?.max_tokens,
-        topP: options?.top_p,
-      },
+      generationConfig,
       tools: toGeminiTools(options?.tools),
       toolConfig: toGeminiToolConfig(options?.tool_choice),
     };
     if (systemInstruction) body.systemInstruction = systemInstruction;
+    if (options?.response_format?.type === 'json_object' || options?.response_format?.type === 'json_schema') {
+      body.responseSchema = options.response_format.json_schema ?? { type: 'OBJECT' };
+    }
 
     const url = `${API_BASE}/models/${modelId}:streamGenerateContent?alt=sse`;
     const res = await this.fetchWithTimeout(url, {

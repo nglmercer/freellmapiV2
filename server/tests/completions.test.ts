@@ -582,3 +582,246 @@ describe('chatCompletionSchema — n field', () => {
     expect(result.success).toBe(false);
   });
 });
+
+// ─────────────────────────────────────────────────────────────
+// New params — seed, frequency_penalty, presence_penalty, response_format, user, logprobs
+// ─────────────────────────────────────────────────────────────
+
+describe('chatCompletionSchema — new params', () => {
+  it('should accept seed', () => {
+    const result = chatCompletionSchema.safeParse({
+      messages: [{ role: 'user', content: 'Hello' }],
+      seed: 42,
+    });
+    expect(result.success).toBe(true);
+  });
+
+  it('should accept frequency_penalty in range [-2, 2]', () => {
+    const result = chatCompletionSchema.safeParse({
+      messages: [{ role: 'user', content: 'Hello' }],
+      frequency_penalty: 0.5,
+    });
+    expect(result.success).toBe(true);
+  });
+
+  it('should reject frequency_penalty outside [-2, 2]', () => {
+    const result = chatCompletionSchema.safeParse({
+      messages: [{ role: 'user', content: 'Hello' }],
+      frequency_penalty: 3,
+    });
+    expect(result.success).toBe(false);
+  });
+
+  it('should accept presence_penalty in range [-2, 2]', () => {
+    const result = chatCompletionSchema.safeParse({
+      messages: [{ role: 'user', content: 'Hello' }],
+      presence_penalty: -1,
+    });
+    expect(result.success).toBe(true);
+  });
+
+  it('should reject presence_penalty outside [-2, 2]', () => {
+    const result = chatCompletionSchema.safeParse({
+      messages: [{ role: 'user', content: 'Hello' }],
+      presence_penalty: -3,
+    });
+    expect(result.success).toBe(false);
+  });
+
+  it('should accept user parameter', () => {
+    const result = chatCompletionSchema.safeParse({
+      messages: [{ role: 'user', content: 'Hello' }],
+      user: 'end-user-123',
+    });
+    expect(result.success).toBe(true);
+  });
+
+  it('should accept response_format json_object', () => {
+    const result = chatCompletionSchema.safeParse({
+      messages: [{ role: 'user', content: 'Hello' }],
+      response_format: { type: 'json_object' },
+    });
+    expect(result.success).toBe(true);
+  });
+
+  it('should accept response_format json_schema', () => {
+    const result = chatCompletionSchema.safeParse({
+      messages: [{ role: 'user', content: 'Hello' }],
+      response_format: { type: 'json_schema', json_schema: { name: 'test' } },
+    });
+    expect(result.success).toBe(true);
+  });
+
+  it('should reject response_format with invalid type', () => {
+    const result = chatCompletionSchema.safeParse({
+      messages: [{ role: 'user', content: 'Hello' }],
+      response_format: { type: 'invalid' },
+    });
+    expect(result.success).toBe(false);
+  });
+
+  it('should accept logprobs boolean', () => {
+    const result = chatCompletionSchema.safeParse({
+      messages: [{ role: 'user', content: 'Hello' }],
+      logprobs: true,
+    });
+    expect(result.success).toBe(true);
+  });
+
+  it('should accept top_logprobs 0-5', () => {
+    const result = chatCompletionSchema.safeParse({
+      messages: [{ role: 'user', content: 'Hello' }],
+      top_logprobs: 3,
+    });
+    expect(result.success).toBe(true);
+  });
+
+  it('should reject top_logprobs > 5', () => {
+    const result = chatCompletionSchema.safeParse({
+      messages: [{ role: 'user', content: 'Hello' }],
+      top_logprobs: 6,
+    });
+    expect(result.success).toBe(false);
+  });
+});
+
+describe('completionSchema — new params', () => {
+  it('should accept seed', () => {
+    const result = completionSchema.safeParse({
+      model: 'auto',
+      prompt: 'Hello',
+      seed: 42,
+    });
+    expect(result.success).toBe(true);
+  });
+
+  it('should accept frequency_penalty', () => {
+    const result = completionSchema.safeParse({
+      model: 'auto',
+      prompt: 'Hello',
+      frequency_penalty: 0.8,
+    });
+    expect(result.success).toBe(true);
+  });
+
+  it('should accept presence_penalty', () => {
+    const result = completionSchema.safeParse({
+      model: 'auto',
+      prompt: 'Hello',
+      presence_penalty: 0.3,
+    });
+    expect(result.success).toBe(true);
+  });
+
+  it('should accept user', () => {
+    const result = completionSchema.safeParse({
+      model: 'auto',
+      prompt: 'Hello',
+      user: 'test-user',
+    });
+    expect(result.success).toBe(true);
+  });
+
+  it('should accept logprobs 0-5', () => {
+    const result = completionSchema.safeParse({
+      model: 'auto',
+      prompt: 'Hello',
+      logprobs: 3,
+    });
+    expect(result.success).toBe(true);
+  });
+
+  it('should reject logprobs > 5', () => {
+    const result = completionSchema.safeParse({
+      model: 'auto',
+      prompt: 'Hello',
+      logprobs: 6,
+    });
+    expect(result.success).toBe(false);
+  });
+});
+
+describe('/v1/chat/completions — new params in requests', () => {
+  let app: ReturnType<typeof createApp>;
+  let apiKey: string;
+
+  beforeEach(async () => {
+    resetDb();
+    initDb(':memory:');
+    runInTransaction(runMigrations);
+    app = createApp();
+    apiKey = getUnifiedApiKey();
+  });
+
+  afterEach(() => {});
+
+  const authHeaders = () => ({
+    'Content-Type': 'application/json',
+    Authorization: `Bearer ${apiKey}`,
+  });
+
+  it('should accept request with seed and frequency_penalty', async () => {
+    const res = await app.request('/v1/chat/completions', {
+      method: 'POST',
+      headers: authHeaders(),
+      body: JSON.stringify({
+        model: 'auto',
+        messages: [{ role: 'user', content: 'Hi' }],
+        seed: 42,
+        frequency_penalty: 0.5,
+        presence_penalty: -0.5,
+        user: 'end-user-1',
+      }),
+    });
+    expect(res.status).not.toBe(400);
+    expect(res.status).not.toBe(401);
+  });
+
+  it('should accept request with response_format json_object', async () => {
+    const res = await app.request('/v1/chat/completions', {
+      method: 'POST',
+      headers: authHeaders(),
+      body: JSON.stringify({
+        model: 'auto',
+        messages: [{ role: 'user', content: 'Output JSON' }],
+        response_format: { type: 'json_object' },
+      }),
+    });
+    expect(res.status).not.toBe(400);
+    expect(res.status).not.toBe(401);
+  });
+
+  it('should accept request with logprobs and top_logprobs', async () => {
+    const res = await app.request('/v1/chat/completions', {
+      method: 'POST',
+      headers: authHeaders(),
+      body: JSON.stringify({
+        model: 'auto',
+        messages: [{ role: 'user', content: 'Hi' }],
+        logprobs: true,
+        top_logprobs: 3,
+      }),
+    });
+    expect(res.status).not.toBe(400);
+    expect(res.status).not.toBe(401);
+  });
+
+  it('should accept completions request with seed and logprobs', async () => {
+    const res = await app.request('/v1/completions', {
+      method: 'POST',
+      headers: authHeaders(),
+      body: JSON.stringify({
+        model: 'auto',
+        prompt: 'Hello',
+        seed: 42,
+        frequency_penalty: 0.5,
+        presence_penalty: -0.3,
+        user: 'test-user',
+        logprobs: 3,
+        max_tokens: 50,
+      }),
+    });
+    expect(res.status).not.toBe(400);
+    expect(res.status).not.toBe(401);
+  });
+});
