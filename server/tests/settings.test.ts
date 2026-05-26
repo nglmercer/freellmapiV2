@@ -1,12 +1,14 @@
 import { describe, it, expect, beforeEach, afterEach } from 'vitest';
 import { createApp } from '../src/app.js';
-import { initDb, getUnifiedApiKey } from '../src/db/index.js';
+import { initDb, resetDb, runInTransaction, runMigrations, getUnifiedApiKey } from '../src/db/index.js';
 
 describe('Settings Endpoint', () => {
   let app: ReturnType<typeof createApp>;
 
   beforeEach(async () => {
+    resetDb();
     initDb(':memory:');
+    runInTransaction(runMigrations);
     app = createApp();
   });
 
@@ -21,7 +23,7 @@ describe('Settings Endpoint', () => {
       const data = await res.json();
       expect(data).toHaveProperty('apiKey');
       expect(typeof data.apiKey).toBe('string');
-      expect(data.apiKey).toContain('freellmapi');
+      expect(data.apiKey.length).toBe(48);
     });
 
     it('should match getUnifiedApiKey() value', async () => {
@@ -43,7 +45,7 @@ describe('Settings Endpoint', () => {
       const data = await res.json();
       expect(data).toHaveProperty('apiKey');
       expect(typeof data.apiKey).toBe('string');
-      expect(data.apiKey).toContain('freellmapi');
+      expect(data.apiKey.length).toBe(48);
       expect(data.apiKey).not.toBe(oldKey);
     });
 

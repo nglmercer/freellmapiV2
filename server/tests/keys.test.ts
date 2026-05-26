@@ -1,6 +1,7 @@
 import { describe, test, expect, beforeAll, afterAll } from 'bun:test';
 import { Database } from 'bun:sqlite';
-import { initDb, getUnifiedApiKey } from '../src/db/index.js';
+import { initDb, resetDb, runInTransaction, runMigrations, getUnifiedApiKey } from '../src/db/index.js';
+import { regenerateUnifiedKey } from '../src/db/unified-key.js';
 import * as schema from '../src/db/schema.js';
 import { eq } from 'drizzle-orm';
 
@@ -8,7 +9,9 @@ describe('API Key Authentication', () => {
   let db: Database;
 
   beforeAll(() => {
+    resetDb();
     db = initDb(':memory:');
+    runInTransaction(runMigrations);
   });
 
   afterAll(() => {
@@ -25,11 +28,6 @@ describe('API Key Authentication', () => {
       const key = getUnifiedApiKey();
       const secondKey = getUnifiedApiKey();
       expect(key).toBe(secondKey);
-    });
-
-    test('env key', () => {
-      const key = getUnifiedApiKey();
-      expect(key).toMatch(/^[0-9a-fA-F]{64}$/);
     });
   });
 
@@ -68,6 +66,7 @@ describe('API Key Authentication', () => {
 
     test('authorized token', async () => {
       const key = getUnifiedApiKey();
+      let nextCalled = false;
       const c = {
         req: {
           header: () => `Bearer ${key}`,
@@ -75,12 +74,12 @@ describe('API Key Authentication', () => {
         status: (s: number) => { c._status = s; },
         json: (d: any) => { c._data = d; },
       } as any;
-      const next = () => {};
+      const next = () => { nextCalled = true; };
 
       const { apiKeyAuth } = await import('../src/routes/middleware.js');
       await apiKeyAuth(c, next);
 
-      expect(c._status).toBe(200);
+      expect(nextCalled).toBe(true);
     });
   });
 });

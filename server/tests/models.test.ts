@@ -1,12 +1,33 @@
 import { describe, it, expect, beforeEach, afterEach } from 'vitest';
 import { createApp } from '../src/app.js';
-import { initDb } from '../src/db/index.js';
+import { initDb, resetDb, runInTransaction } from '../src/db/index.js';
+import { seedModels } from '../src/db/seed.js';
+import { migrateModels, migrateModelsV2 } from '../src/db/migrations-v1.js';
+import { migrateModelsV3Ranks, migrateModelsV4 } from '../src/db/migrations-v4.js';
+import { migrateModelsV5, migrateModelsV6, migrateModelsV7, migrateModelsV8, migrateModelsV9, migrateModelsV10, migrateModelsV11 } from '../src/db/migrations-v5.js';
+import { ensureUnifiedKey } from '../src/db/unified-key.js';
 
 describe('Models Endpoint', () => {
   let app: ReturnType<typeof createApp>;
 
   beforeEach(async () => {
+    resetDb();
     initDb(':memory:');
+    runInTransaction((tx) => {
+      seedModels(tx);
+      migrateModels(tx);
+      migrateModelsV2(tx);
+      migrateModelsV3Ranks(tx);
+      migrateModelsV4(tx);
+      migrateModelsV5(tx);
+      migrateModelsV6(tx);
+      migrateModelsV7(tx);
+      migrateModelsV8(tx);
+      migrateModelsV9(tx);
+      migrateModelsV10(tx);
+      migrateModelsV11(tx);
+      ensureUnifiedKey(tx);
+    });
     app = createApp();
   });
 

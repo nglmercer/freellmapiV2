@@ -3,6 +3,7 @@ import path from 'path';
 import { fileURLToPath } from 'url';
 import { existsSync, readFileSync, writeFileSync } from 'fs';
 import { randomBytes } from 'crypto';
+import { logger } from './lib/logger.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 
@@ -24,7 +25,7 @@ function ensureEncryptionKey(): void {
         `ENCRYPTION_KEY=${randomKey}`
       );
       writeFileSync(envPath, updatedContent, 'utf8');
-      console.log(`[ENV] Created .env with generated encryption key`);
+      logger.info('[ENV] Created .env with generated encryption key');
     } else {
       // Fallback: create a minimal .env file
       writeFileSync(
@@ -32,7 +33,7 @@ function ensureEncryptionKey(): void {
         `ENCRYPTION_KEY=${randomKey}\nPORT=3001\n`,
         'utf8'
       );
-      console.log(`[ENV] Created .env with generated encryption key (no .env.example found)`);
+      logger.info('[ENV] Created .env with generated encryption key (no .env.example found)');
     }
   } else {
     // .env exists, check if ENCRYPTION_KEY is present and valid
@@ -60,7 +61,7 @@ function ensureEncryptionKey(): void {
       } else {
         writeFileSync(envPath, updatedContent, 'utf8');
       }
-      console.log(`[ENV] Updated .env with generated encryption key`);
+      logger.info('[ENV] Updated .env with generated encryption key');
     }
   }
 }

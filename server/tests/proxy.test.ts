@@ -1,6 +1,6 @@
 import { describe, it, expect, beforeEach, afterEach } from 'vitest';
 import { createApp } from '../src/app.js';
-import { initDb, getUnifiedApiKey } from '../src/db/index.js';
+import { initDb, resetDb, runInTransaction, runMigrations, getUnifiedApiKey } from '../src/db/index.js';
 
 /**
  * Proxy tests.
@@ -13,7 +13,9 @@ describe('Proxy Endpoint', () => {
   let apiKey: string;
 
   beforeEach(async () => {
+    resetDb();
     initDb(':memory:');
+    runInTransaction(runMigrations);
     app = createApp();
     apiKey = getUnifiedApiKey();
   });

@@ -6,14 +6,15 @@
     "server",
     "client"
   ],
-"scripts": {
-     "dev": "cd server && bun run dev",
-     "test": "cd server && bun run test",
-     "build": "cd server && bun run build && cd ../client && bun run build",
-     "build:server": "cd server && bun run build",
-     "build:client": "cd client && bun run build"
-   },
+  "scripts": {
+    "dev": "cd server && bun run dev",
+    "test": "cd server && bun run test",
+    "build": "cd server && bun run build && cd ../client && bun run build",
+    "build:server": "cd server && bun run build",
+    "build:client": "cd client && bun run build"
+  },
   "devDependencies": {
+    "@types/bun": "^1.3.14",
     "concurrently": "^9.1.2"
   },
   "dependencies": {
