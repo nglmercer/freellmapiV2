@@ -1,17 +1,19 @@
 import { Hono } from 'hono';
 import { z } from 'zod';
 import { routeRequest, recordRateLimitHit, recordSuccess, type RouteResult } from '../services/router.js';
-import { apiKeyAuth, validateChatBody, normalizeMessages, estimateInputTokens, chatCompletionSchema } from './middleware';
+import { apiKeyAuth, validateChatBody, validateCompletionBody, normalizeMessages, estimateInputTokens, chatCompletionSchema, completionSchema } from './middleware';
 import { recordRequest, recordTokens, setCooldown, getStickyModel, setStickyModel } from '../services/ratelimit.js';
 import { getDb } from '../db/index.js';
 import { handleStreamingCompletion, handleStandardCompletion } from './streamHandler.js';
+import { handleCompletion } from './completions.js';
 import type { StatusCode } from 'hono/utils/http-status';
+import type { CompletionRequest } from '@freellmapi/shared/types.js';
 import * as schema from '../db/schema.js';
 import { eq, asc, and, sql } from 'drizzle-orm';
 
 declare module 'hono' {
   interface ContextVariableMap {
-    parsedData: z.infer<typeof chatCompletionSchema>;
+    parsedData: z.infer<typeof chatCompletionSchema> | z.infer<typeof completionSchema>;
   }
 }
 
@@ -92,10 +94,10 @@ function isRetryableError(err: unknown): boolean {
 
 proxyRouter.post('/chat/completions', apiKeyAuth, validateChatBody, async (c) => {
   const start = Date.now();
-  const data = c.get('parsedData');
+  const data = c.get('parsedData') as z.infer<typeof chatCompletionSchema>;
 
-  const { model: requestedModel, stream, messages: rawMessages, ...rest } = data;
-  const passthroughOptions = rest as typeof rest & { stream_options?: { include_usage?: boolean } };
+  const { model: requestedModel, stream, messages: rawMessages, n = 1, ...rest } = data;
+  const passthroughOptions = rest as typeof rest & { stream_options?: { include_usage?: boolean } }; 
   const messages = normalizeMessages(rawMessages);
 
   const estimatedInputTokens = estimateInputTokens(messages);
@@ -130,16 +132,48 @@ proxyRouter.post('/chat/completions', apiKeyAuth, validateChatBody, async (c) =>
           start,
           attempt
         });
-        // Record request only after the provider accepted it (pre-stream handshake passed)
         recordRequest(route.platform, route.modelId, route.keyId);
         return result;
+      } else if (n > 1) {
+        const results = await Promise.all(
+          Array.from({ length: n }, () =>
+            route.provider.chatCompletion(route.apiKey, messages, route.modelId, passthroughOptions)
+          )
+        );
+        const mergedChoices = results.flatMap((r, i) =>
+          r.choices.map(ch => ({ ...ch, index: ch.index + i * r.choices.length }))
+        );
+        const totalUsage = results.reduce(
+          (acc, r) => {
+            acc.prompt_tokens += r.usage?.prompt_tokens ?? 0;
+            acc.completion_tokens += r.usage?.completion_tokens ?? 0;
+            acc.total_tokens += r.usage?.total_tokens ?? 0;
+            return acc;
+          },
+          { prompt_tokens: 0, completion_tokens: 0, total_tokens: 0 }
+        );
+
+        recordTokens(route.platform, route.modelId, route.keyId, totalUsage.total_tokens);
+        recordSuccess(route.modelDbId);
+        setStickyModel(messages, route.modelDbId);
+        recordRequest(route.platform, route.modelId, route.keyId);
+
+        c.header('X-Routed-Via', `${route.platform}/${route.modelId}`);
+        if (attempt > 0) c.header('X-Fallback-Attempts', String(attempt));
+        return c.json({
+          id: results[0]!.id,
+          object: 'chat.completion',
+          created: Math.floor(Date.now() / 1000),
+          model: route.modelId,
+          choices: mergedChoices,
+          usage: totalUsage,
+        });
       } else {
         const result = await handleStandardCompletion(c, route, {
           messages,
           options: passthroughOptions,
           attempt
         });
-        // Record request only after the provider returned a successful response
         recordRequest(route.platform, route.modelId, route.keyId);
         return result;
       }
@@ -195,6 +229,13 @@ proxyRouter.post('/chat/completions', apiKeyAuth, validateChatBody, async (c) =>
   c.status(429);
   return c.json({ error: { message: `All models rate-limited after ${MAX_RETRIES} attempts. Last: ${lastError}`, type: 'rate_limit_error' } });
 });
+
+// Legacy /v1/completions endpoint — wraps chat completions
+proxyRouter.post('/completions', apiKeyAuth, validateCompletionBody, async (c) => {
+  const data = c.get('parsedData') as z.infer<typeof completionSchema>;
+  return handleCompletion(c, data);
+});
+
 function logRequest(
   platform: string,
   modelId: string,

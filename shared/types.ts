@@ -71,6 +71,15 @@ export interface FallbackEntry {
 
 // ---- OpenAI-Compatible Types ----
 
+export interface ContentPart {
+  type: string;
+  text?: string;
+  image_url?: {
+    url: string;
+    detail?: string;
+  };
+}
+
 export interface ChatToolCallFunction {
   name: string;
   arguments: string;
@@ -108,7 +117,7 @@ export type ChatToolChoice =
 
 export interface ChatMessage {
   role: 'system' | 'user' | 'assistant' | 'tool';
-  content: string | null;
+  content: string | ContentPart[] | null;
   name?: string;
   tool_call_id?: string;
   tool_calls?: ChatToolCall[];
@@ -119,6 +128,7 @@ export interface ChatCompletionRequest {
   messages: ChatMessage[];
   temperature?: number;
   max_tokens?: number;
+  n?: number;
   stream?: boolean;
   stream_options?: {
     include_usage?: boolean;
@@ -127,6 +137,59 @@ export interface ChatCompletionRequest {
   tools?: ChatToolDefinition[];
   tool_choice?: ChatToolChoice;
   parallel_tool_calls?: boolean;
+}
+
+// ---- OpenAI-Compatible Completions (Legacy) ----
+
+export interface CompletionRequest {
+  model: string;
+  prompt: string[];
+  suffix?: string;
+  max_tokens?: number;
+  temperature?: number;
+  top_p?: number;
+  n?: number;
+  stream?: boolean;
+  stream_options?: {
+    include_usage?: boolean;
+  };
+  stop?: string[];
+  echo?: boolean;
+  best_of?: number;
+}
+
+export interface CompletionChoice {
+  text: string;
+  index: number;
+  logprobs: null;
+  finish_reason: string | null;
+}
+
+export interface CompletionResponse {
+  id: string;
+  object: 'text_completion';
+  created: number;
+  model: string;
+  choices: CompletionChoice[];
+  usage: TokenUsage;
+  _routed_via?: {
+    platform: Platform;
+    model: string;
+  };
+}
+
+export interface CompletionChunk {
+  id: string;
+  object: 'text_completion.chunk';
+  created: number;
+  model: string;
+  choices: {
+    text: string;
+    index: number;
+    logprobs: null;
+    finish_reason: string | null;
+  }[];
+  usage?: TokenUsage;
 }
 
 export interface ChatCompletionChoice {

@@ -6,6 +6,7 @@ import type {
   ChatToolChoice,
   ChatToolDefinition,
   TokenUsage,
+  ContentPart,
 } from '@freellmapi/shared/types.js';
 import { BaseProvider, type CompletionOptions } from './base.js';
 
@@ -13,6 +14,14 @@ const API_BASE = 'https://generativelanguage.googleapis.com/v1beta';
 
 interface GeminiPart {
   text?: string;
+  inlineData?: {
+    mimeType: string;
+    data: string;
+  };
+  fileData?: {
+    mimeType: string;
+    fileUri: string;
+  };
   thoughtSignature?: string;
   functionCall?: {
     id?: string;
@@ -162,7 +171,7 @@ function toGeminiContents(messages: ChatMessage[]) {
 
       return {
         role: 'user',
-        parts: [{ text: typeof m.content === 'string' ? m.content : '' }],
+        parts: contentToGeminiParts(m.content),
       };
     })
     .filter((entry): entry is { role: 'user' | 'model'; parts: GeminiPart[] } => entry !== null);
@@ -173,6 +182,47 @@ function toGeminiContents(messages: ChatMessage[]) {
       ? { parts: [{ text: systemMessages.join('\n\n') }] }
       : undefined,
   };
+}
+
+function contentToGeminiParts(content: string | ContentPart[] | null): GeminiPart[] {
+  if (typeof content === 'string') return [{ text: content }];
+  if (Array.isArray(content)) {
+    const parts: GeminiPart[] = [];
+    for (const part of content) {
+      if (part.type === 'text' && typeof part.text === 'string') {
+        parts.push({ text: part.text });
+      } else if (part.type === 'image_url' && part.image_url) {
+        const url = part.image_url.url;
+        if (url.startsWith('data:')) {
+          const comma = url.indexOf(',');
+          const header = url.slice(0, comma);
+          const mimeMatch = header.match(/data:(image\/\w+);base64/);
+          const mimeType = mimeMatch?.[1] ?? 'image/jpeg';
+          const data = url.slice(comma + 1);
+          parts.push({ inlineData: { mimeType, data } });
+        } else {
+          const mimeType = guessMimeType(url);
+          parts.push({ fileData: { mimeType, fileUri: url } });
+        }
+      }
+    }
+    return parts.length > 0 ? parts : [{ text: '' }];
+  }
+  return [{ text: '' }];
+}
+
+function guessMimeType(url: string): string {
+  const ext = url.split('.').pop()?.toLowerCase() ?? '';
+  const mimeMap: Record<string, string> = {
+    png: 'image/png',
+    jpg: 'image/jpeg',
+    jpeg: 'image/jpeg',
+    gif: 'image/gif',
+    webp: 'image/webp',
+    bmp: 'image/bmp',
+    svg: 'image/svg+xml',
+  };
+  return mimeMap[ext] ?? 'image/png';
 }
 
 function extractToolCalls(parts: GeminiPart[] | undefined): ChatToolCall[] {
