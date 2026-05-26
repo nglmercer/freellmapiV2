@@ -6,7 +6,6 @@
 
 Aggregate the free tiers from Google, Groq, Cerebras, SambaNova, NVIDIA, Mistral, OpenRouter, GitHub Models, Cohere, Cloudflare, and Z.ai (Zhipu) behind a single `/v1/chat/completions` endpoint. Keys are stored encrypted. A router picks the best available model for each request, falls over to the next provider when one is rate-limited, and tracks per-key usage so you stay under every free-tier cap.
 
-[![CI](https://github.com/tashfeenahmed/freellmapi/actions/workflows/ci.yml/badge.svg)](https://github.com/tashfeenahmed/freellmapi/actions/workflows/ci.yml)
 [![License: MIT](https://img.shields.io/badge/License-MIT-green.svg)](./LICENSE)
 [![PRs Welcome](https://img.shields.io/badge/PRs-welcome-brightgreen.svg)](#contributing)
 
@@ -16,20 +15,7 @@ Aggregate the free tiers from Google, Groq, Cerebras, SambaNova, NVIDIA, Mistral
 
 ---
 
-## Contents
 
-- [Why this exists](#why-this-exists)
-- [Supported providers](#supported-providers)
-- [Features](#features)
-- [Not yet supported](#not-yet-supported)
-- [Quick start](#quick-start)
-- [Using the API](#using-the-api)
-- [Screenshots](#screenshots)
-- [How it works](#how-it-works)
-- [Limitations](#limitations)
-- [Contributing](#contributing)
-- [Terms of Service review](#terms-of-service-review)
-- [Disclaimer](#disclaimer)
 
 ## Why this exists
 
