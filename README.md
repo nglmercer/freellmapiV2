@@ -76,4 +76,18 @@ The scope is deliberately narrow. If a feature isn't on this list, assume it isn
 
 PRs that add any of these are very welcome. See [Contributing](#contributing).
 
+## Quick start
+
+`getmodelsapi` lives in a git submodule, so a plain `bun install` after a fresh `git clone` will fail with `Workspace not found "getmodelsapi"` (bun validates workspace paths before running any `preinstall` hook). Use the bundled `setup` script instead — it initializes the submodule (with a `git clone` fallback for repos where the submodule isn't fully wired up) and then runs `bun install`:
+
+```bash
+git clone https://github.com/nglmercer/freellmapiV2
+cd freellmapiV2
+bun run setup      # inits the getmodelsapi submodule, runs bun install, seeds .env
+cp .env .env.local # optional — keep secrets out of the tracked file
+bun run dev
+```
+
+If you already ran `git clone --recurse-submodules`, you can skip straight to `bun install`.
+
 [MIT](./LICENSE)
