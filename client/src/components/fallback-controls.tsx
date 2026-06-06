@@ -1,11 +1,12 @@
 import { useState, useMemo, useId } from 'react'
 import { useTranslation } from 'react-i18next'
 import { useMutation, useQueryClient } from '@tanstack/react-query'
-import { Search, X, ChevronDown, Check } from 'lucide-react'
+import { Search, X, ChevronDown } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
+import { ConfirmDialog } from '@/components/confirm-dialog'
 import { apiFetch } from '@/lib/api'
 import type { FallbackEntry, FallbackFilters, SortPreset, TierFilter, StateFilter, RankingFilter } from './fallback-filters'
 import { EMPTY_FILTERS, isRanked } from './fallback-filters'
@@ -110,7 +111,10 @@ export function ControlsPanel({
   const hasFreeModels = counts.free > 0
   const isBusy = bulkMutation.isPending || sortMutation.isPending
 
-  const pendingLabel = pendingConfirm
+  const confirmTitle = pendingConfirm
+    ? t(`fallback.bulk.confirm.title.${pendingConfirm}`)
+    : ''
+  const confirmDescription = pendingConfirm
     ? t(`fallback.bulk.confirm.${pendingConfirm}`)
     : ''
 
@@ -290,28 +294,19 @@ export function ControlsPanel({
       </div>
 
       {pendingConfirm && (
-        <div className="rounded-md border border-amber-300 dark:border-amber-700 bg-amber-50 dark:bg-amber-950/30 p-3 flex flex-wrap items-center justify-between gap-3">
-          <p className="text-sm flex-1 min-w-0">{pendingLabel}</p>
-          <div className="flex items-center gap-2">
-            <Button
-              variant="ghost"
-              size="sm"
-              onClick={() => setPendingConfirm(null)}
-              disabled={bulkMutation.isPending}
-            >
-              {t('fallback.bulk.cancel')}
-            </Button>
-            <Button
-              size="sm"
-              onClick={() => bulkMutation.mutate(pendingConfirm)}
-              disabled={bulkMutation.isPending}
-              className="gap-1"
-            >
-              <Check className="size-3.5" />
-              {t('fallback.bulk.proceed')}
-            </Button>
-          </div>
-        </div>
+        <ConfirmDialog
+          open={!!pendingConfirm}
+          onOpenChange={(open) => {
+            if (!open && !bulkMutation.isPending) setPendingConfirm(null)
+          }}
+          title={confirmTitle}
+          description={confirmDescription}
+          confirmLabel={t('fallback.bulk.proceed')}
+          cancelLabel={t('fallback.bulk.cancel')}
+          variant={pendingConfirm === 'disableAll' ? 'danger' : 'default'}
+          busy={bulkMutation.isPending}
+          onConfirm={() => bulkMutation.mutate(pendingConfirm)}
+        />
       )}
     </section>
   )

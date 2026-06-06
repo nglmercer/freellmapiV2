@@ -11,6 +11,12 @@
     },
     "initialSetup": "Initial Setup"
   },
+  "common": {
+    "cancel": "Cancel",
+    "confirm": "Confirm",
+    "loading": "Loading…",
+    "close": "Close"
+  },
   "setup": {
     "welcome": {
       "title": "Welcome to FreeLLMAPI",
@@ -212,6 +218,11 @@
       "disableAll": "Disable all",
       "enableFree": "Enable free only",
       "confirm": {
+        "title": {
+          "disableAll": "Disable all models?",
+          "enableAll": "Enable all models?",
+          "enableFree": "Enable free models only?"
+        },
         "disableAll": "Disable every model? Routing will stop until you re-enable at least one.",
         "enableAll": "Enable every model in the catalog, including paid ones?",
         "enableFree": "Disable every paid model and enable only free ones?"

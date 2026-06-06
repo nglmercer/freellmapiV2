@@ -11,6 +11,12 @@
     },
     "initialSetup": "Configuración inicial"
   },
+  "common": {
+    "cancel": "Cancelar",
+    "confirm": "Confirmar",
+    "loading": "Cargando…",
+    "close": "Cerrar"
+  },
   "setup": {
     "welcome": {
       "title": "Bienvenido a FreeLLMAPI",
@@ -212,6 +218,11 @@
       "disableAll": "Deshabilitar todos",
       "enableFree": "Habilitar solo gratuitos",
       "confirm": {
+        "title": {
+          "disableAll": "¿Deshabilitar todos los modelos?",
+          "enableAll": "¿Habilitar todos los modelos?",
+          "enableFree": "¿Habilitar solo los modelos gratuitos?"
+        },
         "disableAll": "¿Deshabilitar todos los modelos? El enrutamiento se detendrá hasta que habilites al menos uno.",
         "enableAll": "¿Habilitar todos los modelos del catálogo, incluidos los de pago?",
         "enableFree": "¿Deshabilitar todos los modelos de pago y habilitar solo los gratuitos?"
