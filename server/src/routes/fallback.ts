@@ -97,35 +97,49 @@ fallbackRouter.put('/', async (c) => {
   return c.json({ success: true });
 });
 
-// Sort presets — `orderBy` is selected from a fixed whitelist, never from
-// user input directly, so the interpolation below is safe.
-const SORT_PRESETS: Record<string, any> = {
-  intelligence: asc(schema.models.intelligenceRank),
-  speed: asc(schema.models.speedRank),
-  budget: sql`CASE ${schema.models.monthlyTokenBudget} WHEN '~120M' THEN 1 WHEN '~50-100M' THEN 2 WHEN '~30M' THEN 3 WHEN '~18-45M' THEN 4 WHEN '~18M' THEN 5 WHEN '~15M' THEN 6 WHEN '~12M' THEN 7 WHEN '~6M' THEN 8 WHEN '~5-10M' THEN 9 WHEN '~4M' THEN 10 ELSE 11 END ASC`,
-};
+function parseBudgetValue(s: string): number {
+  if (!s) return 0;
+  const m = s.match(/~?([\d.]+)(?:-([\d.]+))?([MK])?/);
+  if (!m || !m[1]) return 0;
+  const value = m[2] ?? m[1];
+  const high = parseFloat(value);
+  const unit = m[3] === 'M' ? 1_000_000 : m[3] === 'K' ? 1_000 : 1;
+  return high * unit;
+}
 
 fallbackRouter.post('/sort/:preset', async (c) => {
   const preset = String(c.req.param('preset'));
-  const orderBy = SORT_PRESETS[preset];
-  if (!orderBy) {
+  if (!['intelligence', 'speed', 'budget'].includes(preset)) {
     c.status(400)
     return c.json({ error: { message: `Unknown preset: ${preset}. Use: intelligence, speed, budget` } });
   }
 
   const db = getDb();
-  const models = db.select({ id: schema.models.id })
-    .from(schema.models)
-    .orderBy(orderBy)
+  const rows = db.select({
+    id: schema.fallbackConfig.modelDbId,
+    intelligenceRank: schema.models.intelligenceRank,
+    speedRank: schema.models.speedRank,
+    monthlyTokenBudget: schema.models.monthlyTokenBudget,
+  })
+    .from(schema.fallbackConfig)
+    .innerJoin(schema.models, eq(schema.models.id, schema.fallbackConfig.modelDbId))
     .all();
 
+  const sorted = [...rows].sort((a, b) => {
+    let cmp = 0;
+    if (preset === 'intelligence') cmp = a.intelligenceRank - b.intelligenceRank;
+    else if (preset === 'speed') cmp = a.speedRank - b.speedRank;
+    else cmp = parseBudgetValue(b.monthlyTokenBudget) - parseBudgetValue(a.monthlyTokenBudget);
+    return cmp !== 0 ? cmp : a.id - b.id;
+  });
+
   runInTransaction(() => {
-    for (let i = 0; i < models.length; i++) {
-      const model = models[i];
-      if (!model) continue;
+    for (let i = 0; i < sorted.length; i++) {
+      const row = sorted[i];
+      if (!row) continue;
       db.update(schema.fallbackConfig)
         .set({ priority: i + 1 })
-        .where(eq(schema.fallbackConfig.modelDbId, model.id))
+        .where(eq(schema.fallbackConfig.modelDbId, row.id))
         .run();
     }
   });
