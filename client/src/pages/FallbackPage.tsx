@@ -230,6 +230,20 @@ export default function FallbackPage() {
     },
   })
 
+  const syncMutation = useMutation({
+    mutationFn: () => apiFetch<{ added?: number; updated?: number; disabled?: number }>('/api/models/sync', { method: 'POST' }),
+    onSuccess: (data) => {
+      queryClient.invalidateQueries({ queryKey: ['fallback'] })
+      queryClient.invalidateQueries({ queryKey: ['fallback', 'token-usage'] })
+      const parts = []
+      if (data.added) parts.push(`+${data.added} added`)
+      if (data.updated) parts.push(`${data.updated} updated`)
+      if (data.disabled) parts.push(`−${data.disabled} removed`)
+      if (parts.length === 0) parts.push('no changes')
+      console.log(`[Model sync] ${parts.join(', ')}`)
+    },
+  })
+
   const allEntries = localEntries ?? entries
   const displayEntries = allEntries.filter(e => e.keyCount > 0)
   const unconfiguredPlatforms = [...new Set(allEntries.filter(e => e.keyCount === 0).map(e => e.platform))]
@@ -293,6 +307,9 @@ export default function FallbackPage() {
         description="Drag to reorder. Requests try models top-to-bottom until one succeeds."
         actions={
           <>
+            <Button variant="outline" size="sm" onClick={() => syncMutation.mutate()} disabled={syncMutation.isPending}>
+              {syncMutation.isPending ? 'Syncing…' : 'Sync models'}
+            </Button>
             <Button variant="outline" size="sm" onClick={() => sortMutation.mutate('intelligence')} disabled={sortMutation.isPending}>
               Sort by intelligence
             </Button>
