@@ -254,7 +254,8 @@ const bulkSchema = z.object({
   confirm: z.literal(true),
 });
 
-async function readBodyConfirm(c: { req: { json: () => Promise<unknown> }; status: (n: number) => unknown; json: (d: unknown) => unknown }): Promise<boolean> {
+/** Parse and validate the { confirm: true } body. Returns a sentinel on failure. */
+async function parseBulkConfirm(c: any): Promise<{ ok: true } | { ok: false; status: number; body: unknown }> {
   let body: unknown = {};
   try {
     body = await c.req.json();
@@ -262,24 +263,24 @@ async function readBodyConfirm(c: { req: { json: () => Promise<unknown> }; statu
     body = {};
   }
   if (typeof body !== 'object' || body === null) {
-    c.status(400);
-    c.json({ error: { message: 'Invalid body. Expected { "confirm": true }.' } });
-    return false;
+    return { ok: false, status: 400, body: { error: { message: 'Invalid body. Expected { "confirm": true }.' } } };
   }
   const parsed = bulkSchema.safeParse(body);
   if (!parsed.success) {
-    c.status(400);
-    c.json({ error: { message: 'Missing confirm: true. Bulk actions are destructive and require explicit confirmation.' } });
-    return false;
+    return { ok: false, status: 400, body: { error: { message: 'Missing confirm: true. Bulk actions are destructive and require explicit confirmation.' } } };
   }
-  return true;
+  return { ok: true };
 }
 
 // POST /api/models/disable-all
 // Disable every model in the catalog and remove every row from
 // fallback_config.enabled = 0. The router will then have no models to try.
 modelsRouter.post('/disable-all', async (c) => {
-  if (!(await readBodyConfirm(c))) return;
+  const confirm = await parseBulkConfirm(c);
+  if (!confirm.ok) {
+    c.status(confirm.status);
+    return c.json(confirm.body);
+  }
   const db = getDb();
   const r1 = db.update(schema.models).set({ enabled: 0 }).run() as unknown as { changes: number };
   const r2 = db.update(schema.fallbackConfig).set({ enabled: 0 }).run() as unknown as { changes: number };
@@ -290,7 +291,11 @@ modelsRouter.post('/disable-all', async (c) => {
 // Enable every model in the catalog and re-enable every fallback entry.
 // Useful as a "reset" after bulk-disable or after seeding.
 modelsRouter.post('/enable-all', async (c) => {
-  if (!(await readBodyConfirm(c))) return;
+  const confirm = await parseBulkConfirm(c);
+  if (!confirm.ok) {
+    c.status(confirm.status);
+    return c.json(confirm.body);
+  }
   const db = getDb();
   const r1 = db.update(schema.models).set({ enabled: 1 }).run() as unknown as { changes: number };
   const r2 = db.update(schema.fallbackConfig).set({ enabled: 1 }).run() as unknown as { changes: number };
@@ -304,7 +309,11 @@ modelsRouter.post('/enable-all', async (c) => {
 // from getmodelsapi (which sets it from `:free` / `free` markers in the
 // model id) — never inferred locally.
 modelsRouter.post('/enable-free', async (c) => {
-  if (!(await readBodyConfirm(c))) return;
+  const confirm = await parseBulkConfirm(c);
+  if (!confirm.ok) {
+    c.status(confirm.status);
+    return c.json(confirm.body);
+  }
   const db = getDb();
   const r1 = db
     .update(schema.models)
@@ -323,16 +332,23 @@ modelsRouter.post('/enable-free', async (c) => {
     .where(eq(schema.models.freeTier, 1))
     .all()
     .map((r) => r.id);
-  const r3 = db
-    .update(schema.fallbackConfig)
-    .set({ enabled: 1 })
-    .where(inArray(schema.fallbackConfig.modelDbId, freeIds))
-    .run() as unknown as { changes: number };
-  const r4 = db
-    .update(schema.fallbackConfig)
-    .set({ enabled: 0 })
-    .where(notInArray(schema.fallbackConfig.modelDbId, freeIds))
-    .run() as unknown as { changes: number };
+  const r3 = freeIds.length > 0
+    ? (db
+        .update(schema.fallbackConfig)
+        .set({ enabled: 1 })
+        .where(inArray(schema.fallbackConfig.modelDbId, freeIds))
+        .run() as unknown as { changes: number })
+    : { changes: 0 };
+  const r4 = freeIds.length > 0
+    ? (db
+        .update(schema.fallbackConfig)
+        .set({ enabled: 0 })
+        .where(notInArray(schema.fallbackConfig.modelDbId, freeIds))
+        .run() as unknown as { changes: number })
+    : (db
+        .update(schema.fallbackConfig)
+        .set({ enabled: 0 })
+        .run() as unknown as { changes: number });
   return c.json({
     success: true,
     freeEnabled: r1.changes,
