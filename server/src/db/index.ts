@@ -5,6 +5,8 @@ import { ensureFallbackEntries } from './seed.js';
 import { migrateModels, migrateModelsV2 } from './migrations-v1.js';
 import { migrateModelsV3Ranks, migrateModelsV4 } from './migrations-v4.js';
 import { migrateModelsV5, migrateModelsV6, migrateModelsV7, migrateModelsV8, migrateModelsV9, migrateModelsV10, migrateModelsV11 } from './migrations-v5.js';
+import { migrateModelsV12 } from './migrations-v12.js';
+import { migrateModelsV13 } from './migrations-v13.js';
 import { ensureUnifiedKey, getUnifiedApiKey, regenerateUnifiedKey } from './unified-key.js';
 
 export { DB_PATH };
@@ -24,6 +26,8 @@ function runMigrations(tx: Transaction): void {
   migrateModelsV9(tx);
   migrateModelsV10(tx);
   migrateModelsV11(tx);
+  migrateModelsV12(tx);
+  migrateModelsV13(tx);
   ensureUnifiedKey(tx);
 }
 

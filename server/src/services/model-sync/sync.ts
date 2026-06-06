@@ -3,6 +3,7 @@ import { getDb, runInTransaction } from '../../db/index.js';
 import * as schema from '../../db/schema.js';
 import { eq, and, max } from 'drizzle-orm';
 import { getPlatformByProvider, CURATION_DEFAULTS } from './mappings.js';
+import { enrichRankings } from '../rankings/enrich.js';
 
 export interface SyncChange {
   changeType: 'added' | 'updated' | 'disabled' | 'free_to_paid' | 'paid_to_free' | 'stored';
@@ -21,6 +22,14 @@ export interface SyncResult {
   paidToFree: number;
   storedDisabled: number;
   changes: SyncChange[];
+  enrich?: {
+    scanned: number;
+    updated: number;
+    skipped: number;
+    source: string;
+    durationMs: number;
+    errors: string[];
+  };
 }
 
 function insertSyncChanges(
@@ -217,6 +226,27 @@ export async function syncModels(): Promise<SyncResult> {
       paidToFree: result.paidToFree,
       storedDisabled: result.storedDisabled,
     }).where(eq(schema.syncLog.id, logId)).run();
+
+    // Refresh intelligence/speed rankings from real benchmark sources.
+    // Failures are non-fatal — sync succeeded, enrichment is best-effort
+    // and can be re-triggered via POST /api/models/enrich-rankings.
+    try {
+      const enrichResult = await enrichRankings();
+      result.enrich = {
+        scanned: enrichResult.scanned,
+        updated: enrichResult.updated,
+        skipped: enrichResult.skipped,
+        source: enrichResult.source,
+        durationMs: enrichResult.durationMs,
+        errors: enrichResult.errors,
+      };
+      console.log(
+        `[ModelSync] Enrichment done: ${enrichResult.updated}/${enrichResult.scanned} ranked from ${enrichResult.source} in ${enrichResult.durationMs}ms`,
+      );
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : String(err);
+      console.warn(`[ModelSync] Enrichment failed (non-fatal): ${msg}`);
+    }
 
     return result;
   } catch (err) {

@@ -19,6 +19,10 @@ fallbackRouter.get('/', async (c) => {
     displayName: schema.models.displayName,
     intelligenceRank: schema.models.intelligenceRank,
     speedRank: schema.models.speedRank,
+    intelligenceScore: schema.models.intelligenceScore,
+    speedTokensPerSec: schema.models.speedTokensPerSec,
+    rankingSource: schema.models.rankingSource,
+    lastRankedAt: schema.models.lastRankedAt,
     sizeLabel: schema.models.sizeLabel,
     rpmLimit: schema.models.rpmLimit,
     rpdLimit: schema.models.rpdLimit,
@@ -59,6 +63,10 @@ fallbackRouter.get('/', async (c) => {
       displayName: r.displayName,
       intelligenceRank: r.intelligenceRank,
       speedRank: r.speedRank,
+      intelligenceScore: r.intelligenceScore,
+      speedTokensPerSec: r.speedTokensPerSec,
+      rankingSource: r.rankingSource,
+      lastRankedAt: r.lastRankedAt,
       sizeLabel: r.sizeLabel,
       rpmLimit: r.rpmLimit,
       rpdLimit: r.rpdLimit,
@@ -119,6 +127,8 @@ fallbackRouter.post('/sort/:preset', async (c) => {
     id: schema.fallbackConfig.modelDbId,
     intelligenceRank: schema.models.intelligenceRank,
     speedRank: schema.models.speedRank,
+    intelligenceScore: schema.models.intelligenceScore,
+    speedTokensPerSec: schema.models.speedTokensPerSec,
     monthlyTokenBudget: schema.models.monthlyTokenBudget,
   })
     .from(schema.fallbackConfig)
@@ -127,8 +137,24 @@ fallbackRouter.post('/sort/:preset', async (c) => {
 
   const sorted = [...rows].sort((a, b) => {
     let cmp = 0;
-    if (preset === 'intelligence') cmp = a.intelligenceRank - b.intelligenceRank;
-    else if (preset === 'speed') cmp = a.speedRank - b.speedRank;
+    if (preset === 'intelligence') {
+      // Prefer real benchmark score when available; fall back to the ordinal
+      // rank assigned by the enrichment service.
+      const aHas = a.intelligenceScore != null;
+      const bHas = b.intelligenceScore != null;
+      if (aHas && bHas) cmp = (b.intelligenceScore as number) - (a.intelligenceScore as number);
+      else if (aHas) return -1;
+      else if (bHas) return 1;
+      else cmp = a.intelligenceRank - b.intelligenceRank;
+    }
+    else if (preset === 'speed') {
+      const aHas = a.speedTokensPerSec != null;
+      const bHas = b.speedTokensPerSec != null;
+      if (aHas && bHas) cmp = (b.speedTokensPerSec as number) - (a.speedTokensPerSec as number);
+      else if (aHas) return -1;
+      else if (bHas) return 1;
+      else cmp = a.speedRank - b.speedRank;
+    }
     else cmp = parseBudgetValue(b.monthlyTokenBudget) - parseBudgetValue(a.monthlyTokenBudget);
     return cmp !== 0 ? cmp : a.id - b.id;
   });

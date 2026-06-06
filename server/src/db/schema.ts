@@ -6,8 +6,17 @@ export const models = sqliteTable('models', {
   platform: text('platform').notNull(),
   modelId: text('model_id').notNull(),
   displayName: text('display_name').notNull(),
+  // Fallback ordering: 1 = best/highest priority, 99 = unranked.
+  // Populated from external benchmark sources via
+  // server/src/services/rankings/enrich.ts — never hardcoded.
   intelligenceRank: integer('intelligence_rank').notNull(),
   speedRank: integer('speed_rank').notNull(),
+  // Raw benchmark values from the source that produced the rank. Null until
+  // the enrichment service has fetched real data for this row.
+  intelligenceScore: real('intelligence_score'),
+  speedTokensPerSec: real('speed_tokens_per_sec'),
+  rankingSource: text('ranking_source'),
+  lastRankedAt: text('last_ranked_at'),
   sizeLabel: text('size_label').notNull().default(''),
   rpmLimit: integer('rpm_limit'),
   rpdLimit: integer('rpd_limit'),
@@ -27,6 +36,7 @@ export const models = sqliteTable('models', {
   source: text('source').notNull().default('manual'),
 }, (table) => ({
   unq: uniqueIndex('models_platform_model_id_unique').on(table.platform, table.modelId),
+  rankedAtIdx: index('idx_models_last_ranked_at').on(table.lastRankedAt),
 }));
 
 export const syncLog = sqliteTable('sync_log', {

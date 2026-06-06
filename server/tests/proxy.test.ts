@@ -1,6 +1,7 @@
 import { describe, it, expect, beforeEach, afterEach } from 'bun:test';
 import { createApp } from '../src/app.js';
 import { initDb, resetDb, runInTransaction, runMigrations, getUnifiedApiKey } from '../src/db/index.js';
+import { seedTestModels } from '../src/db/test-fixtures.js';
 
 /**
  * Proxy tests.
@@ -15,7 +16,10 @@ describe('Proxy Endpoint', () => {
   beforeEach(async () => {
     resetDb();
     initDb(':memory:');
-    runInTransaction(runMigrations);
+    runInTransaction((tx) => {
+      runMigrations(tx);
+      seedTestModels(tx);
+    });
     app = createApp();
     apiKey = getUnifiedApiKey();
   });

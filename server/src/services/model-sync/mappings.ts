@@ -1,4 +1,5 @@
 import type { Platform } from '@freellmapi/shared/types.js';
+import { UNRANKED_INTELLIGENCE, UNRANKED_SPEED } from '../../db/seed.js';
 
 export const PROVIDER_TO_PLATFORM: Record<string, Platform | null> = {
   google: 'google',
@@ -14,9 +15,13 @@ export const PROVIDER_TO_PLATFORM: Record<string, Platform | null> = {
   huggingface: null,
 };
 
+// Sentinels used when no real benchmark has been applied. The enrichment
+// service (server/src/services/rankings/enrich.ts) overwrites these with
+// real scores fetched from external sources. There is intentionally no
+// name-based fallback here — see enrich.ts for the rationale.
 export const CURATION_DEFAULTS = {
-  intelligenceRank: 99,
-  speedRank: 10,
+  intelligenceRank: UNRANKED_INTELLIGENCE,
+  speedRank: UNRANKED_SPEED,
   sizeLabel: '',
   rpmLimit: null as number | null,
   rpdLimit: null as number | null,

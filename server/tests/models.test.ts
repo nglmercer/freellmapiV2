@@ -5,7 +5,10 @@ import { seedModels } from '../src/db/seed.js';
 import { migrateModels, migrateModelsV2 } from '../src/db/migrations-v1.js';
 import { migrateModelsV3Ranks, migrateModelsV4 } from '../src/db/migrations-v4.js';
 import { migrateModelsV5, migrateModelsV6, migrateModelsV7, migrateModelsV8, migrateModelsV9, migrateModelsV10, migrateModelsV11 } from '../src/db/migrations-v5.js';
+import { migrateModelsV12 } from '../src/db/migrations-v12.js';
+import { migrateModelsV13 } from '../src/db/migrations-v13.js';
 import { ensureUnifiedKey } from '../src/db/unified-key.js';
+import { seedTestModels } from '../src/db/test-fixtures.js';
 
 describe('Models Endpoint', () => {
   let app: ReturnType<typeof createApp>;
@@ -26,7 +29,12 @@ describe('Models Endpoint', () => {
       migrateModelsV9(tx);
       migrateModelsV10(tx);
       migrateModelsV11(tx);
+      migrateModelsV12(tx);
+      migrateModelsV13(tx);
       ensureUnifiedKey(tx);
+      // Hardcoded seed/migration data is intentionally absent. Insert a
+      // representative fixture for the route tests to query.
+      seedTestModels(tx);
     });
     app = createApp();
   });

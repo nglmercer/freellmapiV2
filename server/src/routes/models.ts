@@ -4,9 +4,10 @@ import { getDb } from '../db/index.js';
 import { hasProvider } from '../providers/index.js';
 import type { Platform } from '@freellmapi/shared/types.js';
 import * as schema from '../db/schema.js';
-import { eq, sql, asc, and, or, like, desc } from 'drizzle-orm';
+import { eq, sql, asc, and, or, like, desc, ne, isNotNull, isNull, inArray, notInArray } from 'drizzle-orm';
 import { calculateCost, getAllPricing } from '../services/pricing.js';
 import { syncModels } from '../services/model-sync/sync.js';
+import { enrichRankings, resetRankings } from '../services/rankings/enrich.js';
 
 export const modelsRouter = new Hono();
 
@@ -21,6 +22,10 @@ modelsRouter.get('/', async (c) => {
     displayName: schema.models.displayName,
     intelligenceRank: schema.models.intelligenceRank,
     speedRank: schema.models.speedRank,
+    intelligenceScore: schema.models.intelligenceScore,
+    speedTokensPerSec: schema.models.speedTokensPerSec,
+    rankingSource: schema.models.rankingSource,
+    lastRankedAt: schema.models.lastRankedAt,
     sizeLabel: schema.models.sizeLabel,
     rpmLimit: schema.models.rpmLimit,
     rpdLimit: schema.models.rpdLimit,
@@ -56,6 +61,10 @@ modelsRouter.get('/', async (c) => {
      displayName: m.displayName,
      intelligenceRank: m.intelligenceRank,
      speedRank: m.speedRank,
+     intelligenceScore: m.intelligenceScore,
+     speedTokensPerSec: m.speedTokensPerSec,
+     rankingSource: m.rankingSource,
+     lastRankedAt: m.lastRankedAt,
      sizeLabel: m.sizeLabel,
      rpmLimit: m.rpmLimit,
      rpdLimit: m.rpdLimit,
@@ -107,6 +116,10 @@ modelsRouter.get('/search', async (c) => {
     description: schema.models.description,
     intelligenceRank: schema.models.intelligenceRank,
     speedRank: schema.models.speedRank,
+    intelligenceScore: schema.models.intelligenceScore,
+    speedTokensPerSec: schema.models.speedTokensPerSec,
+    rankingSource: schema.models.rankingSource,
+    lastRankedAt: schema.models.lastRankedAt,
     sizeLabel: schema.models.sizeLabel,
     lastSyncedAt: schema.models.lastSyncedAt,
     source: schema.models.source,
@@ -159,6 +172,54 @@ modelsRouter.post('/sync', async (c) => {
   }
 });
 
+// POST /api/models/enrich-rankings
+// Re-fetch intelligence/speed rankings from external benchmark sources and
+// update only rows whose last_ranked_at is older than 24h (or null). Safe
+// to call repeatedly.
+modelsRouter.post('/enrich-rankings', async (c) => {
+  try {
+    const result = await enrichRankings();
+    return c.json({ success: true, ...result });
+  } catch (err) {
+    c.status(500);
+    return c.json({ success: false, error: err instanceof Error ? err.message : String(err) });
+  }
+});
+
+// POST /api/models/reset-rankings
+// Force a full re-enrichment by clearing last_ranked_at on every row. The
+// next /enrich-rankings call will treat all models as stale.
+modelsRouter.post('/reset-rankings', async (c) => {
+  const r = resetRankings();
+  return c.json({ success: true, ...r });
+});
+
+// GET /api/models/enrich-rankings/status
+// Reports the current ranking freshness across the models table.
+modelsRouter.get('/enrich-rankings/status', async (c) => {
+  const db = getDb();
+  const total = db.select({ c: sql<number>`count(*)` }).from(schema.models).get();
+  const ranked = db
+    .select({ c: sql<number>`count(*)`, oldest: sql<string | null>`min(last_ranked_at)`, newest: sql<string | null>`max(last_ranked_at)` })
+    .from(schema.models)
+    .where(sql`${schema.models.lastRankedAt} IS NOT NULL`)
+    .get();
+  const sources = db
+    .select({ source: schema.models.rankingSource, c: sql<number>`count(*)` })
+    .from(schema.models)
+    .where(sql`${schema.models.rankingSource} IS NOT NULL`)
+    .groupBy(schema.models.rankingSource)
+    .all();
+  return c.json({
+    total: total?.c ?? 0,
+    ranked: ranked?.c ?? 0,
+    unranked: (total?.c ?? 0) - (ranked?.c ?? 0),
+    oldestRanking: ranked?.oldest ?? null,
+    newestRanking: ranked?.newest ?? null,
+    bySource: sources.map((s) => ({ source: s.source, count: s.c })),
+  });
+});
+
 // GET /api/models/sync/status
 modelsRouter.get('/sync/status', async (c) => {
   const db = getDb();
@@ -180,4 +241,103 @@ modelsRouter.get('/sync/changes/:logId', async (c) => {
   const logId = parseInt(c.req.param('logId'));
   if (isNaN(logId)) { c.status(400); return c.json({ error: 'Invalid logId' }); }
   return c.json(db.select().from(schema.syncChanges).where(eq(schema.syncChanges.syncLogId, logId)).all());
+});
+
+// ─────────────────────────────────────────────────────────────────────
+// Bulk enable / disable — destructive operations, require `confirm: true`.
+// These affect the per-model `enabled` flag (catalog visibility) and the
+// `fallback_config.enabled` flag (chain membership) atomically, so the
+// router and the UI never see a half-applied state.
+// ─────────────────────────────────────────────────────────────────────
+
+const bulkSchema = z.object({
+  confirm: z.literal(true),
+});
+
+async function readBodyConfirm(c: { req: { json: () => Promise<unknown> }; status: (n: number) => unknown; json: (d: unknown) => unknown }): Promise<boolean> {
+  let body: unknown = {};
+  try {
+    body = await c.req.json();
+  } catch {
+    body = {};
+  }
+  if (typeof body !== 'object' || body === null) {
+    c.status(400);
+    c.json({ error: { message: 'Invalid body. Expected { "confirm": true }.' } });
+    return false;
+  }
+  const parsed = bulkSchema.safeParse(body);
+  if (!parsed.success) {
+    c.status(400);
+    c.json({ error: { message: 'Missing confirm: true. Bulk actions are destructive and require explicit confirmation.' } });
+    return false;
+  }
+  return true;
+}
+
+// POST /api/models/disable-all
+// Disable every model in the catalog and remove every row from
+// fallback_config.enabled = 0. The router will then have no models to try.
+modelsRouter.post('/disable-all', async (c) => {
+  if (!(await readBodyConfirm(c))) return;
+  const db = getDb();
+  const r1 = db.update(schema.models).set({ enabled: 0 }).run() as unknown as { changes: number };
+  const r2 = db.update(schema.fallbackConfig).set({ enabled: 0 }).run() as unknown as { changes: number };
+  return c.json({ success: true, modelsUpdated: r1.changes, fallbackEntriesUpdated: r2.changes });
+});
+
+// POST /api/models/enable-all
+// Enable every model in the catalog and re-enable every fallback entry.
+// Useful as a "reset" after bulk-disable or after seeding.
+modelsRouter.post('/enable-all', async (c) => {
+  if (!(await readBodyConfirm(c))) return;
+  const db = getDb();
+  const r1 = db.update(schema.models).set({ enabled: 1 }).run() as unknown as { changes: number };
+  const r2 = db.update(schema.fallbackConfig).set({ enabled: 1 }).run() as unknown as { changes: number };
+  return c.json({ success: true, modelsUpdated: r1.changes, fallbackEntriesUpdated: r2.changes });
+});
+
+// POST /api/models/enable-free
+// Enable only rows whose `free_tier = 1`; disable every other row.
+// This is the "free-only" preset users want when they don't want to pay
+// for inference. The `free_tier` column is populated by the sync service
+// from getmodelsapi (which sets it from `:free` / `free` markers in the
+// model id) — never inferred locally.
+modelsRouter.post('/enable-free', async (c) => {
+  if (!(await readBodyConfirm(c))) return;
+  const db = getDb();
+  const r1 = db
+    .update(schema.models)
+    .set({ enabled: 1 })
+    .where(eq(schema.models.freeTier, 1))
+    .run() as unknown as { changes: number };
+  const r2 = db
+    .update(schema.models)
+    .set({ enabled: 0 })
+    .where(ne(schema.models.freeTier, 1))
+    .run() as unknown as { changes: number };
+  // Mirror the same split on the fallback chain.
+  const freeIds = db
+    .select({ id: schema.models.id })
+    .from(schema.models)
+    .where(eq(schema.models.freeTier, 1))
+    .all()
+    .map((r) => r.id);
+  const r3 = db
+    .update(schema.fallbackConfig)
+    .set({ enabled: 1 })
+    .where(inArray(schema.fallbackConfig.modelDbId, freeIds))
+    .run() as unknown as { changes: number };
+  const r4 = db
+    .update(schema.fallbackConfig)
+    .set({ enabled: 0 })
+    .where(notInArray(schema.fallbackConfig.modelDbId, freeIds))
+    .run() as unknown as { changes: number };
+  return c.json({
+    success: true,
+    freeEnabled: r1.changes,
+    paidDisabled: r2.changes,
+    fallbackFreeEnabled: r3.changes,
+    fallbackPaidDisabled: r4.changes,
+  });
 });

@@ -18,7 +18,7 @@ export function PageHeader({
         )}
       </div>
       {actions && (
-        <div className="flex items-center gap-2 shrink-0 md:mt-0">
+        <div className="flex items-center gap-2 shrink-0 md:mt-0 overflow-auto">
           {actions}
         </div>
       )}

@@ -57,6 +57,10 @@ function createTables(sqlite: Database): void {
       description TEXT,
       last_synced_at TEXT,
       source TEXT NOT NULL DEFAULT 'manual',
+      intelligence_score REAL,
+      speed_tokens_per_sec REAL,
+      ranking_source TEXT,
+      last_ranked_at TEXT,
       UNIQUE(platform, model_id)
     );
 
@@ -135,11 +139,11 @@ function createTables(sqlite: Database): void {
       updated_at TEXT NOT NULL DEFAULT (datetime('now'))
     );
 
-    CREATE INDEX IF NOT EXISTS idx_requests_created_at ON requests(created_at);
-    CREATE INDEX IF NOT EXISTS idx_requests_platform ON requests(platform);
-    CREATE INDEX IF NOT EXISTS idx_api_keys_platform ON api_keys(platform);
-    CREATE INDEX IF NOT EXISTS idx_sync_changes_log_id ON sync_changes(sync_log_id);
-  `);
+  CREATE INDEX IF NOT EXISTS idx_requests_created_at ON requests(created_at);
+  CREATE INDEX IF NOT EXISTS idx_requests_platform ON requests(platform);
+  CREATE INDEX IF NOT EXISTS idx_api_keys_platform ON api_keys(platform);
+  CREATE INDEX IF NOT EXISTS idx_sync_changes_log_id ON sync_changes(sync_log_id);
+`);
 
   // Add columns that may not exist on pre-existing databases (idempotent)
   const existingCols = new Set(
@@ -156,10 +160,28 @@ function createTables(sqlite: Database): void {
     ['description', 'TEXT'],
     ['last_synced_at', 'TEXT'],
     ['source', "TEXT NOT NULL DEFAULT 'manual'"],
+    ['intelligence_score', 'REAL'],
+    ['speed_tokens_per_sec', 'REAL'],
+    ['ranking_source', 'TEXT'],
+    ['last_ranked_at', 'TEXT'],
   ];
   for (const [name, def] of newCols) {
     if (!existingCols.has(name)) {
       sqlite.exec(`ALTER TABLE models ADD COLUMN ${name} ${def}`);
+    }
+  }
+
+  // Index is created after the column-add loop so the column is guaranteed
+  // to exist (CREATE INDEX in the same exec batch fails on older DBs where
+  // the column hadn't been added yet).
+  if (existingCols.has('last_ranked_at')) {
+    sqlite.exec(`CREATE INDEX IF NOT EXISTS idx_models_last_ranked_at ON models(last_ranked_at)`);
+  } else {
+    const colsAfter = new Set(
+      sqlite.prepare('PRAGMA table_info(models)').all().map((r: any) => r.name)
+    );
+    if (colsAfter.has('last_ranked_at')) {
+      sqlite.exec(`CREATE INDEX IF NOT EXISTS idx_models_last_ranked_at ON models(last_ranked_at)`);
     }
   }
 }
