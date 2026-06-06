@@ -129,3 +129,113 @@ it('should include model fields from fallback_config', async () => {
      expect(typeof first.fallbackEnabled).toBe('boolean');
    });
 });
+
+describe('Models Bulk Actions', () => {
+  let app: ReturnType<typeof createApp>;
+  let apiKey: string;
+
+  beforeEach(async () => {
+    resetDb();
+    initDb(':memory:');
+    runInTransaction((tx) => {
+      seedModels(tx);
+      migrateModels(tx);
+      migrateModelsV2(tx);
+      migrateModelsV3Ranks(tx);
+      migrateModelsV4(tx);
+      migrateModelsV5(tx);
+      migrateModelsV6(tx);
+      migrateModelsV7(tx);
+      migrateModelsV8(tx);
+      migrateModelsV9(tx);
+      migrateModelsV10(tx);
+      migrateModelsV11(tx);
+      migrateModelsV12(tx);
+      migrateModelsV13(tx);
+      ensureUnifiedKey(tx);
+      seedTestModels(tx);
+    });
+    app = createApp();
+    const { getUnifiedApiKey } = await import('../src/db/index.js');
+    apiKey = getUnifiedApiKey();
+  });
+
+  it('POST /api/models/disable-all rejects without confirm flag', async () => {
+    const res = await app.request('/api/models/disable-all', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({}),
+    });
+    expect(res.status).toBe(400);
+  });
+
+  it('POST /api/models/disable-all flips every model to enabled=0', async () => {
+    const res = await app.request('/api/models/disable-all', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ confirm: true }),
+    });
+    expect(res.status).toBe(200);
+    const data = await res.json() as any;
+    expect(data.success).toBe(true);
+    expect(data.modelsUpdated).toBeGreaterThan(0);
+
+    const list = await app.request('/api/models');
+    const models = (await list.json()) as any[];
+    for (const m of models) {
+      expect(m.enabled).toBe(false);
+      expect(m.fallbackEnabled).toBe(false);
+    }
+  });
+
+  it('POST /api/models/enable-all flips every model to enabled=1', async () => {
+    const res = await app.request('/api/models/enable-all', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ confirm: true }),
+    });
+    expect(res.status).toBe(200);
+    const data = await res.json() as any;
+    expect(data.success).toBe(true);
+    expect(data.modelsUpdated).toBeGreaterThan(0);
+
+    const list = await app.request('/api/models');
+    const models = (await list.json()) as any[];
+    for (const m of models) {
+      expect(m.enabled).toBe(true);
+      expect(m.fallbackEnabled).toBe(true);
+    }
+  });
+
+  it('POST /api/models/enable-free rejects without confirm flag', async () => {
+    const res = await app.request('/api/models/enable-free', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({}),
+    });
+    expect(res.status).toBe(400);
+  });
+
+  it('POST /api/models/enable-free only enables rows where freeTier is true', async () => {
+    const res = await app.request('/api/models/enable-free', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ confirm: true }),
+    });
+    expect(res.status).toBe(200);
+    const data = await res.json() as any;
+    expect(data.success).toBe(true);
+
+    const list = await app.request('/api/models');
+    const models = (await list.json()) as any[];
+    for (const m of models) {
+      if (m.freeTier === true) {
+        expect(m.enabled).toBe(true);
+        expect(m.fallbackEnabled).toBe(true);
+      } else {
+        expect(m.enabled).toBe(false);
+        expect(m.fallbackEnabled).toBe(false);
+      }
+    }
+  });
+});
