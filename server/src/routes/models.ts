@@ -1,4 +1,5 @@
 import { Hono } from 'hono';
+import type { StatusCode } from 'hono/utils/http-status';
 import { z } from 'zod';
 import { getDb } from '../db/index.js';
 import { hasProvider } from '../providers/index.js';
@@ -255,7 +256,7 @@ const bulkSchema = z.object({
 });
 
 /** Parse and validate the { confirm: true } body. Returns a sentinel on failure. */
-async function parseBulkConfirm(c: any): Promise<{ ok: true } | { ok: false; status: number; body: unknown }> {
+async function parseBulkConfirm(c: any): Promise<{ ok: true } | { ok: false; status: StatusCode; body: unknown }> {
   let body: unknown = {};
   try {
     body = await c.req.json();
