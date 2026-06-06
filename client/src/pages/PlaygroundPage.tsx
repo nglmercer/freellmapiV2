@@ -68,7 +68,7 @@ export default function PlaygroundPage() {
       const headers: Record<string, string> = { 'Content-Type': 'application/json' }
       if (keyData?.apiKey) headers['Authorization'] = `Bearer ${keyData.apiKey}`
 
-      const body: any = {
+      const body: Record<string, unknown> = {
         messages: newMessages.map(m => ({ role: m.role, content: m.content })),
         stream: true
       }
@@ -99,7 +99,7 @@ export default function PlaygroundPage() {
       if (!reader) throw new Error('No response body')
 
       const decoder = new TextDecoder()
-      let assistantMsg: ChatMessage = {
+      const assistantMsg: ChatMessage = {
         role: 'assistant',
         content: '',
         meta: {
@@ -160,7 +160,8 @@ export default function PlaygroundPage() {
           }
         }
       }
-    } catch (err: any) {
+    } catch (e) {
+      const err = e instanceof Error ? e : new Error(String(e))
       setMessages(msgs => {
         const lastMsg = msgs[msgs.length - 1]
         if (lastMsg?.role === 'assistant' && lastMsg.content) {
