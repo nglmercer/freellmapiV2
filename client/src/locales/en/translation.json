@@ -179,7 +179,62 @@
     "saving": "Saving…",
     "saveOrder": "Save order",
     "hiddenPlatforms": "Hidden (no keys): {{platforms}}",
-    "noChanges": "no changes"
+    "noChanges": "no changes",
+    "filters": {
+      "title": "Filters",
+      "search": "Search models…",
+      "platform": "Platform",
+      "platformAll": "All platforms",
+      "tier": "Tier",
+      "tierAll": "All tiers",
+      "tierFree": "Free only",
+      "tierPaid": "Paid only",
+      "state": "State",
+      "stateAll": "All",
+      "stateEnabled": "Enabled only",
+      "stateDisabled": "Disabled only",
+      "ranking": "Ranking",
+      "rankingAll": "All",
+      "rankingRanked": "Ranked only",
+      "rankingUnranked": "Unranked only",
+      "clear": "Clear filters",
+      "empty": "No models match the current filters."
+    },
+    "bulk": {
+      "title": "Bulk actions",
+      "sort": {
+        "label": "Sort",
+        "intelligence": "By intelligence",
+        "speed": "By speed",
+        "budget": "By budget"
+      },
+      "enableAll": "Enable all",
+      "disableAll": "Disable all",
+      "enableFree": "Enable free only",
+      "confirm": {
+        "disableAll": "Disable every model? Routing will stop until you re-enable at least one.",
+        "enableAll": "Enable every model in the catalog, including paid ones?",
+        "enableFree": "Disable every paid model and enable only free ones?"
+      },
+      "cancel": "Cancel",
+      "proceed": "Confirm",
+      "result": {
+        "enableAll_one": "{{models}} model + {{fallback}} fallback entry enabled",
+        "enableAll_other": "{{models}} models + {{fallback}} fallback entries enabled",
+        "disableAll_one": "{{models}} model + {{fallback}} fallback entry disabled",
+        "disableAll_other": "{{models}} models + {{fallback}} fallback entries disabled",
+        "enableFree_one": "{{free}} free enabled, {{paid}} paid disabled",
+        "enableFree_other": "{{free}} free enabled, {{paid}} paid disabled"
+      },
+      "error": "Bulk action failed: {{message}}"
+    },
+    "summary": {
+      "total_one": "{{count}} model",
+      "total_other": "{{count}} models",
+      "enabled": "{{count}} enabled",
+      "free": "{{count}} free",
+      "ranked": "{{count}} ranked"
+    }
   },
   "analytics": {
     "title": "Analytics",

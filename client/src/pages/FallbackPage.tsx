@@ -22,26 +22,13 @@ import { apiFetch } from '@/lib/api'
 import { Button } from '@/components/ui/button'
 import { Switch } from '@/components/ui/switch'
 import { PageHeader } from '@/components/page-header'
-
-interface FallbackEntry {
-  modelDbId: number
-  priority: number
-  effectivePriority: number
-  penalty: number
-  rateLimitHits: number
-  enabled: boolean
-  freeTier: boolean
-  platform: string
-  modelId: string
-  displayName: string
-  intelligenceRank: number
-  speedRank: number
-  sizeLabel: string
-  rpmLimit: number | null
-  rpdLimit: number | null
-  monthlyTokenBudget: string
-  keyCount: number
-}
+import { ControlsPanel } from '@/components/fallback-controls'
+import {
+  EMPTY_FILTERS,
+  filterEntries,
+  type FallbackEntry,
+  type FallbackFilters,
+} from '@/components/fallback-filters'
 
 function formatTokens(n: number): string {
   if (n >= 1_000_000_000) return `${(n / 1_000_000_000).toFixed(1)}B`
@@ -201,6 +188,13 @@ export default function FallbackPage() {
   const { t } = useTranslations()
   const queryClient = useQueryClient()
   const [localEntries, setLocalEntries] = useState<FallbackEntry[] | null>(null)
+  const [filters, setFilters] = useState<FallbackFilters>(EMPTY_FILTERS)
+  const [flash, setFlash] = useState<{ tone: 'success' | 'error'; message: string } | null>(null)
+
+  function showFlash(tone: 'success' | 'error', message: string) {
+    setFlash({ tone, message })
+    window.setTimeout(() => setFlash((f) => (f?.message === message ? null : f)), 5000)
+  }
 
   const { data: entries = [], isLoading } = useQuery<FallbackEntry[]>({
     queryKey: ['fallback'],
@@ -221,14 +215,9 @@ export default function FallbackPage() {
     },
   })
 
-  const sortMutation = useMutation({
-    mutationFn: (preset: string) =>
-      apiFetch(`/api/fallback/sort/${preset}`, { method: 'POST' }),
-    onSuccess: async () => {
-      await queryClient.refetchQueries({ queryKey: ['fallback'] })
-      setLocalEntries(null)
-    },
-  })
+  function handleSortedLocally() {
+    setLocalEntries(null)
+  }
 
   const syncMutation = useMutation({
     mutationFn: () => apiFetch<{ added?: number; updated?: number; disabled?: number }>('/api/models/sync', { method: 'POST' }),
@@ -245,7 +234,8 @@ export default function FallbackPage() {
   })
 
   const allEntries = localEntries ?? entries
-  const displayEntries = allEntries.filter(e => e.keyCount > 0)
+  const configuredEntries = allEntries.filter(e => e.keyCount > 0)
+  const displayEntries = filterEntries(configuredEntries, filters)
   const unconfiguredPlatforms = [...new Set(allEntries.filter(e => e.keyCount === 0).map(e => e.platform))]
 
   const sensors = useSensors(
@@ -287,62 +277,60 @@ export default function FallbackPage() {
 
   const hasChanges = localEntries !== null
 
-  function handleBulkToggleFree() {
-    const freeEntries = allEntries.filter(e => e.freeTier)
-    if (freeEntries.length === 0) return
-    const anyEnabled = freeEntries.some(e => e.enabled)
-    const updated = allEntries.map(e =>
-      e.freeTier ? { ...e, enabled: !anyEnabled } : e
-    )
-    setLocalEntries(updated)
-  }
-
-  const freeEntries = allEntries.filter(e => e.freeTier)
-  const allFreeEnabled = freeEntries.length > 0 && freeEntries.every(e => e.enabled)
-
   return (
     <div>
       <PageHeader
         title={t('fallback.title')}
         description={t('fallback.description')}
         actions={
-          <>
-            <Button variant="outline" size="sm" onClick={() => syncMutation.mutate()} disabled={syncMutation.isPending}>
-              {syncMutation.isPending ? t('fallback.syncing') : t('fallback.sync')}
-            </Button>
-            <Button variant="outline" size="sm" onClick={() => sortMutation.mutate('intelligence')} disabled={sortMutation.isPending}>
-              {t('fallback.sortIntelligence')}
-            </Button>
-            <Button variant="outline" size="sm" onClick={() => sortMutation.mutate('speed')} disabled={sortMutation.isPending}>
-              {t('fallback.sortSpeed')}
-            </Button>
-            <Button variant="outline" size="sm" onClick={() => sortMutation.mutate('budget')} disabled={sortMutation.isPending}>
-              {t('fallback.sortBudget')}
-            </Button>
-            {freeEntries.length > 0 && (
-              <Button
-                variant="outline"
-                size="sm"
-                onClick={handleBulkToggleFree}
-              >
-                {allFreeEnabled ? t('fallback.disableFree') : t('fallback.enableFree')}
-              </Button>
-            )}
-          </>
+          <Button
+            variant="outline"
+            size="sm"
+            onClick={() => syncMutation.mutate()}
+            disabled={syncMutation.isPending}
+          >
+            {syncMutation.isPending ? t('fallback.syncing') : t('fallback.sync')}
+          </Button>
         }
       />
 
       <div className="space-y-6">
+        {flash && (
+          <div
+            className={
+              flash.tone === 'success'
+                ? 'rounded-md border border-emerald-300 dark:border-emerald-700 bg-emerald-50 dark:bg-emerald-950/30 px-3 py-2 text-sm text-emerald-900 dark:text-emerald-100'
+                : 'rounded-md border border-red-300 dark:border-red-700 bg-red-50 dark:bg-red-950/30 px-3 py-2 text-sm text-red-900 dark:text-red-100'
+            }
+          >
+            {flash.message}
+          </div>
+        )}
+
+        <ControlsPanel
+          entries={configuredEntries}
+          filters={filters}
+          onFiltersChange={setFilters}
+          onSortedLocally={handleSortedLocally}
+          onFlash={showFlash}
+        />
+
         {tokenUsage && tokenUsage.totalBudget > 0 && (
           <TokenUsageBar data={tokenUsage} />
         )}
 
         {isLoading ? (
           <p className="text-sm text-muted-foreground">{t('fallback.loading')}</p>
-        ) : displayEntries.length === 0 ? (
+        ) : configuredEntries.length === 0 ? (
           <div className="rounded-lg border border-dashed p-8 text-center">
             <p className="text-sm text-muted-foreground">
               {t('fallback.emptyState')}
+            </p>
+          </div>
+        ) : displayEntries.length === 0 ? (
+          <div className="rounded-lg border border-dashed p-8 text-center">
+            <p className="text-sm text-muted-foreground">
+              {t('fallback.filters.empty')}
             </p>
           </div>
         ) : (

@@ -179,7 +179,62 @@
     "saving": "Guardando…",
     "saveOrder": "Guardar orden",
     "hiddenPlatforms": "Ocultos (sin claves): {{platforms}}",
-    "noChanges": "sin cambios"
+    "noChanges": "sin cambios",
+    "filters": {
+      "title": "Filtros",
+      "search": "Buscar modelos…",
+      "platform": "Plataforma",
+      "platformAll": "Todas las plataformas",
+      "tier": "Plan",
+      "tierAll": "Todos los planes",
+      "tierFree": "Solo gratuitos",
+      "tierPaid": "Solo de pago",
+      "state": "Estado",
+      "stateAll": "Todos",
+      "stateEnabled": "Solo habilitados",
+      "stateDisabled": "Solo deshabilitados",
+      "ranking": "Ranking",
+      "rankingAll": "Todos",
+      "rankingRanked": "Solo rankeados",
+      "rankingUnranked": "Solo sin rankear",
+      "clear": "Limpiar filtros",
+      "empty": "Ningún modelo coincide con los filtros actuales."
+    },
+    "bulk": {
+      "title": "Acciones en lote",
+      "sort": {
+        "label": "Ordenar",
+        "intelligence": "Por inteligencia",
+        "speed": "Por velocidad",
+        "budget": "Por presupuesto"
+      },
+      "enableAll": "Habilitar todos",
+      "disableAll": "Deshabilitar todos",
+      "enableFree": "Habilitar solo gratuitos",
+      "confirm": {
+        "disableAll": "¿Deshabilitar todos los modelos? El enrutamiento se detendrá hasta que habilites al menos uno.",
+        "enableAll": "¿Habilitar todos los modelos del catálogo, incluidos los de pago?",
+        "enableFree": "¿Deshabilitar todos los modelos de pago y habilitar solo los gratuitos?"
+      },
+      "cancel": "Cancelar",
+      "proceed": "Confirmar",
+      "result": {
+        "enableAll_one": "{{models}} modelo + {{fallback}} entrada de fallback habilitada",
+        "enableAll_other": "{{models}} modelos + {{fallback}} entradas de fallback habilitadas",
+        "disableAll_one": "{{models}} modelo + {{fallback}} entrada de fallback deshabilitada",
+        "disableAll_other": "{{models}} modelos + {{fallback}} entradas de fallback deshabilitadas",
+        "enableFree_one": "{{free}} gratuitos habilitados, {{paid}} de pago deshabilitados",
+        "enableFree_other": "{{free}} gratuitos habilitados, {{paid}} de pago deshabilitados"
+      },
+      "error": "Acción en lote falló: {{message}}"
+    },
+    "summary": {
+      "total_one": "{{count}} modelo",
+      "total_other": "{{count}} modelos",
+      "enabled": "{{count}} habilitados",
+      "free": "{{count}} gratuitos",
+      "ranked": "{{count}} rankeados"
+    }
   },
   "analytics": {
     "title": "Analíticas",
