@@ -6,6 +6,7 @@ import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
+import { useTranslations } from '@/hooks/useTranslations'
 import type { Platform } from '../../../shared/types'
 
 const PLATFORMS: { value: Platform; label: string; description: string }[] = [
@@ -73,25 +74,26 @@ function StepIndicator({ current, total }: { current: number; total: number }) {
 }
 
 function WelcomeStep({ onNext }: { onNext: () => void }) {
+  const { t } = useTranslations()
   return (
     <div className="max-w-lg">
       <div className="mb-6">
-        <h2 className="text-xl font-semibold tracking-tight">Welcome to FreeLLMAPI</h2>
+        <h2 className="text-xl font-semibold tracking-tight">{t('setup.welcome.title')}</h2>
         <p className="text-sm text-muted-foreground mt-2">
-          A unified proxy for free LLM API providers. Route requests through multiple providers with automatic fallback, rate limiting, and a single OpenAI-compatible endpoint.
+          {t('setup.welcome.description')}
         </p>
       </div>
 
       <div className="rounded-lg border bg-card p-5 mb-6 space-y-4">
-        <h3 className="text-sm font-medium">What you'll configure:</h3>
+        <h3 className="text-sm font-medium">{t('setup.welcome.whatYoullConfigure')}</h3>
         <div className="space-y-3">
           <div className="flex items-start gap-3">
             <div className="size-6 rounded-full bg-primary/10 flex items-center justify-center shrink-0 mt-0.5">
               <span className="text-xs font-medium text-primary">1</span>
             </div>
             <div>
-              <p className="text-sm font-medium">Provider API Keys</p>
-              <p className="text-xs text-muted-foreground">Add keys from free LLM providers (Google, Groq, Mistral, etc.)</p>
+              <p className="text-sm font-medium">{t('setup.welcome.providerKeys')}</p>
+              <p className="text-xs text-muted-foreground">{t('setup.welcome.providerKeysDescription')}</p>
             </div>
           </div>
           <div className="flex items-start gap-3">
@@ -99,8 +101,8 @@ function WelcomeStep({ onNext }: { onNext: () => void }) {
               <span className="text-xs font-medium text-primary">2</span>
             </div>
             <div>
-              <p className="text-sm font-medium">Unified API Key</p>
-              <p className="text-xs text-muted-foreground">Get your personal key to authenticate requests to this proxy</p>
+              <p className="text-sm font-medium">{t('setup.welcome.unifiedApiKey')}</p>
+              <p className="text-xs text-muted-foreground">{t('setup.welcome.unifiedApiKeyDescription')}</p>
             </div>
           </div>
           <div className="flex items-start gap-3">
@@ -108,8 +110,8 @@ function WelcomeStep({ onNext }: { onNext: () => void }) {
               <span className="text-xs font-medium text-primary">3</span>
             </div>
             <div>
-              <p className="text-sm font-medium">Start Using</p>
-              <p className="text-xs text-muted-foreground">Use the OpenAI-compatible endpoint with any client</p>
+              <p className="text-sm font-medium">{t('setup.welcome.startUsing')}</p>
+              <p className="text-xs text-muted-foreground">{t('setup.welcome.startUsingDescription')}</p>
             </div>
           </div>
         </div>
@@ -117,12 +119,12 @@ function WelcomeStep({ onNext }: { onNext: () => void }) {
 
       <div className="rounded-lg border border-dashed p-4 mb-6">
         <p className="text-xs text-muted-foreground">
-          <strong>Tip:</strong> Some providers like Kilo Gateway, Pollinations, and LLM7 work without API keys (anonymous access). You can add them directly or skip to add keys later.
+          <strong>{t('setup.welcome.tipPrefix')}</strong> {t('setup.welcome.tipSuffix')}
         </p>
       </div>
 
       <Button onClick={onNext} className="w-full">
-        Get Started
+        {t('setup.welcome.button')}
         <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="ml-2"><path d="M5 12h14"/><path d="m12 5 7 7-7 7"/></svg>
       </Button>
     </div>
@@ -142,6 +144,7 @@ function AddKeysStep({
   onNext: () => void
   onBack: () => void
 }) {
+  const { t } = useTranslations()
   const queryClient = useQueryClient()
   const [platform, setPlatform] = useState<Platform | ''>('')
   const [apiKey, setApiKey] = useState('')
@@ -184,18 +187,18 @@ function AddKeysStep({
   return (
     <div className="max-w-lg">
       <div className="mb-6">
-        <h2 className="text-xl font-semibold tracking-tight">Add Provider Keys</h2>
+        <h2 className="text-xl font-semibold tracking-tight">{t('setup.addKeys.title')}</h2>
         <p className="text-sm text-muted-foreground mt-2">
-          Add API keys from free LLM providers. You need at least one to start routing requests.
+          {t('setup.addKeys.description')}
         </p>
       </div>
 
       <form onSubmit={handleSubmit} className="space-y-4 mb-6">
         <div className="space-y-1.5">
-          <Label className="text-sm">Provider</Label>
+          <Label className="text-sm">{t('setup.addKeys.providerLabel')}</Label>
           <Select value={platform} onValueChange={(v) => { setPlatform(v as Platform); setApiKey('') }}>
             <SelectTrigger>
-              <SelectValue placeholder="Select a provider" />
+              <SelectValue placeholder={t('setup.addKeys.providerPlaceholder')} />
             </SelectTrigger>
             <SelectContent>
               {PLATFORMS.map(p => (
@@ -214,37 +217,37 @@ function AddKeysStep({
           <>
             {needsAccountId && (
               <div className="space-y-1.5">
-                <Label className="text-sm">Account ID</Label>
+                <Label className="text-sm">{t('setup.addKeys.accountIdLabel')}</Label>
                 <Input
                   value={accountId}
                   onChange={e => setAccountId(e.target.value)}
-                  placeholder="Your Cloudflare account ID"
+                  placeholder={t('setup.addKeys.accountIdPlaceholder')}
                   className="font-mono text-xs"
                 />
               </div>
             )}
             <div className="space-y-1.5">
-              <Label className="text-sm">{needsAccountId ? 'API Token' : 'API Key'}</Label>
+              <Label className="text-sm">{needsAccountId ? t('setup.addKeys.tokenLabel') : t('setup.addKeys.keyLabel')}</Label>
               <Input
                 type="password"
                 value={apiKey}
                 onChange={e => setApiKey(e.target.value)}
-                placeholder={needsAccountId ? 'Bearer token' : 'Paste your API key'}
+                placeholder={needsAccountId ? t('setup.addKeys.tokenPlaceholder') : t('setup.addKeys.apiKeyPlaceholder')}
                 className="font-mono text-xs"
               />
               <p className="text-xs text-muted-foreground">
-                {platform === 'google' && 'Get a free key at aistudio.google.com'}
-                {platform === 'groq' && 'Get a free key at console.groq.com'}
-                {platform === 'cerebras' && 'Get a free key at cloud.cerebras.ai'}
-                {platform === 'sambanova' && 'Get a free key at cloud.sambanova.ai'}
-                {platform === 'nvidia' && 'Get a free key at build.nvidia.com'}
-                {platform === 'mistral' && 'Get a free key at console.mistral.ai'}
-                {platform === 'openrouter' && 'Get a free key at openrouter.ai'}
-                {platform === 'github' && 'Get a free key at github.com/settings/tokens'}
-                {platform === 'cohere' && 'Get a free key at dashboard.cohere.com'}
-                {platform === 'cloudflare' && 'Get a token at dash.cloudflare.com'}
-                {platform === 'zhipu' && 'Get a key at open.bigmodel.cn'}
-                {platform === 'ollama' && 'Get a key at ollama.com'}
+                {platform === 'google' && t('setup.addKeys.help.google')}
+                {platform === 'groq' && t('setup.addKeys.help.groq')}
+                {platform === 'cerebras' && t('setup.addKeys.help.cerebras')}
+                {platform === 'sambanova' && t('setup.addKeys.help.sambanova')}
+                {platform === 'nvidia' && t('setup.addKeys.help.nvidia')}
+                {platform === 'mistral' && t('setup.addKeys.help.mistral')}
+                {platform === 'openrouter' && t('setup.addKeys.help.openrouter')}
+                {platform === 'github' && t('setup.addKeys.help.github')}
+                {platform === 'cohere' && t('setup.addKeys.help.cohere')}
+                {platform === 'cloudflare' && t('setup.addKeys.help.cloudflare')}
+                {platform === 'zhipu' && t('setup.addKeys.help.zhipu')}
+                {platform === 'ollama' && t('setup.addKeys.help.ollama')}
               </p>
             </div>
           </>
@@ -253,17 +256,17 @@ function AddKeysStep({
         {platform && isAnonymous && (
           <div className="rounded-lg border border-dashed p-4 bg-muted/30">
             <p className="text-xs text-muted-foreground">
-              <strong>{selectedPlatform?.label}</strong> works without an API key. Click "Add" to enable it.
+              <strong>{selectedPlatform?.label}</strong> {t('setup.addKeys.anonymousWorks')}
             </p>
           </div>
         )}
 
         <div className="space-y-1.5">
-          <Label className="text-sm">Label <span className="text-muted-foreground">(optional)</span></Label>
+          <Label className="text-sm">{t('setup.addKeys.labelLabel')}</Label>
           <Input
             value={label}
             onChange={e => setLabel(e.target.value)}
-            placeholder="e.g., my-groq-key"
+            placeholder={t('setup.addKeys.labelPlaceholder')}
           />
         </div>
 
@@ -276,13 +279,15 @@ function AddKeysStep({
           className="w-full"
           disabled={!platform || (!isAnonymous && !apiKey) || (needsAccountId && !accountId) || addKey.isPending}
         >
-          {addKey.isPending ? 'Adding…' : isAnonymous ? 'Enable Provider' : 'Add Key'}
+          {addKey.isPending ? t('setup.addKeys.adding') : isAnonymous ? t('setup.addKeys.enableProvider') : t('setup.addKeys.keyLabel')}
         </Button>
       </form>
 
       {addedKeys.length > 0 && (
         <div className="space-y-3 mb-6">
-          <h3 className="text-sm font-medium">Added providers ({addedKeys.length})</h3>
+          <h3 className="text-sm font-medium">
+            {t('setup.addKeys.addedProviders_other', { count: addedKeys.length })}
+          </h3>
           <div className="rounded-lg border divide-y bg-card overflow-hidden">
             {addedKeys.map((k, i) => (
               <div key={i} className="flex items-center gap-3 px-4 py-3">
@@ -296,7 +301,7 @@ function AddKeysStep({
                   className="text-muted-foreground hover:text-destructive"
                   onClick={() => onRemove(i)}
                 >
-                  Remove
+                  {t('setup.addKeys.remove')}
                 </Button>
               </div>
             ))}
@@ -306,24 +311,17 @@ function AddKeysStep({
 
       <div className="flex gap-3">
         <Button variant="outline" onClick={onBack} className="flex-1">
-          Back
+          {t('setup.addKeys.back')}
         </Button>
         <Button onClick={onNext} className="flex-1" disabled={addedKeys.length === 0}>
-          Continue
+          {t('setup.addKeys.continue')}
           <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="ml-2"><path d="M5 12h14"/><path d="m12 5 7 7-7 7"/></svg>
         </Button>
       </div>
 
       {addedKeys.length === 0 && (
         <p className="text-xs text-muted-foreground text-center mt-3">
-          Add at least one provider key to continue, or{' '}
-          <button
-            type="button"
-            className="text-primary underline underline-offset-2"
-            onClick={onNext}
-          >
-            skip for now
-          </button>
+          {t('setup.addKeys.helpContinue', { action: <button type="button" className="text-primary underline underline-offset-2" onClick={onNext}>{t('setup.addKeys.skipForNow')}</button> })}
         </p>
       )}
     </div>
@@ -331,6 +329,7 @@ function AddKeysStep({
 }
 
 function UnifiedKeyStep({ onNext, onBack }: { onNext: () => void; onBack: () => void }) {
+  const { t } = useTranslations()
   const [showKey, setShowKey] = useState(false)
   const [copied, setCopied] = useState(false)
 
@@ -354,38 +353,38 @@ function UnifiedKeyStep({ onNext, onBack }: { onNext: () => void; onBack: () => 
   return (
     <div className="max-w-lg">
       <div className="mb-6">
-        <h2 className="text-xl font-semibold tracking-tight">Your Unified API Key</h2>
+        <h2 className="text-xl font-semibold tracking-tight">{t('setup.unifiedKey.title')}</h2>
         <p className="text-sm text-muted-foreground mt-2">
-          Use this key as your OpenAI <code className="font-mono text-xs bg-muted px-1 py-0.5 rounded">api_key</code> when making requests. It authenticates and routes through all your configured providers.
+          {t('setup.unifiedKey.description')}
         </p>
       </div>
 
       <div className="rounded-lg border bg-card p-5 mb-6 space-y-4">
         <div>
-          <Label className="text-xs text-muted-foreground">API Key</Label>
+          <Label className="text-xs text-muted-foreground">{t('setup.unifiedKey.label')}</Label>
           <div className="flex items-center gap-2 mt-1.5">
             <code className="flex-1 font-mono text-xs bg-muted px-3 py-2 rounded-md select-all truncate tabular-nums">
               {showKey ? apiKey : masked}
             </code>
             <Button variant="outline" size="sm" onClick={() => setShowKey(!showKey)}>
-              {showKey ? 'Hide' : 'Show'}
+              {showKey ? t('setup.unifiedKey.hide') : t('setup.unifiedKey.show')}
             </Button>
             <Button variant="outline" size="sm" onClick={copy}>
-              {copied ? 'Copied' : 'Copy'}
+              {copied ? t('setup.unifiedKey.copied') : t('setup.unifiedKey.copy')}
             </Button>
           </div>
         </div>
 
         <div className="grid grid-cols-[auto_1fr] gap-x-4 gap-y-2 text-sm">
-          <span className="text-muted-foreground">Base URL</span>
+          <span className="text-muted-foreground">{t('setup.unifiedKey.baseUrl')}</span>
           <code className="font-mono text-xs">{baseUrl}</code>
-          <span className="text-muted-foreground">Endpoint</span>
+          <span className="text-muted-foreground">{t('setup.unifiedKey.endpoint')}</span>
           <code className="font-mono text-xs">/v1/chat/completions</code>
         </div>
       </div>
 
       <div className="rounded-lg border bg-card p-5 mb-6">
-        <h3 className="text-sm font-medium mb-3">Quick Start Example</h3>
+        <h3 className="text-sm font-medium mb-3">{t('setup.unifiedKey.quickStartTitle')}</h3>
         <pre className="text-xs font-mono bg-muted p-3 rounded-md overflow-x-auto whitespace-pre-wrap">
 {`curl ${baseUrl}/chat/completions \\
   -H "Authorization: Bearer ${apiKey.slice(0, 13)}..." \\
@@ -399,10 +398,10 @@ function UnifiedKeyStep({ onNext, onBack }: { onNext: () => void; onBack: () => 
 
       <div className="flex gap-3">
         <Button variant="outline" onClick={onBack} className="flex-1">
-          Back
+          {t('setup.unifiedKey.back')}
         </Button>
         <Button onClick={onNext} className="flex-1">
-          Continue
+          {t('setup.unifiedKey.continue')}
           <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="ml-2"><path d="M5 12h14"/><path d="m12 5 7 7-7 7"/></svg>
         </Button>
       </div>
@@ -411,7 +410,10 @@ function UnifiedKeyStep({ onNext, onBack }: { onNext: () => void; onBack: () => 
 }
 
 function CompleteStep({ addedKeys }: { addedKeys: AddedKey[] }) {
+  const { t } = useTranslations()
   const navigate = useNavigate()
+  const count = addedKeys.length
+  const providerPlural = count === 1 ? '' : 's'
 
   return (
     <div className="max-w-lg text-center">
@@ -419,34 +421,34 @@ function CompleteStep({ addedKeys }: { addedKeys: AddedKey[] }) {
         <div className="size-16 rounded-full bg-emerald-500/10 flex items-center justify-center mx-auto mb-4">
           <svg xmlns="http://www.w3.org/2000/svg" width="28" height="28" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="text-emerald-500"><path d="M22 11.08V12a10 10 0 1 1-5.93-9.14"/><polyline points="22 4 12 14.01 9 11.01"/></svg>
         </div>
-        <h2 className="text-xl font-semibold tracking-tight">Setup Complete</h2>
+        <h2 className="text-xl font-semibold tracking-tight">{t('setup.complete.title')}</h2>
         <p className="text-sm text-muted-foreground mt-2">
-          FreeLLMAPI is ready to use. You've configured {addedKeys.length} provider{addedKeys.length !== 1 ? 's' : ''}.
+          {t('setup.complete.description', { count, plural: providerPlural })}
         </p>
       </div>
 
       <div className="rounded-lg border bg-card p-5 mb-6 text-left space-y-3">
-        <h3 className="text-sm font-medium">What's next?</h3>
+        <h3 className="text-sm font-medium">{t('setup.complete.whatsNext')}</h3>
         <div className="space-y-2">
           <div className="flex items-start gap-3">
             <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="text-muted-foreground mt-0.5 shrink-0"><path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/></svg>
             <div>
-              <p className="text-sm font-medium">Try the Playground</p>
-              <p className="text-xs text-muted-foreground">Test your setup with a chat interface</p>
+              <p className="text-sm font-medium">{t('setup.complete.tryPlayground')}</p>
+              <p className="text-xs text-muted-foreground">{t('setup.complete.tryPlaygroundDesc')}</p>
             </div>
           </div>
           <div className="flex items-start gap-3">
             <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="text-muted-foreground mt-0.5 shrink-0"><path d="M12 20h9"/><path d="M16.5 3.5a2.121 2.121 0 0 1 3 3L7 19l-4 1 1-4L16.5 3.5z"/></svg>
             <div>
-              <p className="text-sm font-medium">Add more providers</p>
-              <p className="text-xs text-muted-foreground">Visit the Keys page to add more API keys</p>
+              <p className="text-sm font-medium">{t('setup.complete.addMoreProviders')}</p>
+              <p className="text-xs text-muted-foreground">{t('setup.complete.addMoreProvidersDesc')}</p>
             </div>
           </div>
           <div className="flex items-start gap-3">
             <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="text-muted-foreground mt-0.5 shrink-0"><path d="M4 4h16c1.1 0 2 .9 2 2v12c0 1.1-.9 2-2 2H4c-1.1 0-2-.9-2-2V6c0-1.1.9-2 2-2"/><polyline points="22,6 12,13 2,6"/></svg>
             <div>
-              <p className="text-sm font-medium">Configure fallback order</p>
-              <p className="text-xs text-muted-foreground">Drag and drop to set provider priority</p>
+              <p className="text-sm font-medium">{t('setup.complete.configureFallback')}</p>
+              <p className="text-xs text-muted-foreground">{t('setup.complete.configureFallbackDesc')}</p>
             </div>
           </div>
         </div>
@@ -454,10 +456,10 @@ function CompleteStep({ addedKeys }: { addedKeys: AddedKey[] }) {
 
       <div className="flex gap-3">
         <Button variant="outline" onClick={() => navigate('/keys')} className="flex-1">
-          Go to Keys
+          {t('setup.complete.goToKeys')}
         </Button>
         <Button onClick={() => navigate('/playground')} className="flex-1">
-          Open Playground
+          {t('setup.complete.openPlayground')}
         </Button>
       </div>
     </div>
@@ -465,6 +467,7 @@ function CompleteStep({ addedKeys }: { addedKeys: AddedKey[] }) {
 }
 
 export default function SetupPage() {
+  const { t } = useTranslations()
   const [step, setStep] = useState(0)
   const [addedKeys, setAddedKeys] = useState<AddedKey[]>([])
 
@@ -487,9 +490,9 @@ export default function SetupPage() {
         <div className="text-center mb-8">
           <div className="flex items-center justify-center gap-2 mb-2">
             <span className="inline-block size-2 rounded-full bg-foreground" />
-            <span className="font-semibold tracking-tight">FreeLLMAPI</span>
+            <span className="font-semibold tracking-tight">{t('app.brand')}</span>
           </div>
-          <p className="text-xs text-muted-foreground">Initial Setup</p>
+          <p className="text-xs text-muted-foreground">{t('app.initialSetup')}</p>
         </div>
 
         <StepIndicator current={step} total={steps.length} />

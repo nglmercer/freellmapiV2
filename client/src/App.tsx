@@ -3,13 +3,14 @@ import { BrowserRouter, Routes, Route, Navigate, NavLink, useLocation } from 're
 import { QueryClient, QueryClientProvider, useQuery } from '@tanstack/react-query'
 import { Button } from '@/components/ui/button'
 import { apiFetch } from '@/lib/api'
-import KeysPage from '@/pages/KeysPage'
-import PlaygroundPage from '@/pages/PlaygroundPage'
-import FallbackPage from '@/pages/FallbackPage'
-import AnalyticsPage from '@/pages/AnalyticsPage'
-import ProvidersPage from '@/pages/ProvidersPage'
-import ProviderModelsPage from '@/pages/ProviderModelsPage'
-import SetupPage from '@/pages/SetupPage'
+import { useTranslations } from '@/hooks/useTranslations'
+import KeysPage from './pages/KeysPage'
+import PlaygroundPage from './pages/PlaygroundPage'
+import FallbackPage from './pages/FallbackPage'
+import AnalyticsPage from './pages/AnalyticsPage'
+import ProvidersPage from './pages/ProvidersPage'
+import ProviderModelsPage from './pages/ProviderModelsPage'
+import SetupPage from './pages/SetupPage'
 
 const queryClient = new QueryClient()
 
@@ -101,6 +102,7 @@ function SetupGuard({ children }: { children: React.ReactNode }) {
 }
 
 function AppLayout() {
+  const { t } = useTranslations()
   const location = useLocation()
   const isSetup = location.pathname === '/setup'
 
@@ -114,12 +116,13 @@ function AppLayout() {
         <div className="max-w-6xl mx-auto px-6 flex items-center">
           <Brand />
           <nav className="flex items-center gap-6 ml-10">
-            <NavItem to="/playground">Playground</NavItem>
-            <NavItem to="/keys">Keys</NavItem>
-            <NavItem to="/fallback">Fallback</NavItem>
-            <NavItem to="/analytics">Analytics</NavItem>
+            <NavItem to="/playground">{t('app.nav.playground')}</NavItem>
+            <NavItem to="/keys">{t('app.nav.keys')}</NavItem>
+            <NavItem to="/fallback">{t('app.nav.fallback')}</NavItem>
+            <NavItem to="/analytics">{t('app.nav.analytics')}</NavItem>
           </nav>
-          <div className="ml-auto py-2">
+          <div className="ml-auto py-2 flex items-center gap-2">
+            <span className="text-xs text-muted-foreground">EN</span>
             <DarkModeToggle />
           </div>
         </div>

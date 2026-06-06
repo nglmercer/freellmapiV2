@@ -17,6 +17,7 @@ import {
   verticalListSortingStrategy,
 } from '@dnd-kit/sortable'
 import { CSS } from '@dnd-kit/utilities'
+import { useTranslations } from '@/hooks/useTranslations'
 import { apiFetch } from '@/lib/api'
 import { Button } from '@/components/ui/button'
 import { Switch } from '@/components/ui/switch'
@@ -74,12 +75,11 @@ const platformColors: Record<string, string> = {
 }
 
 function TokenUsageBar({ data }: { data: TokenUsageData }) {
+  const { t } = useTranslations()
   const { totalBudget, totalUsed, models } = data
   const remaining = Math.max(0, totalBudget - totalUsed)
   const remainingPct = totalBudget > 0 ? Math.round((remaining / totalBudget) * 100) : 0
 
-  // Scale each model's segment proportionally so the colored portion of the
-  // bar sums to `remaining`; the grey tail represents what's been used.
   const modelsWithWidth = models.map(m => ({
     ...m,
     remainingTokens: totalBudget > 0 ? (m.budget / totalBudget) * remaining : 0,
@@ -90,11 +90,9 @@ function TokenUsageBar({ data }: { data: TokenUsageData }) {
   return (
     <section className="rounded-lg border bg-card p-5">
       <div className="flex items-baseline justify-between mb-3">
-        <h2 className="text-sm font-medium">Monthly token budget</h2>
+        <h2 className="text-sm font-medium">{t('fallback.tokenBudget.title')}</h2>
         <span className="text-xs text-muted-foreground tabular-nums">
-          <span className="text-foreground font-medium">{formatTokens(remaining)}</span> remaining
-          <span className="mx-1.5">·</span>
-          {remainingPct}% of {formatTokens(totalBudget)}
+          <span className="text-foreground font-medium">{formatTokens(remaining)}</span> {t('fallback.tokenBudget.remaining').replace('{{remaining}}', formatTokens(remaining)).replace('remaining', '')} {remainingPct}% {t('fallback.tokenBudget.of').split('{{remainingPct}}% of {{total}}')[0]} {formatTokens(totalBudget)}
         </span>
       </div>
 
@@ -144,6 +142,7 @@ function SortableModelRow({
   index: number
   onToggle: (modelDbId: number, enabled: boolean) => void
 }) {
+  const { t } = useTranslations()
   const { attributes, listeners, setNodeRef, transform, transition, isDragging } = useSortable({
     id: entry.modelDbId,
   })
@@ -163,7 +162,7 @@ function SortableModelRow({
         {...attributes}
         {...listeners}
         className="cursor-grab active:cursor-grabbing text-muted-foreground/50 hover:text-foreground transition-colors"
-        aria-label="Drag to reorder"
+        aria-label={t('fallback.dragToReorder')}
       >
         <svg width="14" height="14" viewBox="0 0 24 24" fill="currentColor">
           <circle cx="9" cy="6" r="1.5" /><circle cx="15" cy="6" r="1.5" />
@@ -178,16 +177,16 @@ function SortableModelRow({
           <span className="text-xs text-muted-foreground">{entry.platform}</span>
           {entry.penalty > 0 && (
             <span className="text-xs text-amber-600 dark:text-amber-400">
-              −{entry.penalty} penalty
+              {t('fallback.penalty', { count: entry.penalty })}
             </span>
           )}
         </div>
         <div className="flex gap-3 mt-0.5 text-xs text-muted-foreground tabular-nums">
-          <span>Intel #{entry.intelligenceRank}</span>
-          <span>Speed #{entry.speedRank}</span>
-          {entry.rpmLimit && <span>{entry.rpmLimit} rpm</span>}
-          {entry.rpdLimit && <span>{entry.rpdLimit} rpd</span>}
-          <span>{entry.monthlyTokenBudget} tok/mo</span>
+          <span>{t('fallback.intelligenceRank', { rank: entry.intelligenceRank })}</span>
+          <span>{t('fallback.speedRank', { rank: entry.speedRank })}</span>
+          {entry.rpmLimit && <span>{t('fallback.rpm', { count: entry.rpmLimit })}</span>}
+          {entry.rpdLimit && <span>{t('fallback.rpd', { count: entry.rpdLimit })}</span>}
+          <span>{t('fallback.tokensPerMonth', { count: entry.monthlyTokenBudget })}</span>
         </div>
       </div>
       <Switch
@@ -199,6 +198,7 @@ function SortableModelRow({
 }
 
 export default function FallbackPage() {
+  const { t } = useTranslations()
   const queryClient = useQueryClient()
   const [localEntries, setLocalEntries] = useState<FallbackEntry[] | null>(null)
 
@@ -224,8 +224,8 @@ export default function FallbackPage() {
   const sortMutation = useMutation({
     mutationFn: (preset: string) =>
       apiFetch(`/api/fallback/sort/${preset}`, { method: 'POST' }),
-    onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ['fallback'] })
+    onSuccess: async () => {
+      await queryClient.refetchQueries({ queryKey: ['fallback'] })
       setLocalEntries(null)
     },
   })
@@ -239,7 +239,7 @@ export default function FallbackPage() {
       if (data.added) parts.push(`+${data.added} added`)
       if (data.updated) parts.push(`${data.updated} updated`)
       if (data.disabled) parts.push(`−${data.disabled} removed`)
-      if (parts.length === 0) parts.push('no changes')
+      if (parts.length === 0) parts.push(t('fallback.noChanges'))
       console.log(`[Model sync] ${parts.join(', ')}`)
     },
   })
@@ -303,21 +303,21 @@ export default function FallbackPage() {
   return (
     <div>
       <PageHeader
-        title="Fallback chain"
-        description="Drag to reorder. Requests try models top-to-bottom until one succeeds."
+        title={t('fallback.title')}
+        description={t('fallback.description')}
         actions={
           <>
             <Button variant="outline" size="sm" onClick={() => syncMutation.mutate()} disabled={syncMutation.isPending}>
-              {syncMutation.isPending ? 'Syncing…' : 'Sync models'}
+              {syncMutation.isPending ? t('fallback.syncing') : t('fallback.sync')}
             </Button>
             <Button variant="outline" size="sm" onClick={() => sortMutation.mutate('intelligence')} disabled={sortMutation.isPending}>
-              Sort by intelligence
+              {t('fallback.sortIntelligence')}
             </Button>
             <Button variant="outline" size="sm" onClick={() => sortMutation.mutate('speed')} disabled={sortMutation.isPending}>
-              Sort by speed
+              {t('fallback.sortSpeed')}
             </Button>
             <Button variant="outline" size="sm" onClick={() => sortMutation.mutate('budget')} disabled={sortMutation.isPending}>
-              Sort by budget
+              {t('fallback.sortBudget')}
             </Button>
             {freeEntries.length > 0 && (
               <Button
@@ -325,7 +325,7 @@ export default function FallbackPage() {
                 size="sm"
                 onClick={handleBulkToggleFree}
               >
-                {allFreeEnabled ? 'Disable free' : 'Enable free'}
+                {allFreeEnabled ? t('fallback.disableFree') : t('fallback.enableFree')}
               </Button>
             )}
           </>
@@ -338,11 +338,11 @@ export default function FallbackPage() {
         )}
 
         {isLoading ? (
-          <p className="text-sm text-muted-foreground">Loading…</p>
+          <p className="text-sm text-muted-foreground">{t('fallback.loading')}</p>
         ) : displayEntries.length === 0 ? (
           <div className="rounded-lg border border-dashed p-8 text-center">
             <p className="text-sm text-muted-foreground">
-              No models available. Add API keys on the <a href="/keys" className="underline text-foreground">Keys page</a> first.
+              {t('fallback.emptyState')}
             </p>
           </div>
         ) : (
@@ -372,17 +372,17 @@ export default function FallbackPage() {
             {hasChanges && (
               <div className="flex justify-end gap-2">
                 <Button variant="outline" size="sm" onClick={() => setLocalEntries(null)}>
-                  Discard
+                  {t('fallback.discard')}
                 </Button>
                 <Button size="sm" onClick={handleSave} disabled={saveMutation.isPending}>
-                  {saveMutation.isPending ? 'Saving…' : 'Save order'}
+                  {saveMutation.isPending ? t('fallback.saving') : t('fallback.saveOrder')}
                 </Button>
               </div>
             )}
 
             {unconfiguredPlatforms.length > 0 && (
               <p className="text-xs text-muted-foreground">
-                Hidden (no keys): {unconfiguredPlatforms.join(', ')}
+                {t('fallback.hiddenPlatforms', { platforms: unconfiguredPlatforms.join(', ') })}
               </p>
             )}
           </>
