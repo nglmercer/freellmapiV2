@@ -4,6 +4,7 @@ import { QueryClient, QueryClientProvider, useQuery } from '@tanstack/react-quer
 import { Button } from '@/components/ui/button'
 import { apiFetch } from '@/lib/api'
 import { useTranslations } from '@/hooks/useTranslations'
+import { switchLanguage, getCurrentLanguage } from '@/i18n'
 import KeysPage from './pages/KeysPage'
 import PlaygroundPage from './pages/PlaygroundPage'
 import FallbackPage from './pages/FallbackPage'
@@ -101,6 +102,20 @@ function SetupGuard({ children }: { children: React.ReactNode }) {
   return <>{children}</>
 }
 
+function LanguageToggle() {
+  const current = getCurrentLanguage()
+
+  function toggle() {
+    switchLanguage(current === 'en' ? 'es' : 'en')
+  }
+
+  return (
+    <Button variant="ghost" size="sm" onClick={toggle}>
+      {current === 'en' ? 'ES' : 'EN'}
+    </Button>
+  )
+}
+
 function AppLayout() {
   const { t } = useTranslations()
   const location = useLocation()
@@ -122,7 +137,7 @@ function AppLayout() {
             <NavItem to="/analytics">{t('app.nav.analytics')}</NavItem>
           </nav>
           <div className="ml-auto py-2 flex items-center gap-2">
-            <span className="text-xs text-muted-foreground">EN</span>
+            <LanguageToggle />
             <DarkModeToggle />
           </div>
         </div>
