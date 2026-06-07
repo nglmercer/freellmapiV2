@@ -7,6 +7,8 @@ import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
 import { useTranslations } from '@/hooks/useTranslations'
+import { Trans } from 'react-i18next'
+import { switchLanguage, getCurrentLanguage } from '@/i18n'
 import type { Platform } from '../../../shared/types'
 
 const PLATFORMS: { value: Platform; label: string; description: string }[] = [
@@ -321,7 +323,7 @@ function AddKeysStep({
 
       {addedKeys.length === 0 && (
         <p className="text-xs text-muted-foreground text-center mt-3">
-          {t('setup.addKeys.helpContinue', { action: <button type="button" className="text-primary underline underline-offset-2" onClick={onNext}>{t('setup.addKeys.skipForNow')}</button> })}
+          <Trans i18nKey="setup.addKeys.helpContinue" action={<button type="button" className="text-primary underline underline-offset-2" onClick={onNext}>{t('setup.addKeys.skipForNow')}</button>} />
         </p>
       )}
     </div>
@@ -466,6 +468,20 @@ function CompleteStep({ addedKeys }: { addedKeys: AddedKey[] }) {
   )
 }
 
+function LanguageToggle() {
+  const current = getCurrentLanguage()
+
+  function toggle() {
+    switchLanguage(current === 'en' ? 'es' : 'en')
+  }
+
+  return (
+    <Button variant="ghost" size="sm" onClick={toggle}>
+      {current === 'en' ? 'ES' : 'EN'}
+    </Button>
+  )
+}
+
 export default function SetupPage() {
   const { t } = useTranslations()
   const [step, setStep] = useState(0)
@@ -487,13 +503,14 @@ export default function SetupPage() {
   return (
     <div className="min-h-[calc(100vh-4rem)] flex flex-col items-center justify-center -mt-8">
       <div className="w-full max-w-2xl px-6">
-        <div className="text-center mb-8">
-          <div className="flex items-center justify-center gap-2 mb-2">
+        <div className="flex items-center justify-between mb-8">
+          <div className="flex items-center gap-2">
             <span className="inline-block size-2 rounded-full bg-foreground" />
             <span className="font-semibold tracking-tight">{t('app.brand')}</span>
           </div>
-          <p className="text-xs text-muted-foreground">{t('app.initialSetup')}</p>
+          <LanguageToggle />
         </div>
+        <p className="text-xs text-muted-foreground text-center mb-8">{t('app.initialSetup')}</p>
 
         <StepIndicator current={step} total={steps.length} />
 
