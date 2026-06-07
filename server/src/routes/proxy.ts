@@ -7,7 +7,7 @@ import { getDb } from '../db/index.js';
 import { handleStreamingCompletion, handleStandardCompletion } from './streamHandler.js';
 import { handleCompletion } from './completions.js';
 import type { StatusCode } from 'hono/utils/http-status';
-import type { CompletionRequest } from '@freellmapi/shared/types.js';
+import type { CompletionRequest, ChatCompletionResponse, ChatCompletionChoice } from '@freellmapi/shared/types.js';
 import * as schema from '../db/schema.js';
 import { eq, asc, and, sql } from 'drizzle-orm';
 
@@ -140,11 +140,11 @@ proxyRouter.post('/chat/completions', apiKeyAuth, validateChatBody, async (c) =>
             route.provider.chatCompletion(route.apiKey, messages, route.modelId, passthroughOptions)
           )
         );
-        const mergedChoices = results.flatMap((r, i) =>
-          r.choices.map(ch => ({ ...ch, index: ch.index + i * r.choices.length }))
+        const mergedChoices = results.flatMap((r: ChatCompletionResponse, i: number) =>
+          r.choices.map((ch: ChatCompletionChoice) => ({ ...ch, index: ch.index + i * r.choices.length }))
         );
         const totalUsage = results.reduce(
-          (acc, r) => {
+          (acc: { prompt_tokens: number; completion_tokens: number; total_tokens: number }, r: ChatCompletionResponse) => {
             acc.prompt_tokens += r.usage?.prompt_tokens ?? 0;
             acc.completion_tokens += r.usage?.completion_tokens ?? 0;
             acc.total_tokens += r.usage?.total_tokens ?? 0;

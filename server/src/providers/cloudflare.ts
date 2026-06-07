@@ -63,8 +63,8 @@ export class CloudflareProvider extends BaseProvider {
     });
 
     if (!res.ok) {
-      const err = await res.json().catch(() => ({}));
-      throw new Error(`Cloudflare API error ${res.status}: ${(err as any).error?.message ?? (err as any).errors?.[0]?.message ?? res.statusText}`);
+      const err = await res.json().catch(() => ({})) as { error?: { message?: string }; errors?: { message?: string }[] };
+      throw new Error(`Cloudflare API error ${res.status}: ${err.error?.message ?? err.errors?.[0]?.message ?? res.statusText}`);
     }
 
     const data = await res.json() as ChatCompletionResponse;
@@ -108,8 +108,8 @@ export class CloudflareProvider extends BaseProvider {
     });
 
     if (!res.ok) {
-      const err = await res.json().catch(() => ({}));
-      throw new Error(`Cloudflare API error ${res.status}: ${(err as any).error?.message ?? (err as any).errors?.[0]?.message ?? res.statusText}`);
+      const err = await res.json().catch(() => ({})) as { error?: { message?: string }; errors?: { message?: string }[] };
+      throw new Error(`Cloudflare API error ${res.status}: ${err.error?.message ?? err.errors?.[0]?.message ?? res.statusText}`);
     }
 
     const reader = res.body?.getReader();
@@ -151,7 +151,7 @@ export class CloudflareProvider extends BaseProvider {
     );
     if (res.status === 401 || res.status === 403) return false;
     if (!res.ok) return true; // unexpected non-2xx that isn't auth — don't disable
-    const data = await res.json() as any;
+    const data = await res.json() as { success?: boolean; result?: { status?: string } };
     return data.success === true && data.result?.status === 'active';
   }
 }

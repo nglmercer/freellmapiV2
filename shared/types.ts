@@ -291,6 +291,7 @@ export interface PlatformStats {
   avgLatencyMs: number;
   totalInputTokens: number;
   totalOutputTokens: number;
+  [key: string]: string | number;
 }
 
 export interface TimelinePoint {
@@ -298,6 +299,7 @@ export interface TimelinePoint {
   requests: number;
   successCount: number;
   failureCount: number;
+  [key: string]: string | number;
 }
 
 export interface RequestLog {

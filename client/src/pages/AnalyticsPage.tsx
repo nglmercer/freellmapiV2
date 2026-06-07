@@ -1,16 +1,30 @@
 import { useState } from 'react'
 import { useQuery } from '@tanstack/react-query'
-import {
-  BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer,
-  LineChart, Line, Legend,
-} from 'recharts'
+import { SimpleBarChart, SimpleLineChart } from '@/components/charts'
 import { useTranslations } from '@/hooks/useTranslations'
 import { apiFetch } from '@/lib/api'
 import { Button } from '@/components/ui/button'
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table'
 import { PageHeader } from '@/components/page-header'
+import type { AnalyticsSummary, PlatformStats, TimelinePoint, RequestLog } from '@freellmapi/shared'
 
 type TimeRange = '24h' | '7d' | '30d'
+
+interface ModelStats {
+  displayName: string
+  platform: string
+  requests: number
+  successRate: number
+  avgLatencyMs: number
+  totalInputTokens: number
+  totalOutputTokens: number
+}
+
+interface ErrorDistribution {
+  byCategory: { category: string; count: number }[]
+  byPlatform: { platform: string; count: number }[]
+  detailed: { id: number; error: string; count: number }[]
+}
 
 function formatTokens(n?: number): string {
   if (!n) return '0'
@@ -39,42 +53,38 @@ function Panel({ title, children }: { title: string; children: React.ReactNode }
   )
 }
 
-const axisStyle = { fontSize: 11, fill: 'var(--muted-foreground)' } as const
-const gridStyle = 'var(--border)'
-const primaryFill = 'var(--foreground)'
-
 export default function AnalyticsPage() {
   const { t } = useTranslations()
   const [range, setRange] = useState<TimeRange>('7d')
 
-  const { data: summary } = useQuery({
+  const { data: summary } = useQuery<AnalyticsSummary>({
     queryKey: ['analytics', 'summary', range],
-    queryFn: () => apiFetch<any>(`/api/analytics/summary?range=${range}`),
+    queryFn: () => apiFetch<AnalyticsSummary>(`/api/analytics/summary?range=${range}`),
   })
 
-  const { data: byPlatform = [] } = useQuery({
+  const { data: byPlatform = [] } = useQuery<PlatformStats[]>({
     queryKey: ['analytics', 'by-platform', range],
-    queryFn: () => apiFetch<any[]>(`/api/analytics/by-platform?range=${range}`),
+    queryFn: () => apiFetch<PlatformStats[]>(`/api/analytics/by-platform?range=${range}`),
   })
 
-  const { data: timeline = [] } = useQuery({
+  const { data: timeline = [] } = useQuery<TimelinePoint[]>({
     queryKey: ['analytics', 'timeline', range],
-    queryFn: () => apiFetch<any[]>(`/api/analytics/timeline?range=${range}`),
+    queryFn: () => apiFetch<TimelinePoint[]>(`/api/analytics/timeline?range=${range}`),
   })
 
-  const { data: byModel = [] } = useQuery({
+  const { data: byModel = [] } = useQuery<ModelStats[]>({
     queryKey: ['analytics', 'by-model', range],
-    queryFn: () => apiFetch<any[]>(`/api/analytics/by-model?range=${range}`),
+    queryFn: () => apiFetch<ModelStats[]>(`/api/analytics/by-model?range=${range}`),
   })
 
-  const { data: errors = [] } = useQuery({
+  const { data: errors = [] } = useQuery<RequestLog[]>({
     queryKey: ['analytics', 'errors', range],
-    queryFn: () => apiFetch<any[]>(`/api/analytics/errors?range=${range}`),
+    queryFn: () => apiFetch<RequestLog[]>(`/api/analytics/errors?range=${range}`),
   })
 
-  const { data: errorDist } = useQuery({
+  const { data: errorDist } = useQuery<ErrorDistribution>({
     queryKey: ['analytics', 'error-distribution', range],
-    queryFn: () => apiFetch<{ byCategory: any[]; byPlatform: any[]; detailed: any[] }>(`/api/analytics/error-distribution?range=${range}`),
+    queryFn: () => apiFetch<ErrorDistribution>(`/api/analytics/error-distribution?range=${range}`),
   })
 
   return (
@@ -113,15 +123,7 @@ export default function AnalyticsPage() {
             {byPlatform.length === 0 ? (
               <p className="text-sm text-muted-foreground text-center py-8">{t('analytics.noData')}</p>
             ) : (
-              <ResponsiveContainer width="100%" height={240}>
-                <BarChart data={byPlatform} margin={{ top: 6, right: 6, left: -12, bottom: 0 }}>
-                  <CartesianGrid strokeDasharray="2 4" stroke={gridStyle} />
-                  <XAxis dataKey="platform" tick={axisStyle} tickLine={false} axisLine={{ stroke: gridStyle }} />
-                  <YAxis tick={axisStyle} tickLine={false} axisLine={false} />
-                  <Tooltip contentStyle={{ backgroundColor: 'var(--popover)', border: '1px solid var(--border)', borderRadius: 8, fontSize: 12 }} />
-                  <Bar dataKey="requests" fill={primaryFill} radius={[3, 3, 0, 0]} />
-                </BarChart>
-              </ResponsiveContainer>
+              <SimpleBarChart data={byPlatform} dataKey="requests" xKey="platform" />
             )}
           </Panel>
 
@@ -129,15 +131,14 @@ export default function AnalyticsPage() {
             {byPlatform.length === 0 ? (
               <p className="text-sm text-muted-foreground text-center py-8">{t('analytics.noData')}</p>
             ) : (
-              <ResponsiveContainer width="100%" height={240}>
-                <BarChart data={byPlatform} margin={{ top: 6, right: 6, left: -12, bottom: 0 }}>
-                  <CartesianGrid strokeDasharray="2 4" stroke={gridStyle} />
-                  <XAxis dataKey="platform" tick={axisStyle} tickLine={false} axisLine={{ stroke: gridStyle }} />
-                  <YAxis unit="ms" tick={axisStyle} tickLine={false} axisLine={false} />
-                  <Tooltip contentStyle={{ backgroundColor: 'var(--popover)', border: '1px solid var(--border)', borderRadius: 8, fontSize: 12 }} />
-                  <Bar dataKey="avgLatencyMs" name="Latency (ms)" fill="var(--muted-foreground)" radius={[3, 3, 0, 0]} />
-                </BarChart>
-              </ResponsiveContainer>
+              <SimpleBarChart
+                data={byPlatform}
+                dataKey="avgLatencyMs"
+                xKey="platform"
+                unit="ms"
+                name="Latency"
+                color="var(--muted-foreground)"
+              />
             )}
           </Panel>
 
@@ -146,17 +147,14 @@ export default function AnalyticsPage() {
               {timeline.length === 0 ? (
                 <p className="text-sm text-muted-foreground text-center py-8">{t('analytics.noData')}</p>
               ) : (
-                <ResponsiveContainer width="100%" height={240}>
-                  <LineChart data={timeline} margin={{ top: 6, right: 6, left: -12, bottom: 0 }}>
-                    <CartesianGrid strokeDasharray="2 4" stroke={gridStyle} />
-                    <XAxis dataKey="timestamp" tick={axisStyle} tickLine={false} axisLine={{ stroke: gridStyle }} />
-                    <YAxis tick={axisStyle} tickLine={false} axisLine={false} />
-                    <Tooltip contentStyle={{ backgroundColor: 'var(--popover)', border: '1px solid var(--border)', borderRadius: 8, fontSize: 12 }} />
-                    <Legend wrapperStyle={{ fontSize: 12 }} iconType="line" />
-                    <Line type="monotone" dataKey="successCount" name={t('analytics.success')} stroke={primaryFill} strokeWidth={1.5} dot={false} />
-                    <Line type="monotone" dataKey="failureCount" name={t('analytics.failures')} stroke="var(--destructive)" strokeWidth={1.5} dot={false} />
-                  </LineChart>
-                </ResponsiveContainer>
+                <SimpleLineChart
+                  data={timeline}
+                  xKey="timestamp"
+                  lines={[
+                    { dataKey: 'successCount', name: t('analytics.success'), color: 'var(--foreground)' },
+                    { dataKey: 'failureCount', name: t('analytics.failures'), color: 'var(--destructive)' },
+                  ]}
+                />
               )}
             </Panel>
           </div>
@@ -180,7 +178,7 @@ export default function AnalyticsPage() {
                       </TableRow>
                     </TableHeader>
                     <TableBody>
-                      {byModel.map((m: any, i: number) => (
+                      {byModel.map((m: ModelStats, i: number) => (
                         <TableRow key={i}>
                           <TableCell className="pl-4 text-sm font-medium">{m.displayName}</TableCell>
                           <TableCell className="text-xs text-muted-foreground">{m.platform}</TableCell>
@@ -202,15 +200,12 @@ export default function AnalyticsPage() {
             {!errorDist?.byPlatform?.length ? (
               <p className="text-sm text-muted-foreground text-center py-8">{t('analytics.noErrors')}</p>
             ) : (
-              <ResponsiveContainer width="100%" height={240}>
-                <BarChart data={errorDist.byPlatform} margin={{ top: 6, right: 6, left: -12, bottom: 0 }}>
-                  <CartesianGrid strokeDasharray="2 4" stroke={gridStyle} />
-                  <XAxis dataKey="platform" tick={axisStyle} tickLine={false} axisLine={{ stroke: gridStyle }} />
-                  <YAxis tick={axisStyle} tickLine={false} axisLine={false} />
-                  <Tooltip contentStyle={{ backgroundColor: 'var(--popover)', border: '1px solid var(--border)', borderRadius: 8, fontSize: 12 }} />
-                  <Bar dataKey="count" fill="var(--destructive)" radius={[3, 3, 0, 0]} />
-                </BarChart>
-              </ResponsiveContainer>
+              <SimpleBarChart
+                data={errorDist.byPlatform}
+                dataKey="count"
+                xKey="platform"
+                color="var(--destructive)"
+              />
             )}
           </Panel>
 
@@ -228,7 +223,7 @@ export default function AnalyticsPage() {
                     </TableRow>
                   </TableHeader>
                   <TableBody>
-                    {errors.slice(0, 20).map((e: any) => (
+                    {errors.slice(0, 20).map((e: RequestLog) => (
                       <TableRow key={e.id}>
                         <TableCell className="pl-4 text-xs">{e.platform}</TableCell>
                         <TableCell className="text-xs max-w-[200px] truncate">{e.error}</TableCell>

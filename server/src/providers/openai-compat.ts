@@ -6,6 +6,12 @@ import type {
 } from '@freellmapi/shared/types.js';
 import { BaseProvider, type CompletionOptions } from './base.js';
 
+interface ApiErrorResponse {
+  error?: {
+    message?: string;
+  };
+}
+
 /**
  * Generic provider for platforms that use an OpenAI-compatible API.
  * Covers: Groq, Cerebras, SambaNova, NVIDIA NIM, Mistral, OpenRouter,
@@ -71,8 +77,8 @@ export class OpenAICompatProvider extends BaseProvider {
     }, this.timeoutMs);
 
     if (!res.ok) {
-      const err = await res.json().catch(() => ({}));
-      throw new Error(`${this.name} API error ${res.status}: ${(err as any).error?.message ?? res.statusText}`);
+      const err = await res.json().catch(() => ({})) as ApiErrorResponse;
+      throw new Error(`${this.name} API error ${res.status}: ${err.error?.message ?? res.statusText}`);
     }
 
     const data = await res.json() as ChatCompletionResponse;
@@ -115,8 +121,8 @@ export class OpenAICompatProvider extends BaseProvider {
     }, this.timeoutMs);
 
     if (!res.ok) {
-      const err = await res.json().catch(() => ({}));
-      throw new Error(`${this.name} API error ${res.status}: ${(err as any).error?.message ?? res.statusText}`);
+      const err = await res.json().catch(() => ({})) as ApiErrorResponse;
+      throw new Error(`${this.name} API error ${res.status}: ${err.error?.message ?? res.statusText}`);
     }
 
     const reader = res.body?.getReader();

@@ -3,6 +3,7 @@ import * as schema from '../db/schema.js';
 import { eq, and } from 'drizzle-orm';
 import { OpenAICompatProvider } from './openai-compat.js';
 import type { BaseProvider } from './base.js';
+import type { Platform } from '@freellmapi/shared/types.js';
 
 const CUSTOM_PREFIX = 'custom:';
 
@@ -39,7 +40,7 @@ export function loadCustomProvider(platform: string): BaseProvider | undefined {
   }
 
   const instance = new OpenAICompatProvider({
-    platform: platform as any,
+    platform: platform as Platform,
     name: row.name,
     baseUrl: row.baseUrl,
     timeoutMs: row.timeoutMs ?? 15000,
@@ -63,7 +64,7 @@ export function loadAllCustomProviders(): Map<string, BaseProvider> {
       try { extraHeaders = JSON.parse(row.extraHeaders); } catch {}
     }
     map.set(platform, new OpenAICompatProvider({
-      platform: platform as any,
+      platform: platform as Platform,
       name: row.name,
       baseUrl: row.baseUrl,
       timeoutMs: row.timeoutMs ?? 15000,

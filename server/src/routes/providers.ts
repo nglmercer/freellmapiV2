@@ -1,9 +1,15 @@
 import { Hono } from 'hono';
+import type { Context } from 'hono';
 import { z } from 'zod';
 import { getDb } from '../db/index.js';
 import * as schema from '../db/schema.js';
 import { eq, and, desc, max } from 'drizzle-orm';
 import { hasCustomProvider, providerIdToPlatform, platformToProviderId } from '../providers/custom.js';
+
+interface SQLiteRunResult {
+  lastInsertRowid?: number | bigint;
+  changes?: number;
+}
 
 export const providersRouter = new Hono();
 
@@ -69,8 +75,8 @@ providersRouter.post('/', async (c) => {
     enabled: enabled ? 1 : 0,
   }).run();
 
-  const lastRowId = (result as any).lastInsertRowid as number | undefined;
-  const inserted = lastRowId ? db.select().from(schema.customProviders).where(eq(schema.customProviders.id, lastRowId)).get() : null;
+  const lastRowId = (result as unknown as SQLiteRunResult)?.lastInsertRowid;
+  const inserted = lastRowId ? db.select().from(schema.customProviders).where(eq(schema.customProviders.id, Number(lastRowId))).get() : null;
 
   c.status(201);
   return c.json({ success: true, provider: inserted ? toProviderJson(inserted) : null });
@@ -109,7 +115,7 @@ providersRouter.patch('/:id', async (c) => {
 
   if (Object.keys(sets).length === 0) { c.status(400); return c.json({ error: { message: 'No fields to update' } }); }
 
-  db.update(schema.customProviders).set(sets as any).where(eq(schema.customProviders.id, id)).run();
+  db.update(schema.customProviders).set(sets).where(eq(schema.customProviders.id, id)).run();
   const updated = db.select().from(schema.customProviders).where(eq(schema.customProviders.id, id)).get();
   return c.json({ success: true, provider: updated ? toProviderJson(updated) : null });
 });
@@ -213,11 +219,11 @@ providersRouter.post('/:id/models', async (c) => {
     freeTier: 0,
   }).run();
 
-  const lastRowId = (result as any).lastInsertRowid as number | undefined;
+  const lastRowId = (result as unknown as SQLiteRunResult).lastInsertRowid;
   if (lastRowId && parsed.data.enabled) {
     const mx = db.select({ mx: max(schema.fallbackConfig.priority) }).from(schema.fallbackConfig).get();
     db.insert(schema.fallbackConfig).values({
-      modelDbId: lastRowId,
+      modelDbId: Number(lastRowId),
       priority: (mx?.mx ?? 0) + 1,
       enabled: 1,
     }).run();
@@ -275,7 +281,7 @@ providersRouter.patch('/:id/models/:modelId', async (c) => {
 
   if (Object.keys(sets).length === 0) { c.status(400); return c.json({ error: { message: 'No fields to update' } }); }
 
-  db.update(schema.models).set(sets as any)
+  db.update(schema.models).set(sets)
     .where(and(eq(schema.models.platform, platform), eq(schema.models.modelId, modelIdParam)))
     .run();
 

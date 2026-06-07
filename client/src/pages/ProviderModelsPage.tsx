@@ -26,6 +26,23 @@ interface CustomModel {
   enabled: boolean
 }
 
+interface ModelFormData {
+  modelId: string
+  displayName: string
+  intelligenceRank: number
+  speedRank: number
+  sizeLabel: string
+  rpmLimit: number | null
+  rpdLimit: number | null
+  tpmLimit: number | null
+  tpdLimit: number | null
+  monthlyTokenBudget: string
+  contextWindow: number | null
+  enabled: boolean
+}
+
+type UpdateModelMutation = { modelId: string } & Partial<Omit<ModelFormData, 'modelId'>>
+
 interface CustomProvider {
   id: number
   name: string
@@ -38,7 +55,7 @@ function ModelForm({
   saving,
 }: {
   initial?: CustomModel
-  onSave: (data: any) => void
+  onSave: (data: ModelFormData) => void
   onCancel: () => void
   saving: boolean
 }) {
@@ -130,7 +147,7 @@ export default function ProviderModelsPage() {
   })
 
   const create = useMutation({
-    mutationFn: (body: any) => apiFetch(`/api/providers/${providerId}/models`, { method: 'POST', body: JSON.stringify(body) }),
+    mutationFn: (body: ModelFormData) => apiFetch(`/api/providers/${providerId}/models`, { method: 'POST', body: JSON.stringify(body) }),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['custom-providers', providerId, 'models'] })
       setAdding(false)
@@ -138,7 +155,7 @@ export default function ProviderModelsPage() {
   })
 
   const update = useMutation({
-    mutationFn: ({ modelId, ...body }: any) =>
+    mutationFn: ({ modelId, ...body }: UpdateModelMutation) =>
       apiFetch(`/api/providers/${providerId}/models/${encodeURIComponent(modelId)}`, { method: 'PATCH', body: JSON.stringify(body) }),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['custom-providers', providerId, 'models'] })
@@ -209,7 +226,7 @@ export default function ProviderModelsPage() {
             {editing === m.modelId ? (
               <ModelForm
                 initial={m}
-                onSave={data => update.mutate({ modelId: m.modelId, ...data })}
+                onSave={data => update.mutate({ ...data, modelId: m.modelId })}
                 onCancel={() => setEditing(null)}
                 saving={update.isPending}
               />

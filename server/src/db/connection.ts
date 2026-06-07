@@ -147,10 +147,10 @@ function createTables(sqlite: Database): void {
 
   // Add columns that may not exist on pre-existing databases (idempotent)
   const existingCols = new Set(
-    sqlite.prepare('PRAGMA table_info(models)').all()
-      .map((r: any) => r.name)
+    (sqlite.prepare('PRAGMA table_info(models)').all() as Array<{ name: string }>)
+      .map((r) => r.name)
   );
-  const newCols = [
+  const newCols: Array<[string, string]> = [
     ['pricing_prompt', 'REAL'],
     ['pricing_completion', 'REAL'],
     ['free_tier', 'INTEGER NOT NULL DEFAULT 0'],
@@ -166,7 +166,7 @@ function createTables(sqlite: Database): void {
     ['last_ranked_at', 'TEXT'],
   ];
   for (const [name, def] of newCols) {
-    if (!existingCols.has(name)) {
+    if (!existingCols.has(name) && def) {
       sqlite.exec(`ALTER TABLE models ADD COLUMN ${name} ${def}`);
     }
   }
@@ -178,7 +178,7 @@ function createTables(sqlite: Database): void {
     sqlite.exec(`CREATE INDEX IF NOT EXISTS idx_models_last_ranked_at ON models(last_ranked_at)`);
   } else {
     const colsAfter = new Set(
-      sqlite.prepare('PRAGMA table_info(models)').all().map((r: any) => r.name)
+      (sqlite.prepare('PRAGMA table_info(models)').all() as Array<{ name: string }>).map((r) => r.name)
     );
     if (colsAfter.has('last_ranked_at')) {
       sqlite.exec(`CREATE INDEX IF NOT EXISTS idx_models_last_ranked_at ON models(last_ranked_at)`);

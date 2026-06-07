@@ -44,8 +44,8 @@ export class CohereProvider extends BaseProvider {
     });
 
     if (!res.ok) {
-      const err = await res.json().catch(() => ({}));
-      throw new Error(`Cohere API error ${res.status}: ${(err as any).error?.message ?? res.statusText}`);
+      const err = await res.json().catch(() => ({})) as { error?: { message?: string } };
+      throw new Error(`Cohere API error ${res.status}: ${err.error?.message ?? res.statusText}`);
     }
 
     const data = await res.json() as ChatCompletionResponse;
@@ -87,8 +87,8 @@ export class CohereProvider extends BaseProvider {
     });
 
     if (!res.ok) {
-      const err = await res.json().catch(() => ({}));
-      throw new Error(`Cohere API error ${res.status}: ${(err as any).error?.message ?? res.statusText}`);
+      const err = await res.json().catch(() => ({})) as { error?: { message?: string } };
+      throw new Error(`Cohere API error ${res.status}: ${err.error?.message ?? res.statusText}`);
     }
 
     const reader = res.body?.getReader();

@@ -6,6 +6,16 @@ import * as schema from '../db/schema.js';
 import { eq, desc } from 'drizzle-orm';
 import { hasCustomProvider, platformToProviderId } from '../providers/custom.js';
 
+interface SQLiteRunResult {
+  lastInsertRowid?: number | bigint;
+  changes?: number;
+}
+
+interface KeyPatchBody {
+  key?: string;
+  enabled?: boolean;
+}
+
 const BUILTIN_PLATFORMS = [
   'google', 'groq', 'cerebras', 'sambanova', 'nvidia', 'mistral',
   'openrouter', 'github', 'cohere', 'cloudflare', 'zhipu', 'ollama',
@@ -90,7 +100,7 @@ keysRouter.post('/', async (c) => {
 
   // Handle drizzle-orm bun-sqlite return type
   const lastInsertRowid = typeof result === 'object' && result !== null && 'lastInsertRowid' in result 
-    ? (result as any).lastInsertRowid 
+    ? (result as SQLiteRunResult).lastInsertRowid 
     : undefined;
 
   c.status(201)
@@ -117,7 +127,7 @@ keysRouter.delete('/:id', async (c) => {
 
   // Handle drizzle-orm bun-sqlite return type
   const changes = typeof result === 'object' && result !== null && 'changes' in result 
-    ? (result as any).changes 
+    ? (result as SQLiteRunResult).changes 
     : 0;
 
   if (changes === 0) {
@@ -136,7 +146,7 @@ keysRouter.patch('/:id', async (c) => {
     return c.json({ error: { message: 'Invalid key ID' } });
   }
 
-  let body: any;
+  let body: KeyPatchBody;
   try {
     body = await c.req.json();
   } catch {
@@ -157,7 +167,7 @@ keysRouter.patch('/:id', async (c) => {
 
     // Handle drizzle-orm bun-sqlite return type
     const changes = typeof result === 'object' && result !== null && 'changes' in result 
-      ? (result as any).changes 
+      ? (result as SQLiteRunResult).changes 
       : 0;
 
     if (changes === 0) {
@@ -177,7 +187,7 @@ keysRouter.patch('/:id', async (c) => {
 
     // Handle drizzle-orm bun-sqlite return type
     const changes = typeof result === 'object' && result !== null && 'changes' in result 
-      ? (result as any).changes 
+      ? (result as SQLiteRunResult).changes 
       : 0;
 
     if (changes === 0) {

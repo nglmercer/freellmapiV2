@@ -80,7 +80,7 @@ export async function syncModels(): Promise<SyncResult> {
 
     const seenKeys = new Set<string>();
     const newModelInserts: Array<typeof schema.models.$inferInsert> = [];
-    const updates: Array<{ id: number; data: Record<string, unknown> }> = [];
+    const updates: Array<{ id: number; data: Partial<typeof schema.models.$inferInsert> }> = [];
     const disables: number[] = [];
 
     for (const ext of externalModels) {
@@ -177,9 +177,8 @@ export async function syncModels(): Promise<SyncResult> {
         db.insert(schema.models).values(ins).onConflictDoNothing().run();
       }
       for (const up of updates) {
-        const data = up.data as any;
         db.update(schema.models)
-          .set({ ...data, lastSyncedAt: startedAt })
+          .set({ ...up.data, lastSyncedAt: startedAt })
           .where(eq(schema.models.id, up.id))
           .run();
       }
