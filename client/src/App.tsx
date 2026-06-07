@@ -1,17 +1,19 @@
-import { useState } from 'react'
+import { lazy, Suspense, useState } from 'react'
 import { BrowserRouter, Routes, Route, Navigate, NavLink, useLocation } from 'react-router-dom'
 import { QueryClient, QueryClientProvider, useQuery } from '@tanstack/react-query'
 import { Button } from '@/components/ui/button'
 import { apiFetch } from '@/lib/api'
 import { useTranslations } from '@/hooks/useTranslations'
 import { switchLanguage, getCurrentLanguage } from '@/i18n'
-import KeysPage from './pages/KeysPage'
-import PlaygroundPage from './pages/PlaygroundPage'
-import FallbackPage from './pages/FallbackPage'
-import AnalyticsPage from './pages/AnalyticsPage'
-import ProvidersPage from './pages/ProvidersPage'
-import ProviderModelsPage from './pages/ProviderModelsPage'
-import SetupPage from './pages/SetupPage'
+import PageSkeleton from '@/components/PageSkeleton'
+
+const KeysPage = lazy(() => import('./pages/KeysPage'))
+const PlaygroundPage = lazy(() => import('./pages/PlaygroundPage'))
+const FallbackPage = lazy(() => import('./pages/FallbackPage'))
+const AnalyticsPage = lazy(() => import('./pages/AnalyticsPage'))
+const ProvidersPage = lazy(() => import('./pages/ProvidersPage'))
+const ProviderModelsPage = lazy(() => import('./pages/ProviderModelsPage'))
+const SetupPage = lazy(() => import('./pages/SetupPage'))
 
 const queryClient = new QueryClient()
 
@@ -122,7 +124,11 @@ function AppLayout() {
   const isSetup = location.pathname === '/setup'
 
   if (isSetup) {
-    return <SetupPage />
+    return (
+      <Suspense fallback={<PageSkeleton />}>
+        <SetupPage />
+      </Suspense>
+    )
   }
 
   return (
@@ -143,17 +149,19 @@ function AppLayout() {
         </div>
       </header>
       <main className="max-w-6xl mx-auto px-6 py-8">
-        <Routes>
-          <Route path="/" element={<Navigate to="/playground" replace />} />
-          <Route path="/providers" element={<ProvidersPage />} />
-          <Route path="/providers/:id/models" element={<ProviderModelsPage />} />
-          <Route path="/playground" element={<PlaygroundPage />} />
-          <Route path="/keys" element={<KeysPage />} />
-          <Route path="/fallback" element={<FallbackPage />} />
-          <Route path="/analytics" element={<AnalyticsPage />} />
-          <Route path="/test" element={<Navigate to="/playground" replace />} />
-          <Route path="/health" element={<Navigate to="/keys" replace />} />
-        </Routes>
+        <Suspense fallback={<PageSkeleton />}>
+          <Routes>
+            <Route path="/" element={<Navigate to="/playground" replace />} />
+            <Route path="/providers" element={<ProvidersPage />} />
+            <Route path="/providers/:id/models" element={<ProviderModelsPage />} />
+            <Route path="/playground" element={<PlaygroundPage />} />
+            <Route path="/keys" element={<KeysPage />} />
+            <Route path="/fallback" element={<FallbackPage />} />
+            <Route path="/analytics" element={<AnalyticsPage />} />
+            <Route path="/test" element={<Navigate to="/playground" replace />} />
+            <Route path="/health" element={<Navigate to="/keys" replace />} />
+          </Routes>
+        </Suspense>
       </main>
     </div>
   )
