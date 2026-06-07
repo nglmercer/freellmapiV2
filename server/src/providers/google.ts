@@ -288,7 +288,7 @@ export class GoogleProvider extends BaseProvider {
       body.responseSchema = options.response_format.json_schema ?? { type: 'OBJECT' };
     }
 
-    const url = `${API_BASE}/models/${modelId}:generateContent`;
+    const url = `${API_BASE}/models/${encodeURIComponent(modelId)}:generateContent`;
     const res = await this.fetchWithTimeout(url, {
       method: 'POST',
       headers: {
@@ -362,7 +362,7 @@ export class GoogleProvider extends BaseProvider {
       body.responseSchema = options.response_format.json_schema ?? { type: 'OBJECT' };
     }
 
-    const url = `${API_BASE}/models/${modelId}:streamGenerateContent?alt=sse`;
+    const url = `${API_BASE}/models/${encodeURIComponent(modelId)}:streamGenerateContent?alt=sse`;
     const res = await this.fetchWithTimeout(url, {
       method: 'POST',
       headers: {

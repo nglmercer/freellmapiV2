@@ -22,7 +22,8 @@ function isRetryableError(err: unknown): boolean {
       || msg.includes('aborted') || msg.includes('timeout') || msg.includes('etimedout')
       || msg.includes('econnrefused') || msg.includes('econnreset')
       || msg.includes('503') || msg.includes('unavailable')
-      || msg.includes('500') || msg.includes('internal server error');
+      || msg.includes('500') || msg.includes('internal server error')
+      || msg.includes('invalid url') || msg.includes('invalid uri');
   }
   return false;
 }

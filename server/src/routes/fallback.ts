@@ -159,11 +159,11 @@ fallbackRouter.post('/sort/:preset', async (c) => {
     return cmp !== 0 ? cmp : a.id - b.id;
   });
 
-  runInTransaction(() => {
+  runInTransaction((tx) => {
     for (let i = 0; i < sorted.length; i++) {
       const row = sorted[i];
       if (!row) continue;
-      db.update(schema.fallbackConfig)
+      tx.update(schema.fallbackConfig)
         .set({ priority: i + 1 })
         .where(eq(schema.fallbackConfig.modelDbId, row.id))
         .run();
