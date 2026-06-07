@@ -6,6 +6,29 @@ export const UNRANKED_INTELLIGENCE = 99;
 export const UNRANKED_SPEED = 10;
 
 export function ensureFallbackEntries(tx: Transaction): void {
+  // 1. Remove orphaned entries (models that no longer exist)
+  const orphaned = tx.select({ id: schema.fallbackConfig.id })
+    .from(schema.fallbackConfig)
+    .leftJoin(schema.models, eq(schema.fallbackConfig.modelDbId, schema.models.id))
+    .where(isNull(schema.models.id))
+    .all();
+
+  if (orphaned.length > 0) {
+    console.log(`[seed] Removing ${orphaned.length} orphaned fallback entries`);
+    tx.delete(schema.fallbackConfig)
+      .where(sql`${schema.fallbackConfig.id} IN (${sql.join(orphaned.map(o => o.id), sql`, `)})`)
+      .run();
+  }
+
+  // 2. Sync enabled state: disable fallback entries for disabled models
+  tx.update(schema.fallbackConfig)
+    .set({ enabled: 0 })
+    .where(sql`${schema.fallbackConfig.modelDbId} IN (
+      SELECT ${schema.models.id} FROM ${schema.models} WHERE ${schema.models.enabled} = 0
+    ) AND ${schema.fallbackConfig.enabled} = 1`)
+    .run();
+
+  // 3. Add missing entries
   const missing = tx.select({ id: schema.models.id })
     .from(schema.models)
     .leftJoin(schema.fallbackConfig, eq(schema.models.id, schema.fallbackConfig.modelDbId))

@@ -27,7 +27,7 @@ export function saveRuntimeState(): void {
   const tmp = STATE_FILE + '.tmp';
   fs.writeFileSync(tmp, JSON.stringify(snapshot), 'utf-8');
   fs.renameSync(tmp, STATE_FILE);
-  console.log(`[StatePersistence] Saved runtime state to ${STATE_FILE}`);
+  //console.log(`[StatePersistence] Saved runtime state to ${STATE_FILE}`);
 }
 
 export function restoreRuntimeState(): boolean {

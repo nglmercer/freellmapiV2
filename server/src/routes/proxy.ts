@@ -88,7 +88,9 @@ function isRetryableError(err: unknown): boolean {
       || msg.includes('econnrefused') || msg.includes('econnreset')
       || msg.includes('503') || msg.includes('unavailable')
       || msg.includes('500') || msg.includes('internal server error')
-      || msg.includes('invalid url') || msg.includes('invalid uri');
+      || msg.includes('invalid url') || msg.includes('invalid uri')
+    || msg.includes('401') || msg.includes('403') || msg.includes('unauthorized')
+    || msg.includes('forbidden') || msg.includes('sign in');
   }
   return false;
 }
@@ -104,8 +106,21 @@ proxyRouter.post('/chat/completions', apiKeyAuth, validateChatBody, async (c) =>
   const estimatedInputTokens = estimateInputTokens(messages);
   const estimatedTotal = estimatedInputTokens + (passthroughOptions.max_tokens ?? 1000);
 
-  // Resolve preferred model: use sticky session for multi-turn, auto for new conversations
-  const preferredModel = isAutoModel(requestedModel) ? getStickyModel(messages) : undefined;
+  // Resolve preferred model: use requested model if specified, sticky session for auto
+  let preferredModel: number | undefined;
+  const isSpecificModel = !isAutoModel(requestedModel) && !!requestedModel;
+  if (isAutoModel(requestedModel)) {
+    preferredModel = getStickyModel(messages);
+  } else if (requestedModel) {
+    // Find the specific model in DB by modelId
+    const db = getDb();
+    const model = db.select({ id: schema.models.id })
+      .from(schema.models)
+      .where(and(eq(schema.models.modelId, requestedModel), eq(schema.models.enabled, 1)))
+      .get();
+    preferredModel = model?.id;
+    console.log(`[Proxy] Requested specific model: ${requestedModel}, found ID: ${preferredModel}, isSpecific: ${isSpecificModel}`);
+  }
 
   const skipKeys = new Set<string>();
   let lastError: string | null = null;
@@ -183,6 +198,12 @@ proxyRouter.post('/chat/completions', apiKeyAuth, validateChatBody, async (c) =>
        logRequest(route.platform, route.modelId, 'error', estimatedInputTokens, 0, Date.now() - start, errorMessage);
 
        if (isRetryableError(err)) {
+         // If a specific model was requested, don't fallback - return error immediately
+         if (isSpecificModel) {
+           c.status(502);
+           return c.json({ error: { message: `Provider error (${route.displayName}): ${errorMessage}`, type: 'provider_error' } });
+         }
+         
          skipKeys.add(`${route.platform}:${route.modelId}:${route.keyId}`);
          setCooldown(route.platform, route.modelId, route.keyId, 600_000);
          recordRateLimitHit(route.modelDbId);

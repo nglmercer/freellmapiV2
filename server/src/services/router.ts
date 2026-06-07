@@ -117,6 +117,17 @@ export function routeRequest(estimatedTokens = 1000, skipKeys?: Set<string>, pre
     throw new HTTPException(503, { message: 'No API keys configured. Add at least one key in the dashboard first.' });
   }
 
+  // Pre-compute which platforms have valid keys (optimization to skip platforms with no keys)
+  const platformsWithKeys = db.selectDistinct({ platform: schema.apiKeys.platform })
+    .from(schema.apiKeys)
+    .where(and(
+      eq(schema.apiKeys.enabled, 1),
+      notInArray(schema.apiKeys.status, ['invalid', 'rate_limited'])
+    ))
+    .all()
+    .map(r => r.platform);
+  const platformKeySet = new Set(platformsWithKeys);
+
   // Get fallback chain ordered by priority
   const fallbackChain = db.select({
     modelDbId: schema.fallbackConfig.modelDbId,
@@ -143,11 +154,24 @@ export function routeRequest(estimatedTokens = 1000, skipKeys?: Set<string>, pre
   }
 
   for (const entry of sortedChain) {
-    if (entry.enabled !== 1) continue;
+    if (entry.enabled !== 1) {
+      console.log(`[ROUTER DEBUG] Skipping priority ${entry.priority}: fallback_config disabled`);
+      continue;
+    }
 
     // Get model details
     const model = db.select().from(schema.models).where(and(eq(schema.models.id, entry.modelDbId), eq(schema.models.enabled, 1))).get();
-    if (!model) continue;
+    if (!model) {
+      console.log(`[ROUTER DEBUG] Skipping priority ${entry.priority}: model not found or disabled (modelDbId=${entry.modelDbId})`);
+      continue;
+    }
+
+    // Early skip: platform has no valid keys (optimization to avoid iterating through 70+ entries)
+    if (!platformKeySet.has(model.platform)) {
+      continue;
+    }
+
+    console.log(`[ROUTER DEBUG] Trying priority ${entry.priority}: ${model.platform}/${model.modelId} (model.enabled=${model.enabled})`);
 
     // Check if we have a provider for this platform
     const provider = getProvider(model.platform as Platform);
@@ -163,7 +187,11 @@ export function routeRequest(estimatedTokens = 1000, skipKeys?: Set<string>, pre
       ))
       .all();
 
-    if (keys.length === 0) continue;
+    if (keys.length === 0) {
+      console.log(`[ROUTER DEBUG] Skipping ${model.platform}/${model.modelId}: no keys for platform ${model.platform}`);
+      continue;
+    }
+    console.log(`[ROUTER DEBUG] Found ${keys.length} key(s) for ${model.platform}/${model.modelId}, attempting...`);
 
     // Get limits once for this model
     const limits = {
