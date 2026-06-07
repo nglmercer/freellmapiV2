@@ -111,3 +111,18 @@ export function stopHealthChecker(): void {
     intervalId = null;
   }
 }
+
+export interface HealthSnapshot {
+  failureCount: [number, number][];
+}
+
+export function snapshotHealthState(): HealthSnapshot {
+  return {
+    failureCount: Array.from(failureCount.entries()),
+  };
+}
+
+export function restoreHealthState(snapshot: HealthSnapshot) {
+  failureCount.clear();
+  for (const [k, v] of snapshot.failureCount) failureCount.set(k, v);
+}

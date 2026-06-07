@@ -8,7 +8,7 @@ import { initEncryptionKey } from '../lib/crypto.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 export const DB_PATH = path.resolve(__dirname, '../../data/freeapi.db');
-
+console.log(DB_PATH)
 let db: BunSQLiteDatabase<typeof schema> | undefined;
 
 export type Transaction = BunSQLiteDatabase<typeof schema>;

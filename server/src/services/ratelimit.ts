@@ -194,3 +194,28 @@ export function setStickyModel(messages: ChatMessage[], modelDbId: number) {
     }
   }
 }
+
+export interface RateLimitSnapshot {
+  windows: [string, Window][];
+  cooldowns: [string, number][];
+  stickySessions: [string, { modelDbId: number; lastUsed: number }][];
+}
+
+export function snapshotRateLimitState(): RateLimitSnapshot {
+  return {
+    windows: Array.from(windows.entries()),
+    cooldowns: Array.from(cooldowns.entries()),
+    stickySessions: Array.from(stickySessionMap.entries()),
+  };
+}
+
+export function restoreRateLimitState(snapshot: RateLimitSnapshot) {
+  windows.clear();
+  for (const [k, v] of snapshot.windows) windows.set(k, v);
+
+  cooldowns.clear();
+  for (const [k, v] of snapshot.cooldowns) cooldowns.set(k, v);
+
+  stickySessionMap.clear();
+  for (const [k, v] of snapshot.stickySessions) stickySessionMap.set(k, v);
+}

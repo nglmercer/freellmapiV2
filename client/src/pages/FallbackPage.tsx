@@ -1,4 +1,4 @@
-import { useState, useEffect, useRef } from 'react'
+import { useState, useEffect, useRef, useCallback } from 'react'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import {
   DndContext,
@@ -264,7 +264,7 @@ export default function FallbackPage() {
     setLocalEntries(updated)
   }
 
-  function handleSave() {
+  const handleSave = useCallback(() => {
     if (!localEntries) return
     saveMutation.mutate(
       allEntries.map(e => ({
@@ -273,7 +273,12 @@ export default function FallbackPage() {
         enabled: e.enabled,
       }))
     )
-  }
+  }, [localEntries, allEntries, saveMutation])
+
+  const handleSaveRef = useRef(handleSave)
+  useEffect(() => {
+    handleSaveRef.current = handleSave
+  })
 
   // Autosave: debounce 800ms after drag reorder or toggle
   const autosaveTimer = useRef<ReturnType<typeof setTimeout> | null>(null)
@@ -281,7 +286,7 @@ export default function FallbackPage() {
     if (!localEntries) return
     if (autosaveTimer.current) clearTimeout(autosaveTimer.current)
     autosaveTimer.current = setTimeout(() => {
-      handleSave()
+      handleSaveRef.current()
     }, 800)
     return () => {
       if (autosaveTimer.current) clearTimeout(autosaveTimer.current)

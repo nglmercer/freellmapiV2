@@ -240,3 +240,23 @@ for (let attempt = 0; attempt < keys.length; attempt++) {
 
   throw new HTTPException(429, { message });
 }
+
+export interface RouterSnapshot {
+  roundRobinIndex: [string, number][];
+  rateLimitPenalties: [number, { count: number; lastHit: number; penalty: number }][];
+}
+
+export function snapshotRouterState(): RouterSnapshot {
+  return {
+    roundRobinIndex: Array.from(roundRobinIndex.entries()),
+    rateLimitPenalties: Array.from(rateLimitPenalties.entries()),
+  };
+}
+
+export function restoreRouterState(snapshot: RouterSnapshot) {
+  roundRobinIndex.clear();
+  for (const [k, v] of snapshot.roundRobinIndex) roundRobinIndex.set(k, v);
+
+  rateLimitPenalties.clear();
+  for (const [k, v] of snapshot.rateLimitPenalties) rateLimitPenalties.set(k, v);
+}
