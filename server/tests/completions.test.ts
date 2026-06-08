@@ -40,7 +40,7 @@ describe('/v1/completions', () => {
       expect(res.status).toBe(401);
       const data = await res.json() as any;
       expect(data.error).toBeDefined();
-      expect(data.error.message).toBe('Invalid API key');
+      expect(data.error.message).toContain('Missing Authorization header');
       expect(data.error.type).toBe('authentication_error');
     });
 
@@ -58,7 +58,7 @@ describe('/v1/completions', () => {
       });
       expect(res.status).toBe(401);
       const data = await res.json() as any;
-      expect(data.error.message).toBe('Invalid API key');
+      expect(data.error.message).toContain('Invalid API key');
       expect(data.error.type).toBe('authentication_error');
     });
 

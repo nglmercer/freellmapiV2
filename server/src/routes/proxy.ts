@@ -193,9 +193,15 @@ proxyRouter.post('/chat/completions', apiKeyAuth, validateChatBody, async (c) =>
         recordRequest(route.platform, route.modelId, route.keyId);
         return result;
       }
-     } catch (err: unknown) {
-       const errorMessage = err instanceof Error ? err.message : String(err);
-       logRequest(route.platform, route.modelId, 'error', estimatedInputTokens, 0, Date.now() - start, errorMessage);
+      } catch (err: unknown) {
+        const errorMessage = err instanceof Error ? err.message : String(err);
+        console.error('[Proxy] Error:', { 
+          platform: route.platform, 
+          model: route.modelId, 
+          error: errorMessage,
+          attempt,
+        });
+        logRequest(route.platform, route.modelId, 'error', estimatedInputTokens, 0, Date.now() - start, errorMessage);
 
        if (isRetryableError(err)) {
          // If a specific model was requested, don't fallback - return error immediately

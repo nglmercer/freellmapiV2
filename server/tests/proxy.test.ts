@@ -83,56 +83,56 @@ it('should contain at least one real model entry', async () => {
   // ─────────────────────────────────────────────────────────────
 
   describe('POST /v1/chat/completions — authentication', () => {
-it('should return 401 when no Authorization header is provided', async () => {
-       const res = await app.request('/v1/chat/completions', {
-         method: 'POST',
-         headers: { 'Content-Type': 'application/json' },
-         body: JSON.stringify({
-           model: 'auto',
-           messages: [{ role: 'user', content: 'Hello' }],
-         }),
-       });
-       expect(res.status).toBe(401);
-       const data = await res.json() as any;
-       expect(data.error).toBeDefined();
-       expect(data.error.message).toBe('Invalid API key');
-       expect(data.error.type).toBe('authentication_error');
-     });
+    it('should return 401 when no Authorization header is provided', async () => {
+      const res = await app.request('/v1/chat/completions', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          model: 'auto',
+          messages: [{ role: 'user', content: 'Hello' }],
+        }),
+      });
+      expect(res.status).toBe(401);
+      const data = await res.json() as any;
+      expect(data.error).toBeDefined();
+      expect(data.error.message).toContain('Missing Authorization header');
+      expect(data.error.type).toBe('authentication_error');
+    });
 
-it('should return 401 with a wrong API key', async () => {
-       const res = await app.request('/v1/chat/completions', {
-         method: 'POST',
-         headers: {
-           'Content-Type': 'application/json',
-           Authorization: 'Bearer wrong-key',
-         },
-         body: JSON.stringify({
-           model: 'auto',
-           messages: [{ role: 'user', content: 'Hello' }],
-         }),
-       });
-       expect(res.status).toBe(401);
-       const data = await res.json() as any;
-       expect(data.error.message).toBe('Invalid API key');
-       expect(data.error.type).toBe('authentication_error');
-     });
+    it('should return 401 with a wrong API key', async () => {
+      const res = await app.request('/v1/chat/completions', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          Authorization: 'Bearer wrong-key',
+        },
+        body: JSON.stringify({
+          model: 'auto',
+          messages: [{ role: 'user', content: 'Hello' }],
+        }),
+      });
+      expect(res.status).toBe(401);
+      const data = await res.json() as any;
+      expect(data.error.message).toContain('Invalid API key');
+      expect(data.error.type).toBe('authentication_error');
+    });
 
-it('should reject an empty Authorization token', async () => {
-       const res = await app.request('/v1/chat/completions', {
-         method: 'POST',
-         headers: {
-           'Content-Type': 'application/json',
-           Authorization: 'Bearer ',
-         },
-         body: JSON.stringify({
-           model: 'auto',
-           messages: [{ role: 'user', content: 'Hi' }],
-         }),
-       });
-       expect(res.status).toBe(401);
-       const data = await res.json() as any;
-       expect(data.error.message).toBe('Invalid API key');
-     });
+    it('should reject an empty Authorization token', async () => {
+      const res = await app.request('/v1/chat/completions', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          Authorization: 'Bearer ',
+        },
+        body: JSON.stringify({
+          model: 'auto',
+          messages: [{ role: 'user', content: 'Hi' }],
+        }),
+      });
+      expect(res.status).toBe(401);
+      const data = await res.json() as any;
+      expect(data.error.message).toContain('Invalid API key');
+    });
 
     it('should allow access with the correct unified API key', async () => {
       const res = await app.request('/v1/chat/completions', {

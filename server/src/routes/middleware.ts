@@ -142,13 +142,23 @@ export function timingSafeStringEqual(a: string, b: string): boolean {
 }
 // Middleware: Authenticate Request
 export async function apiKeyAuth(c: Context, next: Next) {
-  const token = c.req.header('authorization')?.replace(/^Bearer\s+/i, '');
+  const authHeader = c.req.header('authorization');
+  const token = authHeader?.replace(/^Bearer\s+/i, '');
   const unifiedKey = getUnifiedApiKey();
 
-  if (!token || !timingSafeStringEqual(token, unifiedKey)) {
+  if (!token) {
+    console.log('[Auth] Missing Authorization header');
     c.status(401);
     return c.json({
-      error: { message: 'Invalid API key', type: 'authentication_error' },
+      error: { message: 'Missing Authorization header. Include "Authorization: Bearer <your-api-key>"', type: 'authentication_error' },
+    });
+  }
+
+  if (!timingSafeStringEqual(token, unifiedKey)) {
+    console.log('[Auth] Invalid API key provided (length:', token.length, 'expected:', unifiedKey.length, ')');
+    c.status(401);
+    return c.json({
+      error: { message: 'Invalid API key. Get your key from the dashboard Settings page.', type: 'authentication_error' },
     });
   }
   await next();

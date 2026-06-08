@@ -155,7 +155,7 @@ export function routeRequest(estimatedTokens = 1000, skipKeys?: Set<string>, pre
 
   for (const entry of sortedChain) {
     if (entry.enabled !== 1) {
-      console.log(`[ROUTER DEBUG] Skipping priority ${entry.priority}: fallback_config disabled`);
+      //console.log(`[ROUTER DEBUG] Skipping priority ${entry.priority}: fallback_config disabled`);
       continue;
     }
 
