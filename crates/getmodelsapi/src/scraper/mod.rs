@@ -1,4 +1,4 @@
-//! Scraper orchestration, mirroring `getmodelsapi/src/scraper/index.ts`.
+//! Scraper orchestration.
 
 pub mod providers;
 
@@ -7,8 +7,7 @@ pub use providers::{ScraperOptions, ScraperResult};
 use crate::types::ProviderConfig;
 use providers::factory::get_scraper;
 
-/// Mirror of `scrapeModels`: returns `[]` when the provider doesn't support
-/// scraping, otherwise the single scraper result wrapped in a Vec.
+/// Scrape one provider, returning no result when scraping is unsupported.
 pub async fn scrape_models(provider: &ProviderConfig) -> Vec<ScraperResult> {
     if !provider.supports_scraping {
         return Vec::new();
@@ -19,11 +18,8 @@ pub async fn scrape_models(provider: &ProviderConfig) -> Vec<ScraperResult> {
     }
 }
 
-/// Mirror of `scrapeAllProviders`: run every scraping-capable provider and
-/// flatten the results.
-///
-/// The TS version uses `Promise.all`; we run them sequentially (same results,
-/// same order, no added parallelism).
+/// Run every scraping-capable provider and flatten the results in registry
+/// order.
 pub async fn scrape_all_providers(providers: &[ProviderConfig]) -> Vec<ScraperResult> {
     let mut results = Vec::new();
     for provider in providers {

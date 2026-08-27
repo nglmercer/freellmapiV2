@@ -1,7 +1,7 @@
-//! Disk cache mirroring `getmodelsapi/src/utils/cache.ts`.
+//! Disk cache for discovered models.
 //!
-//! Same directory (`.cache` under the process cwd), same `{data, timestamp,
-//! ttl}` on-disk format, same key sanitization, so Rust and TS caches interop.
+//! The directory (`.cache` under the process cwd), `{data, timestamp, ttl}`
+//! format, and key sanitization are stable for cache compatibility.
 
 use serde::de::DeserializeOwned;
 use serde::{Deserialize, Serialize};
@@ -9,12 +9,12 @@ use std::fs;
 use std::path::PathBuf;
 use std::time::{SystemTime, UNIX_EPOCH};
 
-/// Cache directory relative to the process cwd (TS uses `process.cwd()`).
+/// Cache directory relative to the process working directory.
 pub const CACHE_DIR: &str = ".cache";
 pub const ONE_HOUR: i64 = 3_600_000;
 pub const FIVE_MINUTES: i64 = 300_000;
 
-/// On-disk entry format (identical to the TS `CacheEntry<T>`).
+/// Stable on-disk cache entry format.
 #[derive(Debug, Serialize, Deserialize)]
 pub struct CacheEntry<T> {
     pub data: T,
@@ -35,8 +35,8 @@ fn cache_dir() -> PathBuf {
         .join(CACHE_DIR)
 }
 
-/// Mirror of `getCachePath`: sanitize the key to `[a-z0-9-_.]` chars, cap at
-/// 200 chars, and append `.json`.
+/// Sanitize a cache key to `[a-z0-9-_.]` characters, cap it at 200 chars, and
+/// append `.json`.
 pub fn get_cache_path(key: &str) -> PathBuf {
     let safe_key: String = key
         .chars()
@@ -54,7 +54,7 @@ pub fn get_cache_path(key: &str) -> PathBuf {
     dir.join(format!("{safe_key}.json"))
 }
 
-/// Mirror of `cacheGet<T>`: read + parse + TTL check.
+/// Read, parse, and validate a cached entry's TTL.
 pub fn cache_get<T: DeserializeOwned>(key: &str) -> Option<T> {
     let path = get_cache_path(key);
     let raw = fs::read_to_string(path).ok()?;
@@ -65,7 +65,7 @@ pub fn cache_get<T: DeserializeOwned>(key: &str) -> Option<T> {
     Some(entry.data)
 }
 
-/// Mirror of `cacheSet<T>`: write entry, fail silently on IO errors.
+/// Write a cache entry, ignoring filesystem errors.
 pub fn cache_set<T: Serialize>(key: &str, data: &T, ttl_ms: i64) {
     let path = get_cache_path(key);
     let entry = CacheEntry {
@@ -78,8 +78,7 @@ pub fn cache_set<T: Serialize>(key: &str, data: &T, ttl_ms: i64) {
     }
 }
 
-/// Mirror of `clearCache`: delete every `.json` file in the cache dir and
-/// return how many were removed. (TS also only clears the disk cache.)
+/// Delete every `.json` file in the cache directory and return the count.
 pub fn clear_cache() -> usize {
     let mut count = 0;
     if let Ok(entries) = fs::read_dir(cache_dir()) {

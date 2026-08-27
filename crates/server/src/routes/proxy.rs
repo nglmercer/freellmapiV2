@@ -1,6 +1,4 @@
-//! Port of `server/src/routes/proxy.ts` — the OpenAI-compatible proxy
-//! endpoints (`GET /v1/models`, `POST /v1/chat/completions`) with the
-//! resilient fallback retry loop.
+//! OpenAI-compatible proxy endpoints with resilient fallback retries.
 
 use std::collections::HashSet;
 
@@ -20,9 +18,7 @@ use crate::routes::stream_handler::{handle_standard_completion, handle_streaming
 use crate::services::ratelimit::{
     get_sticky_model, record_request, record_tokens, set_cooldown, set_sticky_model,
 };
-use crate::services::router::{
-    record_rate_limit_hit, record_success, route_request, RouteResult,
-};
+use crate::services::router::{record_rate_limit_hit, record_success, route_request, RouteResult};
 use crate::types::{ChatCompletionResponse, ChatMessage, CompletionOptions};
 
 // Virtual "auto" model. Clients like Hermes require a non-empty `model` field
@@ -46,8 +42,8 @@ fn preview(s: &str, max: usize) -> &str {
     &s[..end]
 }
 
-/// Port of `extractStatus` — routing errors carry their HTTP status;
-/// anything out of range defaults to 503.
+/// Routing errors carry their HTTP status; anything out of range defaults to
+/// 503.
 fn extract_status(status: u16) -> u16 {
     if (100..600).contains(&status) {
         status
@@ -248,7 +244,7 @@ pub async fn chat_completions(headers: HeaderMap, body: Bytes) -> Response {
             )
             .await
             .inspect(|_| {
-                // recordRequest after the response starts (TS line order)
+                // Record usage after the response starts.
                 record_request(&route.platform, &route.model_id, route.key_id);
             })
         } else if n > 1 {
@@ -363,8 +359,8 @@ fn provider_error_response(route: &RouteResult, error_message: &str) -> Response
 }
 
 /// The `n > 1` parallel branch: fire `n` requests at the same provider and
-/// return merged choices. Bookkeeping matches TS exactly (no recordRequest
-/// on this path).
+/// return merged choices. Usage bookkeeping intentionally remains unchanged on
+/// this path.
 async fn handle_parallel(
     route: RouteResult,
     messages: Vec<ChatMessage>,
@@ -373,12 +369,9 @@ async fn handle_parallel(
     attempt: i64,
 ) -> Result<Response, ProviderError> {
     let calls = (0..n).map(|_| {
-        route.provider.chat_completion(
-            &route.api_key,
-            &messages,
-            &route.model_id,
-            &options,
-        )
+        route
+            .provider
+            .chat_completion(&route.api_key, &messages, &route.model_id, &options)
     });
     let results: Vec<ChatCompletionResponse> = join_all(calls)
         .await
@@ -431,7 +424,9 @@ async fn handle_parallel(
         let h = response.headers_mut();
         h.insert(
             "x-routed-via",
-            format!("{}/{}", route.platform, route.model_id).parse().unwrap(),
+            format!("{}/{}", route.platform, route.model_id)
+                .parse()
+                .unwrap(),
         );
         if attempt > 0 {
             h.insert("x-fallback-attempts", attempt.to_string().parse().unwrap());

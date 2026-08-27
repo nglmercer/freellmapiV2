@@ -1,24 +1,36 @@
-//! AIMLAPI scraper, mirroring `getmodelsapi/src/scraper/providers/aimlapi.ts`.
+//! AIMLAPI scraper.
 
 use super::ScraperResult;
 use crate::types::{Model, ProviderConfig};
 use crate::utils::http::{get_json, HttpConfig};
 use std::time::Duration;
 
-/// Mirror of `parseFeatures` — maps raw feature strings to a normalized list.
+/// Map raw feature strings to a normalized capability list.
 fn parse_features(features: &[String]) -> Vec<String> {
     let feat: Vec<String> = features.iter().map(|f| f.to_lowercase()).collect();
     let mut result: Vec<String> = Vec::new();
-    if feat.iter().any(|f| f.contains("chat") || f.contains("completion")) {
+    if feat
+        .iter()
+        .any(|f| f.contains("chat") || f.contains("completion"))
+    {
         result.push("chat".into());
     }
-    if feat.iter().any(|f| f.contains("vision") || f.contains("image")) {
+    if feat
+        .iter()
+        .any(|f| f.contains("vision") || f.contains("image"))
+    {
         result.push("vision".into());
     }
-    if feat.iter().any(|f| f.contains("function") || f.contains("tool")) {
+    if feat
+        .iter()
+        .any(|f| f.contains("function") || f.contains("tool"))
+    {
         result.push("tools".into());
     }
-    if feat.iter().any(|f| f.contains("audio") || f.contains("speech")) {
+    if feat
+        .iter()
+        .any(|f| f.contains("audio") || f.contains("speech"))
+    {
         result.push("audio".into());
     }
     if result.is_empty() {
@@ -41,7 +53,11 @@ pub async fn scrape_aimlapi(_config: ProviderConfig) -> ScraperResult {
 
             let mut models = Vec::with_capacity(arr.len());
             for m in arr {
-                let id = m.get("id").and_then(|v| v.as_str()).unwrap_or("").to_string();
+                let id = m
+                    .get("id")
+                    .and_then(|v| v.as_str())
+                    .unwrap_or("")
+                    .to_string();
                 let info = m.get("info");
                 let name = info
                     .and_then(|i| i.get("name"))
@@ -57,7 +73,11 @@ pub async fn scrape_aimlapi(_config: ProviderConfig) -> ScraperResult {
                 let features: Vec<String> = m
                     .get("features")
                     .and_then(|f| f.as_array())
-                    .map(|arr| arr.iter().filter_map(|v| v.as_str().map(|s| s.to_string())).collect())
+                    .map(|arr| {
+                        arr.iter()
+                            .filter_map(|v| v.as_str().map(|s| s.to_string()))
+                            .collect()
+                    })
                     .unwrap_or_default();
                 let context_window = info
                     .and_then(|i| i.get("contextLength"))
@@ -67,7 +87,10 @@ pub async fn scrape_aimlapi(_config: ProviderConfig) -> ScraperResult {
                 let url = info
                     .and_then(|i| i.get("url"))
                     .and_then(|v| v.as_str())
-                    .or_else(|| info.and_then(|i| i.get("docs_url")).and_then(|v| v.as_str()))
+                    .or_else(|| {
+                        info.and_then(|i| i.get("docs_url"))
+                            .and_then(|v| v.as_str())
+                    })
                     .map(|s| s.to_string());
                 let description = info
                     .and_then(|i| i.get("description"))

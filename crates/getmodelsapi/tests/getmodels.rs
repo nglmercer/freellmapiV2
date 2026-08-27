@@ -1,4 +1,4 @@
-//! Rust port integration tests for the TS `getmodelsapi/tests/scraper.test.ts`.
+//! Integration tests for model discovery, filtering, caching, and scraping.
 //!
 //! Tests that hit the network are gated behind `GETMODELS_NETWORK_TESTS=1`
 //! and skip gracefully otherwise.
@@ -42,7 +42,10 @@ fn all_providers_have_required_fields() {
     assert!(!providers.is_empty());
     for p in &providers {
         assert!(!p.name.is_empty());
-        assert!(matches!(p.type_, ProviderType::Provider | ProviderType::Gateway));
+        assert!(matches!(
+            p.type_,
+            ProviderType::Provider | ProviderType::Gateway
+        ));
         assert!(p.supports_scraping || !p.supports_scraping); // bool
         assert!(p.free_tier || !p.free_tier); // bool
         assert!(p.priority > 0);
@@ -157,7 +160,7 @@ fn model_serializes_with_camel_case_wire_format() {
     assert_eq!(json["contextWindow"], 128_000);
     assert_eq!(json["supportedFeatures"][0], "chat");
     assert_eq!(json["freeTier"], true);
-    // None optional fields are omitted (like JSON.stringify in TS)
+    // Optional fields are omitted from the JSON representation.
     assert!(json.get("gateway").is_none());
     assert!(json.get("pricing").is_none());
     assert!(json.get("description").is_none());
@@ -202,7 +205,9 @@ fn cache_roundtrips_and_clear() {
     assert_eq!(cache::cache_get::<Vec<u8>>(&key), None);
 
     // Tidy up the empty cache directory we created.
-    let dir = std::env::current_dir().unwrap().join(getmodelsapi::utils::cache::CACHE_DIR);
+    let dir = std::env::current_dir()
+        .unwrap()
+        .join(getmodelsapi::utils::cache::CACHE_DIR);
     let _ = std::fs::remove_dir_all(&dir);
 }
 
@@ -210,9 +215,12 @@ fn cache_roundtrips_and_clear() {
 fn cache_key_is_sanitized_like_ts() {
     let path = cache::get_cache_path("models:google:{\"limit\":100,\"offset\":0}");
     let fname = path.file_name().unwrap().to_string_lossy().to_string();
-    // TS: key.replace(/[^a-z0-9-_.]/gi, "_") — every `:`, `{`, `"`, ` `, `,`
+    // Cache keys replace characters outside `[a-z0-9-_.]` with underscores.
     // becomes an underscore.
-    assert!(fname.starts_with("models_google___limit__100__offset__0_"), "{fname}");
+    assert!(
+        fname.starts_with("models_google___limit__100__offset__0_"),
+        "{fname}"
+    );
     assert!(fname.ends_with(".json"));
     assert!(!fname.contains(':'));
     assert!(!fname.contains('{'));
@@ -362,7 +370,10 @@ async fn search_filters_results() {
         assert!(
             m.name.to_lowercase().contains(&q)
                 || m.id.to_lowercase().contains(&q)
-                || m.description.as_ref().map(|d| d.to_lowercase().contains(&q)).unwrap_or(false)
+                || m.description
+                    .as_ref()
+                    .map(|d| d.to_lowercase().contains(&q))
+                    .unwrap_or(false)
         );
     }
 }

@@ -1,27 +1,23 @@
-//! Port of `server/src/db/seed.ts`.
+//! Model catalog seeding and fallback-chain maintenance.
 
 use rusqlite::Connection;
 
 /// Sentinel for models that have never been ranked by the enrichment service.
-/// Mirrors `UNRANKED_INTELLIGENCE = 99` in seed.ts.
 pub const UNRANKED_INTELLIGENCE: i64 = 99;
-/// Sentinel speed rank for unknown / provider-default. Mirrors
-/// `UNRANKED_SPEED = 10` in seed.ts.
+/// Sentinel speed rank for unknown or provider-default speed.
 pub const UNRANKED_SPEED: i64 = 10;
 
-/// `seedModels(tx)` — no hardcoded models. The models table is populated
+/// No hardcoded models are bundled. The models table is populated
 /// exclusively by:
-///   1. The sync service fetching from getmodelsapi
-///      (server/src/services/model-sync/sync.ts)
+///   1. The sync service fetching from the model-discovery crate
 ///   2. The custom-provider model creation endpoint
-///   3. Real-data enrichment updating intelligenceRank/speedRank from
-///      external APIs (server/src/services/rankings/enrich.ts)
+///   3. Real-data enrichment updating ranking fields from external APIs
 ///
 /// The schema defaults (intelligence_rank=99, speed_rank=10) mark rows as
 /// "unranked" until the enrichment service fetches real benchmark data.
 pub fn seed_models(_conn: &Connection) {}
 
-/// `ensureFallbackEntries(tx)` — removes orphaned fallback entries, disables
+/// Remove orphaned fallback entries, disable
 /// fallback entries for disabled models, and inserts a missing fallback entry
 /// per model with increasing priority (max priority + 1 .. +n).
 pub fn ensure_fallback_entries(conn: &Connection) {
@@ -61,7 +57,7 @@ pub fn ensure_fallback_entries(conn: &Connection) {
     .expect("disable fallback entries for disabled models");
 
     // 3. Add missing entries (models without a fallback row), ordered by
-    //    intelligence rank then id — mirrors the TS `orderBy(asc(intelligenceRank), asc(id))`.
+    //    intelligence rank and then id.
     let missing: Vec<i64> = conn
         .prepare(
             "SELECT m.id FROM models m \
@@ -77,11 +73,9 @@ pub fn ensure_fallback_entries(conn: &Connection) {
 
     if !missing.is_empty() {
         let max_priority: i64 = conn
-            .query_row(
-                "SELECT MAX(priority) FROM fallback_config",
-                [],
-                |row| row.get::<_, Option<i64>>(0),
-            )
+            .query_row("SELECT MAX(priority) FROM fallback_config", [], |row| {
+                row.get::<_, Option<i64>>(0)
+            })
             .ok()
             .flatten()
             .unwrap_or(0);

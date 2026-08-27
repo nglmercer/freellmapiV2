@@ -1,4 +1,4 @@
-//! OpenRouter scraper, mirroring `getmodelsapi/src/scraper/providers/openrouter.ts`.
+//! OpenRouter scraper.
 
 use super::ScraperResult;
 use crate::types::{Model, Pricing, ProviderConfig};
@@ -80,8 +80,16 @@ pub async fn scrape_openrouter(_config: ProviderConfig) -> ScraperResult {
 
             let mut models = Vec::with_capacity(arr.len());
             for m in arr {
-                let id = m.get("id").and_then(|v| v.as_str()).unwrap_or("").to_string();
-                let name = m.get("name").and_then(|v| v.as_str()).unwrap_or("").to_string();
+                let id = m
+                    .get("id")
+                    .and_then(|v| v.as_str())
+                    .unwrap_or("")
+                    .to_string();
+                let name = m
+                    .get("name")
+                    .and_then(|v| v.as_str())
+                    .unwrap_or("")
+                    .to_string();
                 models.push(Model {
                     id: id.clone(),
                     name,

@@ -1,4 +1,4 @@
-//! Together models API mirroring `getmodelsapi/src/api/together.ts`.
+//! Together models API client.
 
 use crate::types::{Model, Pricing, ProviderConfig};
 use crate::utils::http::{get_json, HttpConfig};
@@ -22,7 +22,11 @@ pub async fn fetch_models_from_together(provider: &ProviderConfig) -> Vec<Model>
             let mut models = Vec::new();
             if let Some(arr) = value.as_array() {
                 for m in arr {
-                    let id = m.get("id").and_then(|v| v.as_str()).unwrap_or("").to_string();
+                    let id = m
+                        .get("id")
+                        .and_then(|v| v.as_str())
+                        .unwrap_or("")
+                        .to_string();
                     let name = m
                         .get("display_name")
                         .and_then(|v| v.as_str())
@@ -30,10 +34,9 @@ pub async fn fetch_models_from_together(provider: &ProviderConfig) -> Vec<Model>
                         .unwrap_or(&id)
                         .to_string();
                     let pricing_json = m.get("pricing");
-                    let has_pricing =
-                        pricing_json.map(|p| !p.is_null()).unwrap_or(false);
-                    // TS: m.pricing.input || 0 (falsy => 0). Note "0" (string)
-                    // is truthy in JS, so we only coerce numbers here.
+                    let has_pricing = pricing_json.map(|p| !p.is_null()).unwrap_or(false);
+                    // A string "0" is not treated as numeric zero for the
+                    // free-tier check, so retain the provider's value type.
                     let pricing = if has_pricing {
                         Some(Pricing {
                             prompt: numeric_or_zero(pricing_json.and_then(|p| p.get("input"))),
@@ -42,7 +45,8 @@ pub async fn fetch_models_from_together(provider: &ProviderConfig) -> Vec<Model>
                     } else {
                         None
                     };
-                    // TS freeTier: !m.pricing || (input === 0 && output === 0)
+                    // Models without pricing or with numeric zero pricing are
+                    // considered free-tier entries.
                     let free_tier = if has_pricing {
                         let input = pricing_json.and_then(|p| p.get("input"));
                         let output = pricing_json.and_then(|p| p.get("output"));
@@ -85,8 +89,7 @@ fn numeric_or_zero(v: Option<&serde_json::Value>) -> f64 {
     }
 }
 
-/// TS `m.pricing.input === 0`: only a JSON number zero counts (a `"0"` string
-/// is not `=== 0` in JS).
+/// Only a JSON number zero counts; a string `"0"` remains distinct.
 fn is_num_zero(v: Option<&serde_json::Value>) -> bool {
     match v {
         Some(serde_json::Value::Number(n)) => n.as_f64() == Some(0.0),

@@ -1,4 +1,4 @@
-//! Port of `server/tests/fallback.test.ts`.
+//! Fallback route integration tests.
 
 mod common;
 
@@ -37,7 +37,10 @@ async fn fallback_entries_include_required_fields() {
         "penalty",
         "rateLimitHits",
     ] {
-        assert!(entry.get(field).is_some(), "missing {field} on fallback entry");
+        assert!(
+            entry.get(field).is_some(),
+            "missing {field} on fallback entry"
+        );
     }
     assert!(entry["modelDbId"].is_number());
     assert!(entry["priority"].is_number());
@@ -81,8 +84,14 @@ async fn should_update_fallback_chain_successfully() {
         { "modelDbId": 1, "priority": 2, "enabled": true },
         { "modelDbId": 2, "priority": 1, "enabled": true },
     ]);
-    let res = common::request(&app.app, "PUT", "/api/fallback", Some(&app.api_key), Some(body))
-        .await;
+    let res = common::request(
+        &app.app,
+        "PUT",
+        "/api/fallback",
+        Some(&app.api_key),
+        Some(body),
+    )
+    .await;
     common::expect_status(&res, StatusCode::OK);
     assert_eq!(res.body["success"], json!(true));
 }
@@ -95,7 +104,14 @@ async fn should_persist_updated_priorities_in_subsequent_get() {
         { "modelDbId": 1, "priority": 10, "enabled": true },
         { "modelDbId": 2, "priority": 5, "enabled": true },
     ]);
-    let put = common::request(&app.app, "PUT", "/api/fallback", Some(&app.api_key), Some(body)).await;
+    let put = common::request(
+        &app.app,
+        "PUT",
+        "/api/fallback",
+        Some(&app.api_key),
+        Some(body),
+    )
+    .await;
     common::expect_status(&put, StatusCode::OK);
 
     let res = common::get(&app.app, "/api/fallback").await;
@@ -133,8 +149,14 @@ async fn should_return_400_for_invalid_body() {
 async fn should_return_400_when_model_db_id_not_a_number() {
     let app = common::setup().await;
     let body = json!([{ "modelDbId": "abc", "priority": 1, "enabled": true }]);
-    let res = common::request(&app.app, "PUT", "/api/fallback", Some(&app.api_key), Some(body))
-        .await;
+    let res = common::request(
+        &app.app,
+        "PUT",
+        "/api/fallback",
+        Some(&app.api_key),
+        Some(body),
+    )
+    .await;
     common::expect_status(&res, StatusCode::BAD_REQUEST);
     assert!(res.body.get("error").is_some());
 }
@@ -144,8 +166,14 @@ async fn should_return_400_when_model_db_id_not_a_number() {
 async fn should_return_400_when_enabled_not_a_boolean() {
     let app = common::setup().await;
     let body = json!([{ "modelDbId": 1, "priority": 1, "enabled": "yes" }]);
-    let res = common::request(&app.app, "PUT", "/api/fallback", Some(&app.api_key), Some(body))
-        .await;
+    let res = common::request(
+        &app.app,
+        "PUT",
+        "/api/fallback",
+        Some(&app.api_key),
+        Some(body),
+    )
+    .await;
     common::expect_status(&res, StatusCode::BAD_REQUEST);
     assert!(res.body.get("error").is_some());
 }

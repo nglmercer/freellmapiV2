@@ -1,4 +1,4 @@
-//! Port of `server/tests/settings.test.ts`.
+//! Settings route integration tests.
 
 mod common;
 
@@ -15,7 +15,9 @@ async fn should_return_the_unified_api_key() {
         "missing apiKey field: {}",
         res.text
     );
-    let api_key = res.body["apiKey"].as_str().expect("apiKey must be a string");
+    let api_key = res.body["apiKey"]
+        .as_str()
+        .expect("apiKey must be a string");
     assert_eq!(api_key.len(), 48);
 }
 
@@ -37,9 +39,14 @@ async fn should_regenerate_and_return_a_new_api_key() {
     let res = common::post(&app.app, "/api/settings/api-key/regenerate", "").await;
     common::expect_status(&res, StatusCode::OK);
     assert!(res.body.get("apiKey").is_some());
-    let new_key = res.body["apiKey"].as_str().expect("apiKey must be a string");
+    let new_key = res.body["apiKey"]
+        .as_str()
+        .expect("apiKey must be a string");
     assert_eq!(new_key.len(), 48);
-    assert_ne!(new_key, old_key, "regenerated key must differ from the old one");
+    assert_ne!(
+        new_key, old_key,
+        "regenerated key must differ from the old one"
+    );
 }
 
 /// The regenerated key persists in the DB and is returned by GET afterwards.

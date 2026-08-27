@@ -1,4 +1,4 @@
-//! Port of `server/src/services/state-persistence.ts`.
+//! Persistence and restoration of in-memory runtime state.
 
 use serde::{Deserialize, Serialize};
 

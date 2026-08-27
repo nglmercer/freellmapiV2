@@ -1,4 +1,4 @@
-//! Port of `server/tests/keys.test.ts` — unified key + `apiKeyAuth` middleware.
+//! Unified-key and API-key authentication integration tests.
 
 mod common;
 
@@ -13,7 +13,7 @@ fn auth_headers(token: &str) -> HeaderMap {
     headers
 }
 
-/// `getUnifiedApiKey()` default key is 48 lowercase hex chars (TS regex).
+/// The generated unified key is 48 lowercase hexadecimal characters.
 #[tokio::test]
 async fn default_key_is_48_hex_chars() {
     let _app = common::setup().await;
@@ -45,12 +45,10 @@ async fn middleware_rejects_missing_header() {
     assert_eq!(err.status().as_u16(), 401);
     let v: serde_json::Value = read_body(err).await;
     assert_eq!(v["error"]["type"], "authentication_error");
-    assert!(
-        v["error"]["message"]
-            .as_str()
-            .unwrap()
-            .contains("Missing Authorization header")
-    );
+    assert!(v["error"]["message"]
+        .as_str()
+        .unwrap()
+        .contains("Missing Authorization header"));
 }
 
 /// apiKeyAuth: wrong token → 401 with invalid-key message.
@@ -64,9 +62,10 @@ async fn middleware_rejects_wrong_token() {
     assert_eq!(err.status().as_u16(), 401);
     let v: serde_json::Value = read_body(err).await;
     assert_eq!(v["error"]["type"], "authentication_error");
-    assert!(
-        v["error"]["message"].as_str().unwrap().contains("Invalid API key")
-    );
+    assert!(v["error"]["message"]
+        .as_str()
+        .unwrap()
+        .contains("Invalid API key"));
 }
 
 /// apiKeyAuth: correct unified key → Ok (pipeline proceeds to next()).

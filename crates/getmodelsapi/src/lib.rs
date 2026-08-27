@@ -1,4 +1,4 @@
-//! Free-tier LLM model discovery (Rust port of the TS `getmodelsapi` package).
+//! Free-tier LLM model discovery library.
 //!
 //! Discovers models across providers via direct API calls and public-catalog
 //! scrapers, with a two-level (in-memory + disk) cache.

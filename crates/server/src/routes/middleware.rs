@@ -1,6 +1,5 @@
-//! Port of `server/src/routes/middleware.ts` — zod validation (re-implemented
-//! over raw JSON to mirror zod's checks/messages), unified-key auth,
-//! message normalization, and token estimation.
+//! Request validation, unified-key authentication, message normalization, and
+//! token estimation.
 
 use axum::http::HeaderMap;
 use axum::response::{IntoResponse, Response};
@@ -89,7 +88,9 @@ fn content_errors(content: &Value, allow_null: bool, path: &str, errors: &mut Ve
                     continue;
                 };
                 if obj.get("type").and_then(|t| t.as_str()).is_none() {
-                    errors.push(format!("{path}[{i}].type: Expected string, received undefined"));
+                    errors.push(format!(
+                        "{path}[{i}].type: Expected string, received undefined"
+                    ));
                 }
                 if let Some(t) = obj.get("text") {
                     if !t.is_null() && t.as_str().is_none() {
@@ -104,18 +105,23 @@ fn content_errors(content: &Value, allow_null: bool, path: &str, errors: &mut Ve
             }
         }
         other => {
-            errors.push(format!("{path}: Expected string or array, received {}", type_name(other)));
+            errors.push(format!(
+                "{path}: Expected string or array, received {}",
+                type_name(other)
+            ));
         }
     }
 }
 
 /// `chatCompletionSchema.safeParse` — validates the raw JSON and returns the
-/// typed request (mirroring zod's `.default(1)` for `n`).
+/// typed request, defaulting `n` to one.
 pub fn validate_chat_body_value(body: &Value) -> Result<ChatCompletionRequest, ValidationError> {
     let mut errors: Vec<String> = Vec::new();
 
     let Value::Object(_) = body else {
-        return Err(ValidationError(vec!["Expected object, received invalid_json".to_string()]));
+        return Err(ValidationError(vec![
+            "Expected object, received invalid_json".to_string(),
+        ]));
     };
 
     // messages: union of message schemas, min(1)
@@ -129,14 +135,24 @@ pub fn validate_chat_body_value(body: &Value) -> Result<ChatCompletionRequest, V
                         if m.get("content").is_none() {
                             errors.push(format!("messages[{i}].content: Required"));
                         } else {
-                            content_errors(&m["content"], false, &format!("messages[{i}].content"), &mut errors);
+                            content_errors(
+                                &m["content"],
+                                false,
+                                &format!("messages[{i}].content"),
+                                &mut errors,
+                            );
                         }
                     }
                     "assistant" => {
                         // content nullable().optional()
                         if let Some(c) = m.get("content") {
                             if !c.is_null() {
-                                content_errors(c, false, &format!("messages[{i}].content"), &mut errors);
+                                content_errors(
+                                    c,
+                                    false,
+                                    &format!("messages[{i}].content"),
+                                    &mut errors,
+                                );
                             }
                         }
                         // refine: non-empty content or tool_calls
@@ -175,7 +191,9 @@ pub fn validate_chat_body_value(body: &Value) -> Result<ChatCompletionRequest, V
                                     errors.push(format!("messages[{i}].tool_calls[{j}].function.arguments: Expected string, received undefined"));
                                 }
                             } else {
-                                errors.push(format!("messages[{i}].tool_calls[{j}].function: Required"));
+                                errors.push(format!(
+                                    "messages[{i}].tool_calls[{j}].function: Required"
+                                ));
                             }
                         }
                     }
@@ -183,7 +201,12 @@ pub fn validate_chat_body_value(body: &Value) -> Result<ChatCompletionRequest, V
                         if m.get("content").is_none() {
                             errors.push(format!("messages[{i}].content: Required"));
                         } else {
-                            content_errors(&m["content"], false, &format!("messages[{i}].content"), &mut errors);
+                            content_errors(
+                                &m["content"],
+                                false,
+                                &format!("messages[{i}].content"),
+                                &mut errors,
+                            );
                         }
                         req_str_min1(m, "tool_call_id", &mut errors);
                     }
@@ -196,8 +219,13 @@ pub fn validate_chat_body_value(body: &Value) -> Result<ChatCompletionRequest, V
                 }
             }
         }
-        Some(Value::Array(_)) => errors.push("Array must contain at least 1 element(s)".to_string()),
-        Some(other) => errors.push(format!("messages: Expected array, received {}", type_name(other))),
+        Some(Value::Array(_)) => {
+            errors.push("Array must contain at least 1 element(s)".to_string())
+        }
+        Some(other) => errors.push(format!(
+            "messages: Expected array, received {}",
+            type_name(other)
+        )),
         None => errors.push("messages: Required".to_string()),
     }
 
@@ -249,7 +277,13 @@ pub fn validate_chat_body_value(body: &Value) -> Result<ChatCompletionRequest, V
             errors.push("seed: Expected number".to_string());
         }
     }
-    opt_num(body, "frequency_penalty", Some(-2.0), Some(2.0), &mut errors);
+    opt_num(
+        body,
+        "frequency_penalty",
+        Some(-2.0),
+        Some(2.0),
+        &mut errors,
+    );
     opt_num(body, "presence_penalty", Some(-2.0), Some(2.0), &mut errors);
     if let Some(user) = body.get("user") {
         if !user.is_null() && user.as_str().is_none() {
@@ -305,9 +339,7 @@ pub fn validate_chat_body_value(body: &Value) -> Result<ChatCompletionRequest, V
                 _ => false,
             };
             if !ok {
-                errors.push(
-                    "tool_choice: Invalid union value".to_string(),
-                );
+                errors.push("tool_choice: Invalid union value".to_string());
             }
         }
     }
@@ -340,7 +372,9 @@ pub fn validate_chat_body_value(body: &Value) -> Result<ChatCompletionRequest, V
 
 /// `completionSchema.safeParse` — legacy completions route. Returns the
 /// typed request.
-pub fn validate_completion_body_value(body: &Value) -> Result<crate::types::CompletionRequest, ValidationError> {
+pub fn validate_completion_body_value(
+    body: &Value,
+) -> Result<crate::types::CompletionRequest, ValidationError> {
     let mut errors: Vec<String> = Vec::new();
 
     req_str_min1(body, "model", &mut errors);
@@ -367,10 +401,14 @@ pub fn validate_completion_body_value(body: &Value) -> Result<crate::types::Comp
                         errors.push("max_tokens: Expected integer, received float".to_string());
                     }
                     if f < 1.0 {
-                        errors.push("max_tokens: Number must be greater than or equal to 1".to_string());
+                        errors.push(
+                            "max_tokens: Number must be greater than or equal to 1".to_string(),
+                        );
                     }
                     if f > 4000.0 {
-                        errors.push("max_tokens: Number must be less than or equal to 4000".to_string());
+                        errors.push(
+                            "max_tokens: Number must be less than or equal to 4000".to_string(),
+                        );
                     }
                 }
             }
@@ -401,7 +439,13 @@ pub fn validate_completion_body_value(body: &Value) -> Result<crate::types::Comp
             errors.push("seed: Expected number".to_string());
         }
     }
-    opt_num(body, "frequency_penalty", Some(-2.0), Some(2.0), &mut errors);
+    opt_num(
+        body,
+        "frequency_penalty",
+        Some(-2.0),
+        Some(2.0),
+        &mut errors,
+    );
     opt_num(body, "presence_penalty", Some(-2.0), Some(2.0), &mut errors);
     if let Some(user) = body.get("user") {
         if !user.is_null() && user.as_str().is_none() {
@@ -476,7 +520,7 @@ pub fn malformed_json() -> Response {
 
 // ---- Auth ----
 
-/// Port of `crypto.timingSafeEqual`-based comparison.
+/// Constant-time comparison for authentication tokens.
 pub fn timing_safe_string_equal(a: &str, b: &str) -> bool {
     let ab = a.as_bytes();
     let bb = b.as_bytes();
@@ -565,7 +609,9 @@ fn normalize_content(content: &Value) -> MessageContent {
                 .iter()
                 .filter_map(|p| {
                     if p.get("type").and_then(|x| x.as_str()) == Some("text") {
-                        p.get("text").and_then(|t| t.as_str()).map(|s| s.to_string())
+                        p.get("text")
+                            .and_then(|t| t.as_str())
+                            .map(|s| s.to_string())
                     } else {
                         None
                     }
@@ -583,12 +629,16 @@ fn normalize_content(content: &Value) -> MessageContent {
 }
 
 /// `normalizeMessages(messages)` — takes the RAW parsed JSON messages array
-/// (like the TS does with zod output) and returns normalized ChatMessages.
+/// and returns normalized chat messages.
 pub fn normalize_messages(raw: &Value) -> Vec<ChatMessage> {
     let list: Vec<Value> = raw.as_array().cloned().unwrap_or_default();
     list.into_iter()
         .map(|m| {
-            let role = m.get("role").and_then(|r| r.as_str()).unwrap_or("").to_string();
+            let role = m
+                .get("role")
+                .and_then(|r| r.as_str())
+                .unwrap_or("")
+                .to_string();
             let content = normalize_content(m.get("content").unwrap_or(&Value::Null));
             let name = m
                 .get("name")
@@ -611,7 +661,9 @@ pub fn normalize_messages(raw: &Value) -> Vec<ChatMessage> {
                 }
             }
             let tool_call_id = if role == "tool" {
-                m.get("tool_call_id").and_then(|t| t.as_str()).map(|s| s.to_string())
+                m.get("tool_call_id")
+                    .and_then(|t| t.as_str())
+                    .map(|s| s.to_string())
             } else {
                 None
             };
@@ -709,7 +761,7 @@ mod tests {
         assert_eq!(req.messages.len(), 1);
     }
 
-    // ── ported from server/tests/middleware.test.ts ──
+    // ── validation behavior tests ──
 
     #[test]
     fn timing_safe_string_equal_cases() {
@@ -759,7 +811,8 @@ mod tests {
 
     #[test]
     fn normalize_preserves_tool_call_id() {
-        let raw = serde_json::json!([{ "role": "tool", "content": "Sunny", "tool_call_id": "call_1" }]);
+        let raw =
+            serde_json::json!([{ "role": "tool", "content": "Sunny", "tool_call_id": "call_1" }]);
         let result = normalize_messages(&raw);
         assert_eq!(result[0].tool_call_id.as_deref(), Some("call_1"));
     }

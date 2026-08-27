@@ -1,4 +1,4 @@
-//! Main API, mirroring `getmodelsapi/src/api/index.ts`.
+//! Public API provider dispatch and fetch helpers.
 
 pub mod cohere;
 pub mod google;
@@ -18,7 +18,7 @@ use std::sync::Mutex;
 use std::sync::OnceLock;
 use std::time::{SystemTime, UNIX_EPOCH};
 
-// Two-level cache: in-memory (5-min TTL) + disk (1 hour, shared with TS).
+// Two-level cache: in-memory (5-minute TTL) plus disk (one hour).
 const FIVE_MINUTES: i64 = 300_000;
 
 type MemEntry = (Vec<Model>, i64);
@@ -52,7 +52,7 @@ fn set_mem_cache(key: &str, data: Vec<Model>) {
     }
 }
 
-/// Mirror of `getCacheKey` — `models:<provider>:<JSON.stringify(params)>`.
+/// Build a stable cache key from the provider and serialized parameters.
 fn get_cache_key(provider: &str, params: &FetchParams<'_>) -> String {
     let json = serde_json::to_string(params).unwrap_or_else(|_| "{}".into());
     format!("models:{provider}:{json}")
@@ -151,7 +151,7 @@ async fn fetch_models(provider: &str, params: &FetchParams<'_>) -> Vec<Model> {
     models
 }
 
-/// Main entry point, mirroring `getModels`.
+/// Main model-discovery entry point.
 pub async fn get_models(options: GetModelsOptions) -> Vec<Model> {
     let provider = options.provider;
     let gateway = options.gateway;
@@ -241,8 +241,7 @@ pub async fn get_models(options: GetModelsOptions) -> Vec<Model> {
     models
 }
 
-/// Mirror of `getProviders`: every registered provider with `apiKey` stripped
-/// (it can never be serialized anyway).
+/// Return every registered provider without serializing API keys.
 pub async fn get_providers() -> Vec<ProviderConfig> {
     config::providers()
         .into_iter()

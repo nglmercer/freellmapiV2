@@ -1,8 +1,7 @@
-//! Scraper dispatch, mirroring `getmodelsapi/src/scraper/providers/factory.ts`.
+//! Scraper dispatch.
 
 use super::{
-    aimlapi, google, huggingface, kilo, mistral, novita, openrouter, sambanova,
-    ScraperResult,
+    aimlapi, google, huggingface, kilo, mistral, novita, openrouter, sambanova, ScraperResult,
 };
 use crate::types::ProviderConfig;
 use std::future::Future;
@@ -11,9 +10,8 @@ use std::pin::Pin;
 /// A boxed scraper future.
 pub type ScraperFuture = Pin<Box<dyn Future<Output = ScraperResult> + Send>>;
 
-/// Mirror of `getScraper(providerName, config)`. Returns `None` for providers
-/// without a registered scraper (TS throws for those). Takes ownership of the
-/// config so the returned future is `'static` and awaitable directly.
+/// Resolve a provider scraper. Returns `None` for providers without a
+/// registered scraper. The config is owned so the returned future is `'static`.
 pub fn get_scraper(provider_name: &str, config: ProviderConfig) -> Option<ScraperFuture> {
     match provider_name {
         "huggingface" => Some(Box::pin(huggingface::scrape_huggingface(config))),

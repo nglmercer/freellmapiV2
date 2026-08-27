@@ -1,4 +1,4 @@
-//! Port of `server/src/services/router.ts`.
+//! Model selection, fallback routing, and penalty tracking.
 
 use std::collections::{HashMap, HashSet};
 use std::sync::Arc;
@@ -11,9 +11,7 @@ use crate::crypto::decrypt;
 use crate::db::schema::ApiKeyRow;
 use crate::error::ApiError;
 use crate::providers::{get_provider_with_conn, Provider};
-use crate::services::ratelimit::{
-    can_make_request, can_use_tokens, is_on_cooldown, Limits,
-};
+use crate::services::ratelimit::{can_make_request, can_use_tokens, is_on_cooldown, Limits};
 
 #[derive(Clone)]
 pub struct RouteResult {
@@ -62,11 +60,14 @@ fn now_ms() -> i64 {
 pub fn record_rate_limit_hit(model_db_id: i64) {
     let mut s = state().lock().unwrap();
     let now = now_ms();
-    let entry = s.rate_limit_penalties.entry(model_db_id).or_insert(Penalty {
-        count: 0,
-        last_hit: now,
-        penalty: 0,
-    });
+    let entry = s
+        .rate_limit_penalties
+        .entry(model_db_id)
+        .or_insert(Penalty {
+            count: 0,
+            last_hit: now,
+            penalty: 0,
+        });
     entry.count += 1;
     entry.last_hit = now;
     entry.penalty = (entry.penalty + PENALTY_PER_429).min(MAX_PENALTY);
@@ -118,7 +119,11 @@ pub fn get_all_penalties() -> Vec<PenaltyInfo> {
                 .get(&model_db_id)
                 .map(|p| p.count)
                 .unwrap_or(0);
-            result.push(PenaltyInfo { model_db_id, count, penalty });
+            result.push(PenaltyInfo {
+                model_db_id,
+                count,
+                penalty,
+            });
         }
     }
     result.sort_by_key(|entry| std::cmp::Reverse(entry.penalty));
@@ -151,11 +156,9 @@ pub fn route_request(
     preferred_model_db_id: Option<i64>,
 ) -> Result<RouteResult, ApiError> {
     let total_key_count: i64 = conn
-        .query_row(
-            "SELECT count(*) FROM api_keys WHERE enabled = 1",
-            [],
-            |r| r.get(0),
-        )
+        .query_row("SELECT count(*) FROM api_keys WHERE enabled = 1", [], |r| {
+            r.get(0)
+        })
         .unwrap_or(0);
 
     if total_key_count == 0 {
@@ -181,7 +184,9 @@ pub fn route_request(
 
     // Get fallback chain ordered by priority
     let mut stmt = conn
-        .prepare("SELECT id, model_db_id, priority, enabled FROM fallback_config ORDER BY priority ASC")
+        .prepare(
+            "SELECT id, model_db_id, priority, enabled FROM fallback_config ORDER BY priority ASC",
+        )
         .map_err(|e| ApiError::new(500, e.to_string()))?;
     let fallback_chain: Vec<crate::db::schema::FallbackRow> = stmt
         .query_map([], crate::db::schema::FallbackRow::from_row)
@@ -198,15 +203,18 @@ pub fn route_request(
                 let effective = entry.priority + get_penalty(&mut s, entry.model_db_id);
                 (effective, entry.priority, entry.model_db_id, entry.enabled)
             })
-            // TS sorts only by effectivePriority — JS Array#sort is stable, so
-            // equal effective priorities keep the priority-ASC order.
+            // Sort by effective priority; the tuple preserves the configured
+            // priority order for equal penalty-adjusted values.
             .collect::<Vec<(i64, i64, i64, i64)>>()
     };
     sorted_chain.sort_by_key(|(effective, _, _, _)| *effective);
 
     // Sticky session: move preferred model to front of chain
     if let Some(preferred) = preferred_model_db_id {
-        if let Some(idx) = sorted_chain.iter().position(|(_, _, id, _)| *id == preferred) {
+        if let Some(idx) = sorted_chain
+            .iter()
+            .position(|(_, _, id, _)| *id == preferred)
+        {
             if idx > 0 {
                 let entry = sorted_chain.remove(idx);
                 sorted_chain.insert(0, entry);
@@ -245,7 +253,9 @@ pub fn route_request(
 
         tracing::debug!(
             "[ROUTER DEBUG] Trying: {}/{} (model.enabled={})",
-            model.platform, model.model_id, model.enabled
+            model.platform,
+            model.model_id,
+            model.enabled
         );
 
         // Check if we have a provider for this platform
@@ -271,7 +281,9 @@ pub fn route_request(
         if keys.is_empty() {
             tracing::debug!(
                 "[ROUTER DEBUG] Skipping {}/{}: no keys for platform {}",
-                model.platform, model.model_id, model.platform
+                model.platform,
+                model.model_id,
+                model.platform
             );
             continue;
         }
@@ -375,10 +387,9 @@ pub fn route_request(
 
     let message = if decryptable_count == 0 {
         "All configured API keys are invalid. Check your keys in the dashboard."
-    } else if total_key_count > 0
-        && skip_keys.is_some_and(|sk| sk.len() as i64 >= total_key_count)
+    } else if total_key_count > 0 && skip_keys.is_some_and(|sk| sk.len() as i64 >= total_key_count)
     {
-        // Built below to match the TS template string.
+        // Keep this diagnostic stable for clients and operators.
         return Err(ApiError::new(
             429,
             format!("All {total_key_count} API key(s) have been tried and failed. Wait for rate-limit cooldown or add more keys."),

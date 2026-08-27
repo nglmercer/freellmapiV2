@@ -1,4 +1,4 @@
-//! Utility modules mirroring `getmodelsapi/src/utils/`.
+//! Utility modules for model discovery.
 
 pub mod cache;
 pub mod enrich;

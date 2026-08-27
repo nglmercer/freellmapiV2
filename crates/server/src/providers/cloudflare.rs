@@ -1,5 +1,5 @@
-//! Port of `server/src/providers/cloudflare.ts` — Cloudflare Workers AI,
-//! OpenAI-compatible. API keys are `"account_id:api_token"`.
+//! Cloudflare Workers AI OpenAI-compatible provider.
+//! API keys are `"account_id:api_token"`.
 
 use async_trait::async_trait;
 use serde_json::Value;
@@ -24,13 +24,10 @@ impl CloudflareProvider {
         Self
     }
 
-    /// `parseKey` from the TS source.
+    /// Parse the documented `account_id:api_token` key format.
     fn parse_key(api_key: &str) -> Result<(String, String), ProviderError> {
         match api_key.find(':') {
-            Some(sep) => Ok((
-                api_key[..sep].to_string(),
-                api_key[sep + 1..].to_string(),
-            )),
+            Some(sep) => Ok((api_key[..sep].to_string(), api_key[sep + 1..].to_string())),
             None => Err(ProviderError::new(
                 "Cloudflare key must be in format \"account_id:api_token\"",
             )),
@@ -63,12 +60,15 @@ impl CloudflareProvider {
         options: &CompletionOptions,
         stream: bool,
     ) -> Value {
-        // Mirrors the TS body object (note: this one also sends
-        // parallel_tool_calls, unlike cohere). Undefined options are dropped.
+        // Cloudflare accepts parallel tool calls; omit options that were not
+        // supplied by the caller.
         let normalized = Self::normalize_messages(messages);
         let mut obj = serde_json::Map::new();
         obj.insert("model".to_string(), serde_json::json!(model_id));
-        obj.insert("messages".to_string(), serde_json::to_value(normalized).unwrap());
+        obj.insert(
+            "messages".to_string(),
+            serde_json::to_value(normalized).unwrap(),
+        );
         macro_rules! opt_put {
             ($k:expr, $v:expr) => {
                 if let Some(v) = $v {
@@ -192,14 +192,16 @@ impl Provider for CloudflareProvider {
             use futures::StreamExt;
             let mut stream = res.bytes_stream();
             // Buffer bytes (not chars) so multi-byte UTF-8 sequences split
-            // across TCP chunks aren't corrupted — mirrors TS TextDecoder.
+            // across TCP chunks aren't corrupted.
             let mut buffer: Vec<u8> = Vec::new();
             while let Some(chunk) = stream.next().await {
                 let chunk = match chunk {
                     Ok(c) => c,
                     Err(e) => {
                         let _ = tx
-                            .send(Err(ProviderError::new(format!("{err_name} stream error: {e}"))))
+                            .send(Err(ProviderError::new(format!(
+                                "{err_name} stream error: {e}"
+                            ))))
                             .await;
                         return;
                     }
@@ -221,7 +223,7 @@ impl Provider for CloudflareProvider {
                             return; // consumer dropped
                         }
                     }
-                    // Skip malformed chunks, like the TS try/catch.
+                    // Skip malformed chunks rather than aborting the stream.
                 }
             }
         });
@@ -281,7 +283,10 @@ mod tests {
             ("acc".to_string(), "x:y:z".to_string())
         );
         let err = CloudflareProvider::parse_key("notoken").unwrap_err();
-        assert_eq!(err.message, "Cloudflare key must be in format \"account_id:api_token\"");
+        assert_eq!(
+            err.message,
+            "Cloudflare key must be in format \"account_id:api_token\""
+        );
         assert!(err.status.is_none());
     }
 
@@ -335,7 +340,10 @@ mod tests {
           "usage": { "prompt_tokens": 3, "completion_tokens": 1, "total_tokens": 4 }
         }"#;
         let parsed: ChatCompletionResponse = serde_json::from_str(raw).unwrap();
-        assert_eq!(parsed.choices[0].message.content.as_text(), Some("Hi from CF"));
+        assert_eq!(
+            parsed.choices[0].message.content.as_text(),
+            Some("Hi from CF")
+        );
         assert_eq!(parsed.usage.prompt_tokens, 3);
     }
 }

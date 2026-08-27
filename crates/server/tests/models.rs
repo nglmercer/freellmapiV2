@@ -1,4 +1,4 @@
-//! Port of `server/tests/models.test.ts`.
+//! Model route integration tests.
 
 mod common;
 
@@ -12,7 +12,10 @@ async fn should_return_an_array_of_models() {
     let res = common::get(&app.app, "/api/models").await;
     common::expect_status(&res, StatusCode::OK);
     assert!(
-        !res.body.as_array().expect("body must be an array").is_empty(),
+        !res.body
+            .as_array()
+            .expect("body must be an array")
+            .is_empty(),
         "expected at least one model"
     );
 }
@@ -62,7 +65,9 @@ async fn should_have_correct_platform_type() {
     let res = common::get(&app.app, "/api/models").await;
     common::expect_status(&res, StatusCode::OK);
     let data = res.body.as_array().expect("models array");
-    let platform = data[0]["platform"].as_str().expect("platform must be string");
+    let platform = data[0]["platform"]
+        .as_str()
+        .expect("platform must be string");
     assert!(!platform.is_empty());
 }
 

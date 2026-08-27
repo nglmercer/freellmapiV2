@@ -1,9 +1,9 @@
 // ---- Platform & Model Types ----
 
-// Active platforms — must match server/src/providers/index.ts and
-// server/src/routes/keys.ts PLATFORMS allowlist.
+// Active platforms — must match the Rust provider registry and API-key route
+// allowlist.
 // Hugging Face, Moonshot, and MiniMax direct integrations were dropped
-// in migrateModelsV4 (see server/src/db/index.ts).
+// in the historical model migrations.
 export type Platform =
   | 'google'
   | 'groq'

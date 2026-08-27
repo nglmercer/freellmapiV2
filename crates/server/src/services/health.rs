@@ -1,4 +1,4 @@
-//! Port of `server/src/services/health.ts`.
+//! Provider-key health tracking and periodic health checks.
 
 use std::collections::HashMap;
 use std::sync::{Mutex, OnceLock};

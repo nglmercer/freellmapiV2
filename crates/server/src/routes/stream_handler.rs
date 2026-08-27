@@ -1,4 +1,4 @@
-//! Port of `server/src/routes/streamHandler.ts`.
+//! Server-Sent Events response handling for streaming completions.
 
 use axum::body::{Body, Bytes};
 use axum::http::{header, HeaderMap, StatusCode};
@@ -46,12 +46,7 @@ pub async fn handle_streaming_completion(
 ) -> Result<Response, ProviderError> {
     let mut rx: ChunkReceiver = route
         .provider
-        .stream_chat_completion(
-            &route.api_key,
-            &messages,
-            &route.model_id,
-            &options,
-        )
+        .stream_chat_completion(&route.api_key, &messages, &route.model_id, &options)
         .await?;
 
     // Pre-stream handshake: try to get the first chunk before the SSE body
@@ -169,10 +164,8 @@ pub async fn handle_streaming_completion(
 
     let mut response = Response::new(Body::from_stream(body));
     *response.status_mut() = StatusCode::OK;
-    *response.headers_mut() = sse_headers(
-        format!("{}/{}", route.platform, route.model_id),
-        attempt,
-    );
+    *response.headers_mut() =
+        sse_headers(format!("{}/{}", route.platform, route.model_id), attempt);
     Ok(response)
 }
 
@@ -198,7 +191,9 @@ pub async fn handle_standard_completion(
         let h = response.headers_mut();
         h.insert(
             "x-routed-via",
-            format!("{}/{}", route.platform, route.model_id).parse().unwrap(),
+            format!("{}/{}", route.platform, route.model_id)
+                .parse()
+                .unwrap(),
         );
         if attempt > 0 {
             h.insert("x-fallback-attempts", attempt.to_string().parse().unwrap());

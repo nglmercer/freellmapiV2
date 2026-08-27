@@ -1,14 +1,15 @@
-//! Port of `server/src/lib/crypto.ts`.
-//! AES-256-GCM with 16-byte IV / 16-byte tag, hex-encoded — byte-compatible
-//! with Node's `aes-256-gcm` defaults used by the TS server, so keys already
-//! stored in the database remain decryptable.
+//! AES-256-GCM key encryption used by the server.
+//!
+//! The 16-byte IV, 16-byte authentication tag, and hex encoding are retained
+//! for compatibility with existing databases and their encrypted provider
+//! keys.
 
 use std::sync::{Mutex, OnceLock};
 
 use aes_gcm::aead::generic_array::typenum::U16;
 use aes_gcm::aead::{Aead, KeyInit};
-use aes_gcm::{AesGcm, Key, Nonce};
 use aes_gcm::aes::Aes256;
+use aes_gcm::{AesGcm, Key, Nonce};
 use rusqlite::Connection;
 
 type Cipher = AesGcm<Aes256, U16, U16>;
@@ -33,7 +34,8 @@ fn parse_hex_key(value: &str, source: &str) -> Result<[u8; KEY_BYTES], String> {
         ));
     }
     let mut key = [0u8; KEY_BYTES];
-    hex::decode_to_slice(value, &mut key).map_err(|_| "Invalid ENCRYPTION_KEY: not valid hex".to_string())?;
+    hex::decode_to_slice(value, &mut key)
+        .map_err(|_| "Invalid ENCRYPTION_KEY: not valid hex".to_string())?;
     Ok(key)
 }
 
@@ -67,8 +69,7 @@ pub fn init_encryption_key(conn: &Connection) {
     if let Some(ref raw) = env_key {
         let raw = raw.trim().to_string();
         if !raw.is_empty() && raw != "your-64-char-hex-key-here" {
-            let parsed = parse_hex_key(&raw, "env")
-                .unwrap_or_else(|e| panic!("{e}"));
+            let parsed = parse_hex_key(&raw, "env").unwrap_or_else(|e| panic!("{e}"));
             *cached = Some(parsed);
             upsert_setting(conn, "encryption_key", &hex::encode(parsed));
             return;
@@ -120,11 +121,13 @@ pub fn encrypt(text: &str) -> (String, String, String) {
     )
 }
 
-/// Decrypt hex-encoded (encrypted, iv, auth_tag) back to plaintext.
-/// Returns Err on auth failure or mismatched key.
-pub fn decrypt(encrypted: &str, iv: &str, auth_tag: &str) -> Result<String, String> {
-    let key = get_encryption_key();
-    let key = Key::<Cipher>::from_slice(&key);
+fn decrypt_with_key(
+    key: &[u8; KEY_BYTES],
+    encrypted: &str,
+    iv: &str,
+    auth_tag: &str,
+) -> Result<String, String> {
+    let key = Key::<Cipher>::from_slice(key);
     let cipher = Cipher::new(key);
 
     let ct_hex = hex::decode(encrypted).map_err(|_| "invalid ciphertext hex".to_string())?;
@@ -135,10 +138,19 @@ pub fn decrypt(encrypted: &str, iv: &str, auth_tag: &str) -> Result<String, Stri
     }
 
     let mut ct = ct_hex;
-    ct.extend_from_slice(&tag_bytes); // aes-gcm expects ciphertext||tag
+    ct.extend_from_slice(&tag_bytes);
     let nonce = Nonce::<U16>::from_slice(&iv_bytes);
-    let pt = cipher.decrypt(nonce, ct.as_ref()).map_err(|_| "decryption failed".to_string())?;
+    let pt = cipher
+        .decrypt(nonce, ct.as_ref())
+        .map_err(|_| "decryption failed".to_string())?;
     String::from_utf8(pt).map_err(|_| "decrypted data not utf8".to_string())
+}
+
+/// Decrypt hex-encoded (encrypted, iv, auth_tag) back to plaintext.
+/// Returns Err on auth failure or mismatched key.
+pub fn decrypt(encrypted: &str, iv: &str, auth_tag: &str) -> Result<String, String> {
+    let key = get_encryption_key();
+    decrypt_with_key(&key, encrypted, iv, auth_tag)
 }
 
 /// `key.slice(0, 4) + '...' + key.slice(-4)`, or `'****' + last 4` when short.
@@ -168,6 +180,32 @@ mod tests {
         let (ct, iv, tag) = encrypt("sk-test-1234567890");
         assert_eq!(decrypt(&ct, &iv, &tag).unwrap(), "sk-test-1234567890");
         assert!(decrypt(&ct, &iv, "00".repeat(16).as_str()).is_err());
+    }
+
+    #[test]
+    fn decrypts_legacy_node_golden_vector() {
+        let key = parse_hex_key(&"aa".repeat(32), "test").unwrap();
+        let plaintext = decrypt_with_key(
+            &key,
+            "45fe82ca573343475996890256d5220bcff28c",
+            "00112233445566778899aabbccddeeff",
+            "fd1669cf1d462b755ca503cd74347d3c",
+        )
+        .unwrap();
+        assert_eq!(plaintext, "legacy-provider-key");
+    }
+
+    #[test]
+    fn wrong_key_cannot_decrypt_legacy_ciphertext() {
+        let mut wrong_key = parse_hex_key(&"aa".repeat(32), "test").unwrap();
+        wrong_key[0] ^= 0xff;
+        assert!(decrypt_with_key(
+            &wrong_key,
+            "45fe82ca573343475996890256d5220bcff28c",
+            "00112233445566778899aabbccddeeff",
+            "fd1669cf1d462b755ca503cd74347d3c",
+        )
+        .is_err());
     }
 
     #[test]

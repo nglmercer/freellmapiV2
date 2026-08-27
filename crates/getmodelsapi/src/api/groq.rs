@@ -1,11 +1,10 @@
-//! Groq models API mirroring `getmodelsapi/src/api/groq.ts`.
+//! Groq models API client.
 
 use crate::types::{Model, Pricing, ProviderConfig};
 use crate::utils::http::{get_json, HttpConfig};
 use std::time::Duration;
 
-/// Read a numeric pricing field, coercing JSON strings (TS would pass the raw
-/// `model.pricing` object through, which is typed as `number`).
+/// Read a numeric pricing field, coercing JSON strings when present.
 fn price(v: Option<&serde_json::Value>) -> f64 {
     match v {
         Some(serde_json::Value::Number(n)) => n.as_f64().unwrap_or(0.0),
@@ -35,14 +34,20 @@ pub async fn fetch_models_from_groq(provider: &ProviderConfig) -> Vec<Model> {
     match get_json(&url, &config).await {
         Ok(value) => {
             let mut models = Vec::new();
-            // TS maps over `response.data` directly (the root). Groq's API
-            // returns `{object, data: [...]}`, so this matches TS exactly:
-            // when the root is not an array, we produce no models here and the
-            // caller falls through to the scraper.
+            // The discovery contract accepts a root array. If Groq returns a
+            // wrapper object, the caller falls through to the scraper.
             if let Some(arr) = value.as_array() {
                 for m in arr {
-                    let id = m.get("id").and_then(|v| v.as_str()).unwrap_or("").to_string();
-                    let name = m.get("name").and_then(|v| v.as_str()).unwrap_or("").to_string();
+                    let id = m
+                        .get("id")
+                        .and_then(|v| v.as_str())
+                        .unwrap_or("")
+                        .to_string();
+                    let name = m
+                        .get("name")
+                        .and_then(|v| v.as_str())
+                        .unwrap_or("")
+                        .to_string();
                     let provider_name = m
                         .get("provider")
                         .and_then(|v| v.as_str())

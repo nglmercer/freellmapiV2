@@ -1,4 +1,4 @@
-//! Port of `server/src/db/unified-key.ts`.
+//! Unified proxy API-key persistence.
 
 use rusqlite::Connection;
 

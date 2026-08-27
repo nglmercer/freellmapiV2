@@ -1,5 +1,4 @@
-//! Port of `server/src/routes/providers.ts` — custom-provider CRUD and
-//! per-provider custom-models endpoints.
+//! Custom-provider CRUD and per-provider custom-model endpoints.
 
 use axum::body::Bytes;
 use axum::extract::Path;
@@ -10,10 +9,12 @@ use axum::Json;
 use serde_json::{json, Map, Value};
 
 use crate::db::connection::db;
-use crate::db::schema::{query_rows, CustomProviderRow, ModelRow, CUSTOM_PROVIDER_COLS, MODEL_COLS};
+use crate::db::schema::{
+    query_rows, CustomProviderRow, ModelRow, CUSTOM_PROVIDER_COLS, MODEL_COLS,
+};
 use crate::providers::provider_id_to_platform;
 
-/// Mirrors zod's type-name strings.
+/// Return the established validation type-name strings.
 fn type_name(v: &Value) -> &'static str {
     match v {
         Value::Null => "null",
@@ -60,7 +61,11 @@ fn valid_url(s: &str) -> bool {
         None => return false,
     };
     !rest.is_empty()
-        && rest.chars().next().map(|c| !matches!(c, '/' | '\\' | '?' | '#' | ':')).unwrap_or(false)
+        && rest
+            .chars()
+            .next()
+            .map(|c| !matches!(c, '/' | '\\' | '?' | '#' | ':'))
+            .unwrap_or(false)
         && !rest.chars().any(char::is_whitespace)
 }
 
@@ -358,17 +363,23 @@ fn validate_create_provider(body: &Value) -> Result<CreateProviderInput, String>
     let name = string_field(
         body,
         "name",
-        StringConstraints { min: true, max: Some(100) },
+        StringConstraints {
+            min: true,
+            max: Some(100),
+        },
         false,
         true,
         None,
         &mut errors,
     )
-        .unwrap_or_default();
+    .unwrap_or_default();
     let base_url = string_field(
         body,
         "baseUrl",
-        StringConstraints { min: true, max: None },
+        StringConstraints {
+            min: true,
+            max: None,
+        },
         true,
         true,
         None,
@@ -376,7 +387,13 @@ fn validate_create_provider(body: &Value) -> Result<CreateProviderInput, String>
     )
     .unwrap_or_default();
     let timeout_ms = int_field(
-        body, "timeoutMs", false, Some(1000), Some(300000), Some(15000), &mut errors,
+        body,
+        "timeoutMs",
+        false,
+        Some(1000),
+        Some(300000),
+        Some(15000),
+        &mut errors,
     );
     let extra_headers = record_field(body, "extraHeaders", false, &mut errors).flatten();
     let enabled = bool_field(body, "enabled", true, true, &mut errors).unwrap_or(true);
@@ -406,8 +423,15 @@ fn validate_update_provider(body: &Value) -> Result<UpdateProviderInput, String>
     let mut errors: Vec<String> = Vec::new();
     let name = optional_string(body, "name", true, Some(100), false, &mut errors);
     let base_url = optional_string(body, "baseUrl", true, None, true, &mut errors);
-    let timeout_ms = optional_int(body, "timeoutMs", false, Some(1000), Some(300000), &mut errors)
-        .flatten();
+    let timeout_ms = optional_int(
+        body,
+        "timeoutMs",
+        false,
+        Some(1000),
+        Some(300000),
+        &mut errors,
+    )
+    .flatten();
     let extra_headers = record_field(body, "extraHeaders", true, &mut errors);
     let enabled = optional_bool(body, "enabled", &mut errors);
 
@@ -444,51 +468,77 @@ fn validate_create_model(body: &Value) -> Result<CreateModelInput, String> {
     let model_id = string_field(
         body,
         "modelId",
-        StringConstraints { min: true, max: None },
-        false,
-        true,
-        None,
-        &mut errors,
-    )
-        .unwrap_or_default();
-    let display_name = string_field(
-        body,
-        "displayName",
-        StringConstraints { min: true, max: None },
+        StringConstraints {
+            min: true,
+            max: None,
+        },
         false,
         true,
         None,
         &mut errors,
     )
     .unwrap_or_default();
-    let intelligence_rank =
-        int_field(body, "intelligenceRank", false, Some(1), Some(999), Some(99), &mut errors);
-    let speed_rank = int_field(body, "speedRank", false, Some(1), Some(999), Some(10), &mut errors);
+    let display_name = string_field(
+        body,
+        "displayName",
+        StringConstraints {
+            min: true,
+            max: None,
+        },
+        false,
+        true,
+        None,
+        &mut errors,
+    )
+    .unwrap_or_default();
+    let intelligence_rank = int_field(
+        body,
+        "intelligenceRank",
+        false,
+        Some(1),
+        Some(999),
+        Some(99),
+        &mut errors,
+    );
+    let speed_rank = int_field(
+        body,
+        "speedRank",
+        false,
+        Some(1),
+        Some(999),
+        Some(10),
+        &mut errors,
+    );
     let size_label = string_field(
         body,
         "sizeLabel",
-        StringConstraints { min: false, max: None },
+        StringConstraints {
+            min: false,
+            max: None,
+        },
         false,
         false,
         Some(""),
         &mut errors,
     )
-        .unwrap_or_default();
+    .unwrap_or_default();
     let rpm_limit = int_field(body, "rpmLimit", true, None, None, None, &mut errors);
     let rpd_limit = int_field(body, "rpdLimit", true, None, None, None, &mut errors);
     let tpm_limit = int_field(body, "tpmLimit", true, None, None, None, &mut errors);
     let tpd_limit = int_field(body, "tpdLimit", true, None, None, None, &mut errors);
-    let monthly_token_budget =
-        string_field(
-            body,
-            "monthlyTokenBudget",
-            StringConstraints { min: false, max: None },
-            false,
-            false,
-            Some(""),
-            &mut errors,
-        )
-            .unwrap_or_default();
+    let monthly_token_budget = string_field(
+        body,
+        "monthlyTokenBudget",
+        StringConstraints {
+            min: false,
+            max: None,
+        },
+        false,
+        false,
+        Some(""),
+        &mut errors,
+    )
+    .unwrap_or_default();
     let context_window = int_field(body, "contextWindow", true, None, None, None, &mut errors);
     let enabled = bool_field(body, "enabled", true, true, &mut errors).unwrap_or(true);
 
@@ -529,8 +579,15 @@ struct UpdateModelInput {
 fn validate_update_model(body: &Value) -> Result<UpdateModelInput, String> {
     let mut errors: Vec<String> = Vec::new();
     let display_name = optional_string(body, "displayName", true, None, false, &mut errors);
-    let intelligence_rank =
-        optional_int(body, "intelligenceRank", false, Some(1), Some(999), &mut errors).flatten();
+    let intelligence_rank = optional_int(
+        body,
+        "intelligenceRank",
+        false,
+        Some(1),
+        Some(999),
+        &mut errors,
+    )
+    .flatten();
     let speed_rank =
         optional_int(body, "speedRank", false, Some(1), Some(999), &mut errors).flatten();
     let size_label = optional_string(body, "sizeLabel", false, None, false, &mut errors);
@@ -538,7 +595,8 @@ fn validate_update_model(body: &Value) -> Result<UpdateModelInput, String> {
     let rpd_limit = optional_int(body, "rpdLimit", true, None, None, &mut errors);
     let tpm_limit = optional_int(body, "tpmLimit", true, None, None, &mut errors);
     let tpd_limit = optional_int(body, "tpdLimit", true, None, None, &mut errors);
-    let monthly_token_budget = optional_string(body, "monthlyTokenBudget", false, None, false, &mut errors);
+    let monthly_token_budget =
+        optional_string(body, "monthlyTokenBudget", false, None, false, &mut errors);
     let context_window = optional_int(body, "contextWindow", true, None, None, &mut errors);
     let enabled = optional_bool(body, "enabled", &mut errors);
 
@@ -658,9 +716,7 @@ async fn create_provider(body: Bytes) -> Response {
         .into_response()
 }
 
-/// `PATCH /:id` — note the TS always appends `updatedAt` before the emptiness
-/// check, so "No fields to update" is dead code here (an empty body still
-/// bumps `updated_at`).
+/// `PATCH /:id` updates the timestamp even when no optional field changes.
 async fn update_provider(Path(id): Path<String>, body: Bytes) -> Response {
     let Some(id) = parse_id(&id) else {
         return json_error(400, "Invalid ID");
@@ -704,9 +760,9 @@ async fn update_provider(Path(id): Path<String>, body: Bytes) -> Response {
     if let Some(eh) = &input.extra_headers {
         cols.push("extra_headers");
         vals.push(match eh {
-            Some(m) => {
-                rusqlite::types::Value::from(serde_json::to_string(m).unwrap_or_else(|_| "{}".to_string()))
-            }
+            Some(m) => rusqlite::types::Value::from(
+                serde_json::to_string(m).unwrap_or_else(|_| "{}".to_string()),
+            ),
             None => rusqlite::types::Value::Null,
         });
     }
@@ -714,7 +770,7 @@ async fn update_provider(Path(id): Path<String>, body: Bytes) -> Response {
         cols.push("enabled");
         vals.push(rusqlite::types::Value::from(if en { 1 } else { 0 }));
     }
-    // TS always sets updatedAt — even for an empty body.
+    // Always update the timestamp, including for an empty patch body.
     cols.push("updated_at");
     vals.push(rusqlite::types::Value::from(
         chrono::Utc::now().to_rfc3339_opts(chrono::SecondsFormat::Millis, true),
@@ -780,9 +836,18 @@ async fn delete_provider(Path(id): Path<String>) -> Response {
                 rusqlite::params![m],
             )?;
         }
-        conn.execute("DELETE FROM models WHERE platform = ?1", rusqlite::params![platform])?;
-        conn.execute("DELETE FROM api_keys WHERE platform = ?1", rusqlite::params![platform])?;
-        conn.execute("DELETE FROM custom_providers WHERE id = ?1", rusqlite::params![id])?;
+        conn.execute(
+            "DELETE FROM models WHERE platform = ?1",
+            rusqlite::params![platform],
+        )?;
+        conn.execute(
+            "DELETE FROM api_keys WHERE platform = ?1",
+            rusqlite::params![platform],
+        )?;
+        conn.execute(
+            "DELETE FROM custom_providers WHERE id = ?1",
+            rusqlite::params![id],
+        )?;
         Ok(())
     }
     .await;
@@ -793,8 +858,8 @@ async fn delete_provider(Path(id): Path<String>) -> Response {
     }
 }
 
-/// `GET /:id/models` — lists the custom provider's models. Like the TS, no
-/// provider-existence check is performed here.
+/// `GET /:id/models` lists the custom provider's models without a separate
+/// provider-existence check.
 async fn list_provider_models(Path(id): Path<String>) -> Response {
     let Some(id) = parse_id(&id) else {
         return json_error(400, "Invalid ID");
@@ -802,14 +867,13 @@ async fn list_provider_models(Path(id): Path<String>) -> Response {
     let platform = provider_id_to_platform(id);
     let rows: Vec<ModelRow> = {
         let conn = db().lock().await;
-        let sql =
-            format!("SELECT {MODEL_COLS} FROM models WHERE platform = ?1 ORDER BY intelligence_rank");
-        match conn
-            .prepare(&sql)
-            .and_then(|mut s| {
-                s.query_map(rusqlite::params![platform], ModelRow::from_row)?
-                    .collect::<rusqlite::Result<Vec<_>>>()
-            }) {
+        let sql = format!(
+            "SELECT {MODEL_COLS} FROM models WHERE platform = ?1 ORDER BY intelligence_rank"
+        );
+        match conn.prepare(&sql).and_then(|mut s| {
+            s.query_map(rusqlite::params![platform], ModelRow::from_row)?
+                .collect::<rusqlite::Result<Vec<_>>>()
+        }) {
             Ok(rows) => rows,
             Err(e) => return crate::app::error_text(500, &e.to_string()),
         }
@@ -888,7 +952,9 @@ async fn create_provider_model(Path(id): Path<String>, body: Bytes) -> Response 
         if input.enabled {
             let last_id = conn.last_insert_rowid();
             let mx: Option<i64> = conn
-                .query_row("SELECT MAX(priority) FROM fallback_config", [], |r| r.get(0))
+                .query_row("SELECT MAX(priority) FROM fallback_config", [], |r| {
+                    r.get(0)
+                })
                 .ok()
                 .flatten();
             conn.execute(
@@ -901,11 +967,7 @@ async fn create_provider_model(Path(id): Path<String>, body: Bytes) -> Response 
     .await;
 
     match result {
-        Ok(()) => (
-            StatusCode::CREATED,
-            Json(json!({ "success": true })),
-        )
-            .into_response(),
+        Ok(()) => (StatusCode::CREATED, Json(json!({ "success": true }))).into_response(),
         Err(e) => crate::app::error_text(500, &e.to_string()),
     }
 }
@@ -930,10 +992,13 @@ async fn update_provider_model(
 
     let model: Option<ModelRow> = {
         let conn = db().lock().await;
-        let sql =
-            format!("SELECT {MODEL_COLS} FROM models WHERE platform = ?1 AND model_id = ?2");
-        conn.query_row(&sql, rusqlite::params![platform, model_id], ModelRow::from_row)
-            .ok()
+        let sql = format!("SELECT {MODEL_COLS} FROM models WHERE platform = ?1 AND model_id = ?2");
+        conn.query_row(
+            &sql,
+            rusqlite::params![platform, model_id],
+            ModelRow::from_row,
+        )
+        .ok()
     };
     let Some(model) = model else {
         return json_error(404, "Model not found");
@@ -1022,10 +1087,13 @@ async fn delete_provider_model(Path((id, model_id)): Path<(String, String)>) -> 
 
     let model: Option<ModelRow> = {
         let conn = db().lock().await;
-        let sql =
-            format!("SELECT {MODEL_COLS} FROM models WHERE platform = ?1 AND model_id = ?2");
-        conn.query_row(&sql, rusqlite::params![platform, model_id], ModelRow::from_row)
-            .ok()
+        let sql = format!("SELECT {MODEL_COLS} FROM models WHERE platform = ?1 AND model_id = ?2");
+        conn.query_row(
+            &sql,
+            rusqlite::params![platform, model_id],
+            ModelRow::from_row,
+        )
+        .ok()
     };
     let Some(model) = model else {
         return json_error(404, "Model not found");
@@ -1037,7 +1105,10 @@ async fn delete_provider_model(Path((id, model_id)): Path<(String, String)>) -> 
             "DELETE FROM fallback_config WHERE model_db_id = ?1",
             rusqlite::params![model.id],
         )?;
-        conn.execute("DELETE FROM models WHERE id = ?1", rusqlite::params![model.id])?;
+        conn.execute(
+            "DELETE FROM models WHERE id = ?1",
+            rusqlite::params![model.id],
+        )?;
         Ok(())
     }
     .await;
@@ -1053,7 +1124,9 @@ pub fn router() -> axum::Router {
         .route("/", get(list_providers).post(create_provider))
         .route(
             "/{id}",
-            get(get_provider_by_id).patch(update_provider).delete(delete_provider),
+            get(get_provider_by_id)
+                .patch(update_provider)
+                .delete(delete_provider),
         )
         .route(
             "/{id}/models",

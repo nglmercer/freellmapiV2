@@ -1,4 +1,4 @@
-//! Port of `server/src/services/rankings/match.ts`.
+//! Exact model-ID matching across provider namespaces.
 //!
 //! Exact-match model ID resolution across heterogeneous provider
 //! namespaces. No fuzzy matching. If the model isn't in the source, the row
@@ -32,7 +32,10 @@ pub struct RankLookup {
 
 impl RankLookup {
     /// Look up a ranking for the given local model — strict equality only.
-    pub fn find(&self, id: &ModelIdentity) -> Option<crate::services::rankings::types::SourceBenchmark> {
+    pub fn find(
+        &self,
+        id: &ModelIdentity,
+    ) -> Option<crate::services::rankings::types::SourceBenchmark> {
         self.index
             .get(&id.lower)
             .or_else(|| self.index.get(&id.bare_lower))
@@ -53,7 +56,8 @@ fn strip_publisher(id: &str) -> String {
 fn canonicalize(id: &str) -> String {
     static FREE: LazyLock<Regex> = LazyLock::new(|| re(r"(?i)[:-]free$"));
     static DATE: LazyLock<Regex> = LazyLock::new(|| re(r"-\d{4}-\d{2}-\d{2}$"));
-    static PREVIEW: LazyLock<Regex> = LazyLock::new(|| re(r"(?i)-(preview|alpha|beta|exp)(\.\d+)?$"));
+    static PREVIEW: LazyLock<Regex> =
+        LazyLock::new(|| re(r"(?i)-(preview|alpha|beta|exp)(\.\d+)?$"));
     static PROVIDER: LazyLock<Regex> = LazyLock::new(|| re(r"(?i):nitro$|:exacto$|:floor$"));
     static SHA: LazyLock<Regex> = LazyLock::new(|| re(r"(?i)@[a-f0-9]{6,40}$"));
 
@@ -106,7 +110,10 @@ mod tests {
     #[test]
     fn lookup_prefers_full_then_bare_then_canonical() {
         use crate::services::rankings::types::SourceBenchmark;
-        let b = SourceBenchmark { intelligence_score: 50.0, speed_tokens_per_sec: 100.0 };
+        let b = SourceBenchmark {
+            intelligence_score: 50.0,
+            speed_tokens_per_sec: 100.0,
+        };
         let lookup = build_rank_index(vec![("llama-3.3-70b-instruct".to_string(), b.clone())]);
         let id = identity("openrouter", "meta-llama/LLaMA-3.3-70B-Instruct:free");
         assert_eq!(lookup.find(&id).unwrap().intelligence_score, 50.0);

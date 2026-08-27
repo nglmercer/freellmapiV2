@@ -1,4 +1,4 @@
-//! Port of `server/src/providers/custom.ts`.
+//! Database-backed custom OpenAI-compatible providers.
 
 use std::collections::HashMap;
 use std::sync::Arc;
@@ -54,16 +54,18 @@ pub fn load_custom_provider(conn: &Connection, platform: &str) -> Option<Arc<dyn
         "SELECT {CUSTOM_PROVIDER_COLS} FROM custom_providers WHERE id = ?1 AND enabled = 1"
     );
     let row = conn
-        .query_row(&sql, rusqlite::params![provider_id], CustomProviderRow::from_row)
+        .query_row(
+            &sql,
+            rusqlite::params![provider_id],
+            CustomProviderRow::from_row,
+        )
         .ok()?;
     Some(build_provider(&row, platform))
 }
 
 pub fn load_all_custom_providers(conn: &Connection) -> HashMap<String, Arc<dyn Provider>> {
     let mut map = HashMap::new();
-    let sql = format!(
-        "SELECT {CUSTOM_PROVIDER_COLS} FROM custom_providers WHERE enabled = 1"
-    );
+    let sql = format!("SELECT {CUSTOM_PROVIDER_COLS} FROM custom_providers WHERE enabled = 1");
     let rows = conn
         .prepare(&sql)
         .and_then(|mut stmt| {

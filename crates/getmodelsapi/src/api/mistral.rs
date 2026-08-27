@@ -1,4 +1,4 @@
-//! Mistral models API mirroring `getmodelsapi/src/api/mistral.ts`.
+//! Mistral models API client.
 
 use crate::types::{Model, ProviderConfig};
 use crate::utils::http::{get_json, HttpConfig};
@@ -22,7 +22,11 @@ pub async fn fetch_models_from_mistral(provider: &ProviderConfig) -> Vec<Model> 
             let mut models = Vec::new();
             if let Some(arr) = value.get("data").and_then(|d| d.as_array()) {
                 for m in arr {
-                    let id = m.get("id").and_then(|v| v.as_str()).unwrap_or("").to_string();
+                    let id = m
+                        .get("id")
+                        .and_then(|v| v.as_str())
+                        .unwrap_or("")
+                        .to_string();
                     let owned_by = m
                         .get("owned_by")
                         .and_then(|v| v.as_str())

@@ -1,5 +1,5 @@
-//! Port of `server/src/providers/index.ts` — the platform → provider
-//! registry (built-ins + DB-backed custom providers).
+//! Platform-to-provider registry for built-ins and database-backed custom
+//! providers.
 
 pub mod base;
 pub mod cloudflare;
@@ -13,7 +13,10 @@ use std::sync::{Arc, OnceLock};
 
 use rusqlite::Connection;
 
-pub use base::{http_client, make_id, normalize_choices, send_request, ChunkReceiver, ChunkSender, Provider, ProviderError};
+pub use base::{
+    http_client, make_id, normalize_choices, send_request, ChunkReceiver, ChunkSender, Provider,
+    ProviderError,
+};
 pub use cloudflare::CloudflareProvider;
 pub use cohere::CohereProvider;
 pub use custom::{
@@ -23,11 +26,7 @@ pub use custom::{
 pub use google::GoogleProvider;
 pub use openai_compat::{OpenAICompatOptions, OpenAICompatProvider};
 
-fn openai_compat(
-    platform: &str,
-    name: &str,
-    base_url: &str,
-) -> Arc<dyn Provider> {
+fn openai_compat(platform: &str, name: &str, base_url: &str) -> Arc<dyn Provider> {
     Arc::new(OpenAICompatProvider::new(OpenAICompatOptions {
         platform: platform.to_string(),
         name: name.to_string(),
@@ -38,8 +37,7 @@ fn openai_compat(
     }))
 }
 
-/// Built-in registry, constructed once — mirrors the `register(new ...)`
-/// calls in providers/index.ts.
+/// Built-in registry, constructed once during the first lookup.
 fn builtins() -> &'static HashMap<String, Arc<dyn Provider>> {
     static REGISTRY: OnceLock<HashMap<String, Arc<dyn Provider>>> = OnceLock::new();
     REGISTRY.get_or_init(|| {
@@ -52,7 +50,11 @@ fn builtins() -> &'static HashMap<String, Arc<dyn Provider>> {
         register(Arc::new(GoogleProvider::new()));
 
         // Groq - OpenAI-compatible
-        register(openai_compat("groq", "Groq", "https://api.groq.com/openai/v1"));
+        register(openai_compat(
+            "groq",
+            "Groq",
+            "https://api.groq.com/openai/v1",
+        ));
 
         // Cerebras - OpenAI-compatible
         register(openai_compat(
@@ -88,7 +90,10 @@ fn builtins() -> &'static HashMap<String, Arc<dyn Provider>> {
             name: "OpenRouter".to_string(),
             base_url: "https://openrouter.ai/api/v1".to_string(),
             extra_headers: vec![
-                ("HTTP-Referer".to_string(), "http://localhost:3001".to_string()),
+                (
+                    "HTTP-Referer".to_string(),
+                    "http://localhost:3001".to_string(),
+                ),
                 ("X-Title".to_string(), "FreeLLMAPI".to_string()),
             ],
             validate_url: None,
@@ -182,7 +187,7 @@ fn builtins() -> &'static HashMap<String, Arc<dyn Provider>> {
     })
 }
 
-/// `getProvider(platform)` — built-ins first, then DB custom providers.
+/// Resolve built-ins first, then database-backed custom providers.
 /// Requires a DB connection handle (custom providers live in SQLite); use
 /// [`get_provider_async`] when no connection is already locked.
 pub fn get_provider_with_conn(conn: &Connection, platform: &str) -> Option<Arc<dyn Provider>> {

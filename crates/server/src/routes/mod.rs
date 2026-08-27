@@ -1,5 +1,4 @@
-//! Port of `server/src/routes/` — HTTP handlers. Submodules are wired into
-//! the router in `app.rs`.
+//! HTTP route handlers wired into the application router.
 
 pub mod analytics;
 pub mod completions;

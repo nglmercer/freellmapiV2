@@ -1,5 +1,5 @@
-//! Shared integration-test harness — mirrors the TS test setup
-//! (`initDb(':memory:') + runMigrations + seedTestModels + createApp`).
+//! Shared integration-test harness for an in-memory database, migrations,
+//! fixtures, and an application router.
 
 #![allow(dead_code)] // helpers are consumed by different test binaries
 
@@ -9,9 +9,8 @@ use axum::Router;
 use serde_json::Value;
 use tower::ServiceExt;
 
-/// The DB, crypto key cache, and rate-limiter state are process-wide globals
-/// (like the TS module-level singletons). Bun runs its suites single-
-/// threaded; we serialize tests explicitly with this lock instead.
+/// The DB, crypto key cache, and rate-limiter state are process-wide globals;
+/// tests serialize access explicitly with this lock.
 fn test_lock() -> &'static tokio::sync::Mutex<()> {
     static LOCK: tokio::sync::Mutex<()> = tokio::sync::Mutex::const_new(());
     &LOCK
@@ -31,10 +30,7 @@ pub async fn setup() -> TestApp {
     std::env::set_var("ENCRYPTION_KEY", "a".repeat(64));
     // Silence .env auto-generation writes into the repo root during tests.
     std::env::set_var("PORT", "0");
-    let conn_dir = std::env::temp_dir().join(format!(
-        "freellmapi-test-{}",
-        std::process::id()
-    ));
+    let conn_dir = std::env::temp_dir().join(format!("freellmapi-test-{}", std::process::id()));
     std::fs::create_dir_all(&conn_dir).ok();
     server::env::set_project_root(conn_dir.clone());
 
@@ -56,7 +52,7 @@ pub async fn setup() -> TestApp {
     }
 }
 
-// ---- fixture port of server/src/db/test-fixtures.ts ----
+// ---- deterministic model fixtures ----
 
 struct TestModel {
     platform: &'static str,
@@ -147,8 +143,14 @@ pub fn seed_test_models(conn: &rusqlite::Connection) {
                 sorted.sort_by(|a, b| b.total_cmp(a));
                 let mut sorted_t = tps.clone();
                 sorted_t.sort_by(|a, b| b.total_cmp(a));
-                let ir = sorted.iter().position(|s| *s == score).map(|p| p as i64 + 1);
-                let sr = sorted_t.iter().position(|s| *s == tps_v).map(|p| p as i64 + 1);
+                let ir = sorted
+                    .iter()
+                    .position(|s| *s == score)
+                    .map(|p| p as i64 + 1);
+                let sr = sorted_t
+                    .iter()
+                    .position(|s| *s == tps_v)
+                    .map(|p| p as i64 + 1);
                 (ir.unwrap_or(99), sr.unwrap_or(10))
             }
             _ => (99, 10),

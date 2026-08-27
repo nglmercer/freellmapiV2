@@ -1,4 +1,4 @@
-//! Kilo models API mirroring `getmodelsapi/src/api/kilo.ts`.
+//! Kilo models API client.
 
 use crate::types::{Model, Pricing, ProviderConfig};
 use crate::utils::http::{get_json, HttpConfig};
@@ -36,8 +36,16 @@ pub async fn fetch_models_from_kilo(provider: &ProviderConfig) -> Vec<Model> {
             let mut models = Vec::new();
             if let Some(arr) = value.get("models").and_then(|d| d.as_array()) {
                 for m in arr {
-                    let id = m.get("id").and_then(|v| v.as_str()).unwrap_or("").to_string();
-                    let name = m.get("name").and_then(|v| v.as_str()).unwrap_or("").to_string();
+                    let id = m
+                        .get("id")
+                        .and_then(|v| v.as_str())
+                        .unwrap_or("")
+                        .to_string();
+                    let name = m
+                        .get("name")
+                        .and_then(|v| v.as_str())
+                        .unwrap_or("")
+                        .to_string();
                     let provider_name = m
                         .get("provider")
                         .and_then(|v| v.as_str())

@@ -1,4 +1,4 @@
-//! Port of `server/src/routes/fallback.ts`.
+//! Fallback-chain management endpoints.
 
 use std::cmp::Ordering;
 use std::collections::{HashMap, HashSet};
@@ -89,9 +89,7 @@ async fn get_fallback() -> Response {
             })
             .unwrap_or_default();
         let key_counts: Vec<(String, i64)> = conn
-            .prepare(
-                "SELECT platform, COUNT(*) FROM api_keys WHERE enabled = 1 GROUP BY platform",
-            )
+            .prepare("SELECT platform, COUNT(*) FROM api_keys WHERE enabled = 1 GROUP BY platform")
             .ok()
             .and_then(|mut s| {
                 s.query_map([], |r| Ok((r.get(0)?, r.get::<_, i64>(1)?)))
@@ -142,7 +140,7 @@ async fn get_fallback() -> Response {
 }
 
 // ─────────────────────────────────────────────────────────────────────
-// PUT / — full replace of the chain. Mirrors the zod array schema.
+// PUT / — full replacement of the fallback chain.
 // ─────────────────────────────────────────────────────────────────────
 
 #[derive(Debug)]
@@ -168,7 +166,7 @@ fn typeof_value(v: &Value) -> &'static str {
 /// Validate the body against
 /// `z.array(z.object({ modelDbId: z.number(), priority: z.number(), enabled: z.boolean() }))`.
 /// Returns the parsed entries or the joined zod issue messages (`message`
-/// field of each issue), matching the TS error body exactly.
+/// field of each issue), preserving the established error body.
 fn parse_update_entries(v: &Value) -> Result<Vec<UpdateEntry>, String> {
     let Some(arr) = v.as_array() else {
         return Err(format!("Expected array, received {}", typeof_value(v)));
@@ -283,13 +281,15 @@ async fn update_fallback(bytes: Bytes) -> Response {
 /// `~?N(-N)?([MK])?` budget string.
 fn parse_budget_value(s: &str) -> f64 {
     static RE: OnceLock<regex::Regex> = OnceLock::new();
-    let re = RE.get_or_init(|| {
-        regex::Regex::new(r"~?([\d.]+)(?:-([\d.]+))?([MK])?").unwrap()
-    });
+    let re = RE.get_or_init(|| regex::Regex::new(r"~?([\d.]+)(?:-([\d.]+))?([MK])?").unwrap());
     let Some(caps) = re.captures(s) else {
         return 0.0;
     };
-    let value = caps.get(2).or_else(|| caps.get(1)).map(|m| m.as_str()).unwrap_or("");
+    let value = caps
+        .get(2)
+        .or_else(|| caps.get(1))
+        .map(|m| m.as_str())
+        .unwrap_or("");
     let high: f64 = value.parse().unwrap_or(0.0);
     let unit = match caps.get(3).map(|m| m.as_str()) {
         Some("M") => 1_000_000.0,
@@ -312,7 +312,7 @@ fn descending_cmp(a: f64, b: f64) -> Ordering {
     b.partial_cmp(&a).unwrap_or(Ordering::Equal)
 }
 
-/// Port of the TS comparator (fallback.ts `sort/:preset`): negative `cmp`
+/// Comparator used by the `sort/:preset` endpoint: negative `cmp`
 /// means `a` sorts first. `a.id` is `model_db_id`.
 fn sort_cmp(a: &SortRow, b: &SortRow, preset: &str) -> Ordering {
     let id_tiebreak = a.id.cmp(&b.id);
@@ -329,7 +329,9 @@ fn sort_cmp(a: &SortRow, b: &SortRow, preset: &str) -> Ordering {
             } else if b.intelligence_score.is_some() {
                 Ordering::Greater
             } else {
-                a.intelligence_rank.cmp(&b.intelligence_rank).then(id_tiebreak)
+                a.intelligence_rank
+                    .cmp(&b.intelligence_rank)
+                    .then(id_tiebreak)
             }
         }
         "speed" => {
@@ -573,7 +575,10 @@ mod tests {
         assert_eq!(sort_cmp(&a, &u, "intelligence"), Ordering::Less);
         assert_eq!(sort_cmp(&u, &a, "intelligence"), Ordering::Greater);
         // Neither ranked → lower ordinal first.
-        assert_eq!(sort_cmp(&u, &make(4, None, 50), "intelligence"), Ordering::Greater);
+        assert_eq!(
+            sort_cmp(&u, &make(4, None, 50), "intelligence"),
+            Ordering::Greater
+        );
     }
 
     #[test]

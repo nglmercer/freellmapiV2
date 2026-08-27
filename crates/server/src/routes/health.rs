@@ -1,5 +1,4 @@
-//! Port of `server/src/routes/health.ts` — per-platform health summary listing
-//! and the manual key-check endpoints.
+//! Per-platform health summaries and manual key-check endpoints.
 
 use axum::extract::Path;
 use axum::http::StatusCode;
@@ -30,10 +29,7 @@ fn json_error(status: u16, message: &str) -> Response {
 
 /// `GET /` — per-platform key-status aggregation plus the full key list.
 async fn get_health_status() -> Response {
-    let (platform_rows, keys): (
-        Vec<PlatformHealthRow>,
-        Vec<ApiKeyRow>,
-    ) = {
+    let (platform_rows, keys): (Vec<PlatformHealthRow>, Vec<ApiKeyRow>) = {
         let conn = db().lock().await;
 
         let platforms_sql = {
@@ -63,14 +59,12 @@ async fn get_health_status() -> Response {
                 .collect()
             });
 
-        let keys_sql = format!(
-            "SELECT {API_KEY_COLS} FROM api_keys ORDER BY platform, created_at DESC"
-        );
-        let keys: rusqlite::Result<Vec<ApiKeyRow>> = conn
-            .prepare(&keys_sql)
-            .and_then(|mut s| {
-                s.query_map([], ApiKeyRow::from_row)?.collect::<rusqlite::Result<Vec<_>>>()
-            });
+        let keys_sql =
+            format!("SELECT {API_KEY_COLS} FROM api_keys ORDER BY platform, created_at DESC");
+        let keys: rusqlite::Result<Vec<ApiKeyRow>> = conn.prepare(&keys_sql).and_then(|mut s| {
+            s.query_map([], ApiKeyRow::from_row)?
+                .collect::<rusqlite::Result<Vec<_>>>()
+        });
 
         match (aggs, keys) {
             (Ok(a), Ok(k)) => (a, k),

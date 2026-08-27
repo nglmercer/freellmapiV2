@@ -1,5 +1,4 @@
-//! Port of `server/src/services/ratelimit.ts` — in-memory sliding window
-//! rate limit tracker.
+//! In-memory sliding-window rate-limit tracker.
 
 use std::collections::HashMap;
 use std::sync::{Mutex, OnceLock};
@@ -69,12 +68,7 @@ fn prune_timestamps(timestamps: &mut Vec<i64>, window_ms: i64, now: i64) {
     timestamps.retain(|ts| *ts > cutoff);
 }
 
-pub fn can_make_request(
-    platform: &str,
-    model_id: &str,
-    key_id: i64,
-    limits: &Limits,
-) -> bool {
+pub fn can_make_request(platform: &str, model_id: &str, key_id: i64, limits: &Limits) -> bool {
     let now = now_ms();
     let mut s = state().lock().unwrap();
 
@@ -218,9 +212,18 @@ pub fn get_rate_limit_status(
     let tpm_used: i64 = tpm_w.token_timestamps.iter().map(|t| t.tokens).sum();
 
     RateLimitUsage {
-        rpm: crate::types::UsageWindow { used: rpm_used, limit: limits.rpm },
-        rpd: crate::types::UsageWindow { used: rpd_used, limit: limits.rpd },
-        tpm: crate::types::UsageWindow { used: tpm_used, limit: limits.tpm },
+        rpm: crate::types::UsageWindow {
+            used: rpm_used,
+            limit: limits.rpm,
+        },
+        rpd: crate::types::UsageWindow {
+            used: rpd_used,
+            limit: limits.rpd,
+        },
+        tpm: crate::types::UsageWindow {
+            used: tpm_used,
+            limit: limits.tpm,
+        },
     }
 }
 
@@ -239,7 +242,14 @@ pub fn get_session_key(messages: &[ChatMessage]) -> String {
     let mut hasher = Sha1::new();
     hasher.update(content.as_bytes());
     let hash = hex::encode(hasher.finalize());
-    format!("{hash}:{}", if messages.len() > 2 { "multi" } else { "single" })
+    format!(
+        "{hash}:{}",
+        if messages.len() > 2 {
+            "multi"
+        } else {
+            "single"
+        }
+    )
 }
 
 pub fn get_sticky_model(messages: &[ChatMessage]) -> Option<i64> {
@@ -276,12 +286,16 @@ pub fn set_sticky_model(messages: &[ChatMessage], model_db_id: i64) {
     let mut s = state().lock().unwrap();
     s.sticky_session_map.insert(
         key,
-        StickyEntry { model_db_id, last_used: now_ms() },
+        StickyEntry {
+            model_db_id,
+            last_used: now_ms(),
+        },
     );
 
     if s.sticky_session_map.len() > 500 {
         let now = now_ms();
-        s.sticky_session_map.retain(|_, v| now - v.last_used <= STICKY_TTL_MS);
+        s.sticky_session_map
+            .retain(|_, v| now - v.last_used <= STICKY_TTL_MS);
     }
 }
 
@@ -298,7 +312,11 @@ pub struct RateLimitSnapshot {
 pub fn snapshot_rate_limit_state() -> RateLimitSnapshot {
     let s = state().lock().unwrap();
     RateLimitSnapshot {
-        windows: s.windows.iter().map(|(k, v)| (k.clone(), v.clone())).collect(),
+        windows: s
+            .windows
+            .iter()
+            .map(|(k, v)| (k.clone(), v.clone()))
+            .collect(),
         cooldowns: s.cooldowns.iter().map(|(k, v)| (k.clone(), *v)).collect(),
         sticky_sessions: s
             .sticky_session_map

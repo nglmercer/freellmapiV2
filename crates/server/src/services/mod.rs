@@ -1,9 +1,9 @@
-//! Port of `server/src/services/`.
+//! Background services used by the server.
 
 pub mod health;
 pub mod model_sync;
 pub mod pricing;
-pub mod ratelimit;
 pub mod rankings;
+pub mod ratelimit;
 pub mod router;
 pub mod state_persistence;

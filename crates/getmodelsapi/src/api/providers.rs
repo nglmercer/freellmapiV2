@@ -1,5 +1,5 @@
-//! Provider fetch dispatch table + OpenRouter / Ollama / HuggingFace fetchers,
-//! mirroring `getmodelsapi/src/api/providers.ts`.
+//! Provider fetch dispatch table plus OpenRouter, Ollama, and HuggingFace
+//! fetchers.
 
 use crate::types::{Model, Pricing, ProviderConfig};
 use crate::utils::http::{get_json, HttpConfig};
@@ -44,16 +44,23 @@ pub async fn fetch_models_from_openrouter(provider: &ProviderConfig) -> Vec<Mode
             let mut models = Vec::new();
             if let Some(arr) = value.get("data").and_then(|d| d.as_array()) {
                 for m in arr {
-                    let id = m.get("id").and_then(|v| v.as_str()).unwrap_or("").to_string();
-                    let name = m.get("name").and_then(|v| v.as_str()).unwrap_or("").to_string();
+                    let id = m
+                        .get("id")
+                        .and_then(|v| v.as_str())
+                        .unwrap_or("")
+                        .to_string();
+                    let name = m
+                        .get("name")
+                        .and_then(|v| v.as_str())
+                        .unwrap_or("")
+                        .to_string();
                     let provider_name = m
                         .get("provider")
                         .and_then(|v| v.as_str())
                         .map(|s| s.to_string())
                         .unwrap_or_else(|| provider.name.clone());
-                    // TS: model.context_window || model.context_length (may be
-                    // undefined in TS; we default to 0 in Rust).
-                    // TS: model.context_window || model.context_length (falsy => next, then 0)
+                    // Prefer the provider's context window, then its legacy
+                    // context length field, and finally zero.
                     let context_window = m
                         .get("context_window")
                         .and_then(|v| v.as_i64())
@@ -100,7 +107,7 @@ pub async fn fetch_models_from_openrouter(provider: &ProviderConfig) -> Vec<Mode
     }
 }
 
-/// Fetch models from a local Ollama instance `/api/tags` (mirrors the TS fn).
+/// Fetch models from a local Ollama instance at `/api/tags`.
 pub async fn fetch_models_from_ollama(provider: &ProviderConfig) -> Vec<Model> {
     let url = format!("{}/api/tags", provider.base_url);
     let config = HttpConfig {
@@ -113,7 +120,11 @@ pub async fn fetch_models_from_ollama(provider: &ProviderConfig) -> Vec<Model> {
             let mut models = Vec::new();
             if let Some(arr) = value.get("models").and_then(|d| d.as_array()) {
                 for m in arr {
-                    let name = m.get("name").and_then(|v| v.as_str()).unwrap_or("").to_string();
+                    let name = m
+                        .get("name")
+                        .and_then(|v| v.as_str())
+                        .unwrap_or("")
+                        .to_string();
                     models.push(Model {
                         id: name.clone(),
                         name,
@@ -140,7 +151,7 @@ pub async fn fetch_models_from_ollama(provider: &ProviderConfig) -> Vec<Model> {
     }
 }
 
-/// Fetch models from the public HuggingFace models API (mirrors the TS fn).
+/// Fetch models from the public HuggingFace models API.
 pub async fn fetch_models_from_huggingface(provider: &ProviderConfig) -> Vec<Model> {
     let url = "https://huggingface.co/api/models?full=true&limit=100";
     let config = HttpConfig {
@@ -157,7 +168,11 @@ pub async fn fetch_models_from_huggingface(provider: &ProviderConfig) -> Vec<Mod
             let mut models = Vec::new();
             if let Some(arr) = value.as_array() {
                 for m in arr {
-                    let id = m.get("id").and_then(|v| v.as_str()).unwrap_or("").to_string();
+                    let id = m
+                        .get("id")
+                        .and_then(|v| v.as_str())
+                        .unwrap_or("")
+                        .to_string();
                     let config_obj = m.get("config");
                     let context_window = config_obj
                         .and_then(|c| c.get("max_position_embeddings"))
@@ -199,8 +214,7 @@ pub async fn fetch_models_from_huggingface(provider: &ProviderConfig) -> Vec<Mod
     }
 }
 
-/// Mirror of the TS `fetchByProvider` record. Returns `None` for providers that
-/// have no API module (they fall through to their scraper).
+/// Fetch models for a provider API. Returns `None` for scraper-only providers.
 pub async fn fetch_by_provider(provider: &str, config: &ProviderConfig) -> Option<Vec<Model>> {
     match provider {
         "openrouter" => Some(fetch_models_from_openrouter(config).await),

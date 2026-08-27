@@ -1,4 +1,4 @@
-//! Port of `server/tests/health.test.ts`.
+//! Health route integration tests.
 
 mod common;
 
@@ -63,7 +63,10 @@ async fn platform_summary_shape() {
         "unknownKeys",
         "enabledKeys",
     ] {
-        assert!(p.get(field).is_some(), "missing {field} on platform summary");
+        assert!(
+            p.get(field).is_some(),
+            "missing {field} on platform summary"
+        );
     }
     assert!(p["hasProvider"].is_boolean());
     assert!(p["totalKeys"].is_number());

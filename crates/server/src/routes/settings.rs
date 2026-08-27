@@ -1,5 +1,4 @@
-//! Port of `server/src/routes/settings.ts` — setup status, the unified API
-//! key, and key regeneration.
+//! Setup status, unified API-key retrieval, and key regeneration endpoints.
 
 use axum::response::{IntoResponse, Response};
 use axum::routing::{get, post};

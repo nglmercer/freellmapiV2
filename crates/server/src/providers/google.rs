@@ -1,4 +1,4 @@
-//! Port of `server/src/providers/google.ts` — Gemini native API (v1beta).
+//! Google Gemini native API provider (v1beta).
 
 use std::collections::{HashMap, HashSet};
 use std::sync::OnceLock;
@@ -10,7 +10,7 @@ use tokio::sync::mpsc;
 
 use super::base::{http_client, make_id, send_request, ChunkReceiver, Provider, ProviderError};
 use crate::types::{
-    ChatCompletionChunk, ChatCompletionChunkChoice, ChatCompletionChoice, ChatCompletionDelta,
+    ChatCompletionChoice, ChatCompletionChunk, ChatCompletionChunkChoice, ChatCompletionDelta,
     ChatCompletionResponse, ChatMessage, ChatToolCall, ChatToolCallFunction, ChatToolChoice,
     ChatToolDefinition, CompletionOptions, MessageContent, RoutedVia, TokenUsage,
 };
@@ -78,7 +78,7 @@ struct GeminiUsageMetadata {
     total_token_count: i64,
 }
 
-// ---- Translation helpers (mirrors the TS module functions) ----
+// ---- Gemini request/response translation helpers ----
 
 /// `safeParseObject(raw)`: try JSON.parse; object → itself, otherwise wrapped
 /// in `{ value }`; parse failure returns `{ value: raw }`.
@@ -107,9 +107,7 @@ fn to_gemini_finish_reason(finish_reason: Option<&str>) -> &'static str {
     match r.as_str() {
         "" => "stop",
         "MAX_TOKENS" => "length",
-        "SAFETY" | "RECITATION" | "BLOCKLIST" | "PROHIBITED_CONTENT" | "SPII" => {
-            "content_filter"
-        }
+        "SAFETY" | "RECITATION" | "BLOCKLIST" | "PROHIBITED_CONTENT" | "SPII" => "content_filter",
         _ => "stop",
     }
 }
@@ -136,8 +134,8 @@ fn encode_uri_component(s: &str) -> String {
     out
 }
 
-/// `toGeminiTools(tools)` → `[{ functionDeclarations: [...] }]`, omitting the
-/// optional description/parameters (TS drops undefined keys).
+/// `toGeminiTools(tools)` → `[{ functionDeclarations: [...] }]`, omitting
+/// optional description and parameters when absent.
 fn to_gemini_tools(tools: Option<&Vec<ChatToolDefinition>>) -> Option<serde_json::Value> {
     let tools = tools?;
     if tools.is_empty() {
@@ -194,10 +192,7 @@ fn content_to_gemini_parts(content: &MessageContent) -> Vec<serde_json::Value> {
                             let (header, data) = match url.find(',') {
                                 Some(comma) => (&url[..comma], &url[comma + 1..]),
                                 // JS `url.slice(0, -1)` on a comma-less data URL
-                                None => (
-                                    &url[..url.len().saturating_sub(1)],
-                                    url.as_str(),
-                                ),
+                                None => (&url[..url.len().saturating_sub(1)], url.as_str()),
                             };
                             out.push(serde_json::json!({
                                 "inlineData": { "mimeType": data_url_mime(header), "data": data }
@@ -245,7 +240,7 @@ fn guess_mime_type(url: &str) -> &'static str {
 }
 
 /// Assistant → `role: 'model'` with text + functionCall parts (or None when
-/// nothing usable, matching the TS `.filter(entry => entry !== null)`).
+/// nothing usable.
 fn gemini_assistant_entry(m: &ChatMessage) -> Option<serde_json::Value> {
     let mut parts: Vec<serde_json::Value> = Vec::new();
     if let Some(text) = m.content.as_text() {
@@ -287,7 +282,11 @@ fn gemini_tool_entry(
         .clone()
         .or_else(|| tool_name_by_call_id.get(tool_call_id).cloned())
         .unwrap_or_else(|| "tool".to_string());
-    let content_str = m.content.as_text().map(|s| s.to_string()).unwrap_or_default();
+    let content_str = m
+        .content
+        .as_text()
+        .map(|s| s.to_string())
+        .unwrap_or_default();
     let response = safe_parse_object(&content_str);
     Some(serde_json::json!({
         "role": "user",
@@ -375,7 +374,9 @@ fn extract_tool_calls(parts: Option<&[GeminiPart]>) -> Vec<ChatToolCall> {
     };
     let mut fallback_index: usize = 0;
     for part in parts {
-        let Some(fc) = &part.function_call else { continue };
+        let Some(fc) = &part.function_call else {
+            continue;
+        };
         let Some(name) = fc.name.as_deref().filter(|n| !n.is_empty()) else {
             continue;
         };
@@ -406,10 +407,7 @@ fn extract_tool_calls(parts: Option<&[GeminiPart]>) -> Vec<ChatToolCall> {
 }
 
 /// Streaming dedup: `key = id:name:arguments`, first occurrence wins.
-fn dedup_tool_calls(
-    calls: Vec<ChatToolCall>,
-    seen: &mut HashSet<String>,
-) -> Vec<ChatToolCall> {
+fn dedup_tool_calls(calls: Vec<ChatToolCall>, seen: &mut HashSet<String>) -> Vec<ChatToolCall> {
     calls
         .into_iter()
         .filter(|call| {
@@ -423,11 +421,8 @@ fn dedup_tool_calls(
 }
 
 /// The full Gemini request body for both `generateContent` and the SSE
-/// streaming variant (they share one object literal in the TS source).
-fn gemini_request_body(
-    messages: &[ChatMessage],
-    options: &CompletionOptions,
-) -> serde_json::Value {
+/// streaming variant.
+fn gemini_request_body(messages: &[ChatMessage], options: &CompletionOptions) -> serde_json::Value {
     let (contents, system_instruction) = to_gemini_contents(messages);
 
     let mut generation_config = serde_json::Map::new();
@@ -553,7 +548,7 @@ fn gemini_to_openai(
     }
 }
 
-/// Build an upstream chunk with `created = now` (like the yield sites in TS).
+/// Build an upstream chunk with `created = now`.
 fn google_chunk(
     id: &str,
     model: &str,
@@ -600,7 +595,10 @@ impl GoogleProvider {
                 encode_uri_component(model_id)
             )
         } else {
-            format!("{API_BASE}/models/{}:generateContent", encode_uri_component(model_id))
+            format!(
+                "{API_BASE}/models/{}:generateContent",
+                encode_uri_component(model_id)
+            )
         };
         let req = http_client()
             .post(&url)
@@ -645,7 +643,9 @@ impl Provider for GoogleProvider {
         model_id: &str,
         options: &CompletionOptions,
     ) -> Result<ChatCompletionResponse, ProviderError> {
-        let res = self.generate(api_key, messages, model_id, options, false).await?;
+        let res = self
+            .generate(api_key, messages, model_id, options, false)
+            .await?;
         if !res.status().is_success() {
             return Err(Self::error_from_response(res).await);
         }
@@ -665,7 +665,9 @@ impl Provider for GoogleProvider {
         model_id: &str,
         options: &CompletionOptions,
     ) -> Result<ChunkReceiver, ProviderError> {
-        let res = self.generate(api_key, messages, model_id, options, true).await?;
+        let res = self
+            .generate(api_key, messages, model_id, options, true)
+            .await?;
         if !res.status().is_success() {
             return Err(Self::error_from_response(res).await);
         }
@@ -677,7 +679,7 @@ impl Provider for GoogleProvider {
             use futures::StreamExt;
             let mut stream = res.bytes_stream();
             // Buffer bytes, split on '\n'; keeps multi-byte UTF-8 sequences
-            // split across TCP chunks intact (mirrors TS TextDecoder).
+            // split across TCP chunks intact.
             let mut buffer: Vec<u8> = Vec::new();
             let id = make_id();
             let emitted_finish = false;
@@ -689,7 +691,9 @@ impl Provider for GoogleProvider {
                     Ok(c) => c,
                     Err(e) => {
                         let _ = tx
-                            .send(Err(ProviderError::new(format!("{err_name} stream error: {e}"))))
+                            .send(Err(ProviderError::new(format!(
+                                "{err_name} stream error: {e}"
+                            ))))
                             .await;
                         return;
                     }
@@ -705,7 +709,12 @@ impl Provider for GoogleProvider {
                     if raw == b"[DONE]" {
                         if !emitted_finish {
                             let finish = if saw_tool_calls { "tool_calls" } else { "stop" };
-                            let out = google_chunk(&id, &model, ChatCompletionDelta::default(), Some(finish));
+                            let out = google_chunk(
+                                &id,
+                                &model,
+                                ChatCompletionDelta::default(),
+                                Some(finish),
+                            );
                             if tx.send(Ok(out)).await.is_err() {
                                 return;
                             }
@@ -714,7 +723,7 @@ impl Provider for GoogleProvider {
                     }
 
                     // Skip malformed SSE frames instead of aborting the stream
-                    // (matches the defensive parse in the TS generators).
+                    // rather than aborting the entire stream.
                     let text = String::from_utf8_lossy(raw);
                     let parsed: GeminiResponse = match serde_json::from_str(&text) {
                         Ok(p) => p,
@@ -757,7 +766,12 @@ impl Provider for GoogleProvider {
                             } else {
                                 to_gemini_finish_reason(Some(reason))
                             };
-                            let out = google_chunk(&id, &model, ChatCompletionDelta::default(), Some(finish));
+                            let out = google_chunk(
+                                &id,
+                                &model,
+                                ChatCompletionDelta::default(),
+                                Some(finish),
+                            );
                             if tx.send(Ok(out)).await.is_err() {
                                 return;
                             }
@@ -793,11 +807,11 @@ impl Provider for GoogleProvider {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use serde_json::{json, Value};
     use crate::types::{
         ChatToolCall, ChatToolCallFunction, ChatToolChoice, ChatToolChoiceFunction,
         ChatToolDefinition, ChatToolFunctionDefinition, ContentPart, ImageUrl, ResponseFormat,
     };
+    use serde_json::{json, Value};
 
     fn msg(role: &str, content: &str) -> ChatMessage {
         ChatMessage::text(role, content)
@@ -863,9 +877,15 @@ mod tests {
         assert_eq!(to_gemini_finish_reason(Some("STOP")), "stop");
         assert_eq!(to_gemini_finish_reason(Some("MAX_TOKENS")), "length");
         assert_eq!(to_gemini_finish_reason(Some("safety")), "content_filter");
-        assert_eq!(to_gemini_finish_reason(Some("RECITATION")), "content_filter");
+        assert_eq!(
+            to_gemini_finish_reason(Some("RECITATION")),
+            "content_filter"
+        );
         assert_eq!(to_gemini_finish_reason(Some("BLOCKLIST")), "content_filter");
-        assert_eq!(to_gemini_finish_reason(Some("PROHIBITED_CONTENT")), "content_filter");
+        assert_eq!(
+            to_gemini_finish_reason(Some("PROHIBITED_CONTENT")),
+            "content_filter"
+        );
         assert_eq!(to_gemini_finish_reason(Some("SPII")), "content_filter");
         assert_eq!(to_gemini_finish_reason(Some("OTHER")), "stop");
     }
@@ -1084,7 +1104,9 @@ mod tests {
         };
         assert_eq!(
             to_gemini_tool_config(Some(&named)),
-            Some(json!({"functionCallingConfig": {"mode": "ANY", "allowedFunctionNames": ["get_weather"]}}))
+            Some(
+                json!({"functionCallingConfig": {"mode": "ANY", "allowedFunctionNames": ["get_weather"]}})
+            )
         );
         assert_eq!(to_gemini_tool_config(None), None);
     }

@@ -1,63 +1,90 @@
-<div align="center">
+# FreeLLMAPI V2
 
-# FreeLLMAPI
+FreeLLMAPI is a Rust backend with an OpenAI-compatible API and a React/Vite administration client. It aggregates free-tier models from Google, Groq, Cerebras, SambaNova, NVIDIA, Mistral, OpenRouter, GitHub Models, Cohere, Cloudflare, Z.ai, and custom OpenAI-compatible providers.
 
-**One OpenAI-compatible endpoint.**
+## Architecture
 
-Aggregate the free tiers from Google, Groq, Cerebras, SambaNova, NVIDIA, Mistral, OpenRouter, GitHub Models, Cohere, Cloudflare, and Z.ai (Zhipu) behind a single `/v1/chat/completions` endpoint. Keys are stored encrypted. A router picks the best available model for each request, falls over to the next provider when one is rate-limited, and tracks per-key usage so you stay under every free-tier cap.
+- `crates/server` — Rust HTTP server, provider adapters, routing, SQLite persistence, health checks, analytics, and graceful shutdown.
+- `crates/getmodelsapi` — Rust model discovery, scraping, filtering, enrichment, caching, and serialization.
+- `client` — React/Vite/TypeScript dashboard.
+- `shared` — TypeScript types shared with the dashboard.
 
-[![License: MIT](https://img.shields.io/badge/License-MIT-green.svg)](./LICENSE)
-[![PRs Welcome](https://img.shields.io/badge/PRs-welcome-brightgreen.svg)](#contributing)
+The backend and model-discovery implementations are entirely Rust. The frontend remains TypeScript as intended.
 
-![Fallback chain with per-provider token budget](repo-assets/fallback-chain.png)
+## Requirements
 
-</div>
+- Rust stable
+- Node.js 20+ (or Bun for frontend dependency installation)
+- SQLite support provided by the Rust dependencies
 
----
-
-
-## Features
-
-- **OpenAI-compatible** — `POST /v1/chat/completions`, `POST /v1/completions`, and `GET /v1/models` work with the official OpenAI SDKs and any OpenAI-compatible client (LangChain, LlamaIndex, Continue, Hermes, etc.). Just change `base_url`.
-- **Legacy completions** — `POST /v1/completions` wraps chat completions behind the classic text completion interface. Supports `prompt` (string or array), `suffix`, `echo`, `n`, `stream`, and all standard knobs.
-- **Streaming and non-streaming** — Server-Sent Events for `stream: true`, JSON response otherwise. Every provider adapter implements both.
-- **Tool calling** — OpenAI-style `tools` / `tool_choice` requests are passed through, and assistant `tool_calls` + `tool` role follow-up messages round-trip across providers.
-- **Vision / multimodal inputs** — Image content via `image_url` parts in message content arrays. Google's Gemini gets translated to `inlineData` (base64) or `fileData` (URL). OpenAI-compatible providers receive native `image_url` parts.
-- **Parallel generation (`n > 1`)** — Send `n` > 1 in a non-streaming chat completion request and FreeLLMAPI fires parallel requests to the same provider, returning merged `n` choices in a single response.
-- **Automatic fallover** — If the chosen provider returns a 429, 5xx, or times out, the router skips it, puts the key on a short cooldown, and retries on the next model in your fallback chain (up to 30 attempts).
-- **Per-key rate tracking** — RPM, RPD, TPM, and TPD counters per `(platform, model, key)` so the router always picks a key that's under its caps.
-- **Sticky sessions** — Multi-turn conversations keep talking to the same model for 30 minutes to avoid the hallucination spike that comes from mid-conversation model switches.
-- **Encrypted key storage** — API keys are encrypted with AES-256-GCM before hitting SQLite; decryption happens in-memory just before a request.
-- **Unified API key** — Clients authenticate to your proxy with a single `freellmapi-…` bearer token. You never expose upstream provider keys to your apps.
-- **Health checks** — Periodic probes mark keys as `healthy`, `rate_limited`, `invalid`, or `error` so the router skips dead ones automatically.
-- **Admin dashboard** — React + Vite UI to manage keys, reorder the fallback chain, toggle free models in bulk, inspect analytics, and run prompts in a playground. Dark mode included.
-- **Analytics** — Per-request logging with latency, token counts, success rate, and per-provider breakdowns.
-- **Deploys to a Raspberry Pi** — Runs happily on a Pi 4 under PM2 behind nginx. ~40 MB RSS at idle.
-
-## Not yet supported
-
-The scope is deliberately narrow. If a feature isn't on this list, assume it isn't there yet.
-
-- **Embeddings** (`/v1/embeddings`)
-- **Image generation** (`/v1/images/*`)
-- **Audio / speech** (`/v1/audio/*`)
-- **Moderation** (`/v1/moderations`)
-- **Per-user billing / multi-tenant auth** — single-user by design
-
-PRs that add any of these are very welcome. See [Contributing](#contributing).
-
-## Quick start
-
-`getmodelsapi` lives in a git submodule, so a plain `bun install` after a fresh `git clone` will fail with `Workspace not found "getmodelsapi"` (bun validates workspace paths before running any `preinstall` hook). Use the bundled `setup` script instead — it initializes the submodule (with a `git clone` fallback for repos where the submodule isn't fully wired up) and then runs `bun install`:
+## Development
 
 ```bash
 git clone https://github.com/nglmercer/freellmapiV2
 cd freellmapiV2
-bun run setup      # inits the getmodelsapi submodule, runs bun install, seeds .env
-cp .env .env.local # optional — keep secrets out of the tracked file
-bun run dev
+
+npm install
+npm run build -w client
+
+cargo run -p server
 ```
 
-If you already ran `git clone --recurse-submodules`, you can skip straight to `bun install`.
+The API listens on port `3001` by default. The dashboard development server can be started with `npm run dev -w client`.
+
+## Rust checks
+
+```bash
+cargo fmt --all -- --check
+cargo test --workspace
+cargo clippy --workspace --all-targets -- -D warnings
+```
+
+Network-dependent provider smoke tests are intentionally excluded from normal tests. Run them explicitly with `GETMODELS_NETWORK_TESTS=1` when validating provider availability.
+
+## Release build
+
+```bash
+npm run build -w client
+cargo build --release -p server
+./target/release/server
+```
+
+## Configuration
+
+Supported environment variables are:
+
+- `ENCRYPTION_KEY` — 64 hexadecimal characters (32 bytes) used for AES-256-GCM provider-key encryption.
+- `PORT` — HTTP port; defaults to `3001`.
+- `DB_PATH` — explicit SQLite database path.
+- `STATIC_DIR` — directory containing the built client assets.
+- `RUST_LOG` — tracing filter, for example `info,tower_http=debug`.
+
+Copy `.env.example` to `.env` and set `ENCRYPTION_KEY` for a deployment that already has encrypted provider keys. Never commit real keys.
+
+### Database compatibility
+
+Existing installations are preserved. When `DB_PATH` is not set, the server first uses an existing legacy database at `server/data/freeapi.db`; if it does not exist, it creates the new default at `data/freeapi.db`. Runtime state is stored as `runtime-state.json` beside the selected database. The migration creates missing tables and columns in place and is idempotent; it does not reset or recreate an existing database.
+
+## API
+
+Administrative routes include `/api/ping`, `/api/keys`, `/api/models`, `/api/fallback`, `/api/analytics`, `/api/health`, `/api/settings`, and `/api/providers`. OpenAI-compatible routes are `/v1/models`, `/v1/chat/completions`, and `/v1/completions`.
+
+The server supports streaming and non-streaming responses, tool calls, multimodal messages, parallel non-streaming choices, fallback routing, sticky sessions, rate limiting, and request analytics.
+
+## Maintenance commands
+
+To probe every currently enabled model/key pair using the configured providers:
+
+```bash
+cargo run -p server --bin test_all_models
+```
+
+To run the network provider tests locally:
+
+```bash
+GETMODELS_NETWORK_TESTS=1 cargo test -p getmodelsapi --test getmodels -- --nocapture
+```
+
+## License
 
 [MIT](./LICENSE)

@@ -1,4 +1,4 @@
-//! Novita scraper, mirroring `getmodelsapi/src/scraper/providers/novita.ts`.
+//! Novita scraper.
 
 use super::ScraperResult;
 use crate::types::{Model, Pricing, ProviderConfig};
@@ -21,7 +21,7 @@ fn parse_features(features: &[String]) -> Vec<String> {
     result
 }
 
-/// `m.input_token_price_per_m ?? 1` in TS: 0 stays 0, missing => 1.
+/// Missing input pricing defaults to one; an explicit zero remains zero.
 fn per_m_price(v: Option<&serde_json::Value>) -> f64 {
     v.and_then(|inner| inner.as_f64()).unwrap_or(1.0)
 }
@@ -40,7 +40,11 @@ pub async fn scrape_novita(_config: ProviderConfig) -> ScraperResult {
 
             let mut models = Vec::with_capacity(arr.len());
             for m in arr {
-                let id = m.get("id").and_then(|v| v.as_str()).unwrap_or("").to_string();
+                let id = m
+                    .get("id")
+                    .and_then(|v| v.as_str())
+                    .unwrap_or("")
+                    .to_string();
                 let name = m
                     .get("display_name")
                     .and_then(|v| v.as_str())
@@ -53,7 +57,11 @@ pub async fn scrape_novita(_config: ProviderConfig) -> ScraperResult {
                 let features: Vec<String> = m
                     .get("features")
                     .and_then(|f| f.as_array())
-                    .map(|arr| arr.iter().filter_map(|v| v.as_str().map(String::from)).collect())
+                    .map(|arr| {
+                        arr.iter()
+                            .filter_map(|v| v.as_str().map(String::from))
+                            .collect()
+                    })
                     .unwrap_or_default();
 
                 models.push(Model {

@@ -1,4 +1,4 @@
-//! Model enrichment mirroring `getmodelsapi/src/utils/enrich.ts`:
+//! Model enrichment:
 //! cross-reference Google context windows with OpenRouter and scrape the
 //! individual Google model page when the context window is still small.
 
@@ -10,8 +10,7 @@ use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use std::time::Duration;
 
-/// Stored value for `enrich-google-<id>` (the TS cache stores
-/// `Pick<Model, "contextWindow">`, i.e. `{"contextWindow": n}`).
+/// Stored value for `enrich-google-<id>`.
 #[derive(Debug, Serialize, Deserialize)]
 struct ContextWindow {
     #[serde(rename = "contextWindow")]
@@ -23,13 +22,8 @@ fn strip_google_ctx_re() -> &'static Regex {
     RE.get_or_init(|| Regex::new(r"-preview-\d{2}-\d{4}$").unwrap())
 }
 
-/// Mirror of `getGoogleContextWindows`: OpenRouter model list → `google/<name>`
-/// → context length map, cached for one hour.
-///
-/// Note: the TS version caches a JS `Map`, which `JSON.stringify` turns into
-/// `{}` (so the TS cache was effectively a no-op). We serialize this map as a
-/// list of `[name, context]` pairs instead — the Rust and TS on-disk entries
-/// for this key are not byte-identical, but the TS entry was useless anyway.
+/// Build a Google model-to-context-length map from OpenRouter and cache it for
+/// one hour.
 async fn get_google_context_windows() -> HashMap<String, i64> {
     const KEY: &str = "crossref-openrouter-context";
     if let Some(entries) = cache_get::<Vec<(String, i64)>>(KEY) {
@@ -45,15 +39,16 @@ async fn get_google_context_windows() -> HashMap<String, i64> {
         if let Some(arr) = value.get("data").and_then(|d| d.as_array()) {
             for m in arr {
                 let id = m.get("id").and_then(|v| v.as_str()).unwrap_or("");
-                let ctx = m.get("context_length").and_then(|v| v.as_i64()).unwrap_or(0);
+                let ctx = m
+                    .get("context_length")
+                    .and_then(|v| v.as_i64())
+                    .unwrap_or(0);
                 if id.starts_with("google/") && ctx > 0 {
                     // "google/gemini-2.5-flash" → "gemini-2.5-flash"
                     let name = id.replacen("google/", "", 1);
                     map.insert(name.clone(), ctx);
                     // Also index by slug variants (drop "-preview-MM-YYYY")
-                    let stub = strip_google_ctx_re()
-                        .replace_all(&name, "")
-                        .into_owned();
+                    let stub = strip_google_ctx_re().replace_all(&name, "").into_owned();
                     map.insert(stub, ctx);
                 }
             }
@@ -65,8 +60,8 @@ async fn get_google_context_windows() -> HashMap<String, i64> {
     map
 }
 
-/// Mirror of `scrapeGoogleModelPage`: extract a context window from a single
-/// model doc page. Returns `None` on failure / no match.
+/// Extract a context window from a single Google model documentation page.
+/// Returns `None` on failure or when no supported pattern matches.
 async fn scrape_google_model_page(model_id: &str) -> Option<i64> {
     let url = format!("https://ai.google.dev/gemini-api/docs/models/{model_id}");
     let config = HttpConfig {
@@ -144,7 +139,9 @@ async fn enrich_google_model(mut model: Model) -> Model {
     let ctx_map = get_google_context_windows().await;
     if let Some(&ctx) = ctx_map.get(&model.id) {
         if ctx > model.context_window {
-            let cw = ContextWindow { context_window: ctx };
+            let cw = ContextWindow {
+                context_window: ctx,
+            };
             cache_set(&cache_key, &cw, ONE_HOUR);
             model.context_window = ctx;
             return model;
@@ -165,7 +162,7 @@ async fn enrich_google_model(mut model: Model) -> Model {
     model
 }
 
-/// Public enrichment entry point, mirroring `enrichModel`.
+/// Enrich one model when additional context metadata is available.
 pub async fn enrich_model(model: Model) -> Model {
     if model.provider == "google" && model.context_window < 40_000 {
         return enrich_google_model(model).await;
@@ -173,10 +170,7 @@ pub async fn enrich_model(model: Model) -> Model {
     model
 }
 
-/// Enrich a batch, mirroring `enrichModels`.
-///
-/// The TS version uses `Promise.all`; we do it sequentially (results are
-/// identical, ordering preserved).
+/// Enrich a batch while preserving input ordering.
 pub async fn enrich_models(models: Vec<Model>) -> Vec<Model> {
     let mut out = Vec::with_capacity(models.len());
     for model in models {

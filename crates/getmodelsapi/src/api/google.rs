@@ -1,4 +1,4 @@
-//! Google Gemini models API mirroring `getmodelsapi/src/api/google.ts`.
+//! Google Gemini models API client.
 
 use crate::types::{Model, ProviderConfig};
 use crate::utils::http::{get_json, HttpConfig};
@@ -39,7 +39,7 @@ pub async fn fetch_models_from_google(provider: &ProviderConfig) -> Vec<Model> {
                                 .collect()
                         })
                         .unwrap_or_default();
-                    // TS: m.supportedGenerationMethods?.includes("generateContent")
+                    // Chat support is advertised by the generateContent method.
                     let supports_chat = methods.iter().any(|mt| mt == "generateContent");
                     models.push(Model {
                         id: id.clone(),
@@ -57,9 +57,7 @@ pub async fn fetch_models_from_google(provider: &ProviderConfig) -> Vec<Model> {
                             vec!["completion".into()]
                         },
                         pricing: None,
-                        url: Some(format!(
-                            "https://ai.google.dev/gemini-api/docs/models#{id}"
-                        )),
+                        url: Some(format!("https://ai.google.dev/gemini-api/docs/models#{id}")),
                         description: m
                             .get("description")
                             .and_then(|v| v.as_str())

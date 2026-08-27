@@ -1,4 +1,4 @@
-//! Port of `server/src/services/model-sync/mappings.ts`.
+//! Provider and model-discovery mapping tables.
 
 use std::collections::HashMap;
 

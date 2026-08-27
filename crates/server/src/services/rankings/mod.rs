@@ -1,4 +1,4 @@
-//! Port of `server/src/services/rankings/`.
+//! Ranking enrichment and model-ID matching.
 
 pub mod enrich;
 pub mod match_ids;

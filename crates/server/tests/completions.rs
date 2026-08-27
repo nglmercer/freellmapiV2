@@ -1,18 +1,22 @@
-//! Port of `server/tests/completions.test.ts` — legacy `POST /v1/completions`
-//! plus the HTTP-visible validation cases and the zod schema unit tests, which
-//! are exercised via the Rust `validate_*_body_value` ports.
+//! Legacy `POST /v1/completions` integration tests plus HTTP-visible
+//! validation cases.
 
 mod common;
 
 use axum::body::Body;
 use axum::http::{Request, StatusCode};
 use serde_json::{json, Value};
-use tower::ServiceExt;
 use server::routes::middleware::{validate_chat_body_value, validate_completion_body_value};
 use server::types::{PromptField, StopField};
+use tower::ServiceExt;
 
 /// POST a raw body (for empty / malformed payloads).
-async fn raw_post(app: &axum::Router, path: &str, key: Option<&str>, body: &str) -> common::TestResponse {
+async fn raw_post(
+    app: &axum::Router,
+    path: &str,
+    key: Option<&str>,
+    body: &str,
+) -> common::TestResponse {
     let mut builder = Request::builder().method("POST").uri(path);
     if let Some(k) = key {
         builder = builder.header("authorization", format!("Bearer {k}"));
@@ -51,12 +55,10 @@ async fn completions_401_without_auth_header() {
     .await;
     common::expect_status(&res, StatusCode::UNAUTHORIZED);
     assert!(res.body.get("error").is_some());
-    assert!(
-        res.body["error"]["message"]
-            .as_str()
-            .unwrap()
-            .contains("Missing Authorization header")
-    );
+    assert!(res.body["error"]["message"]
+        .as_str()
+        .unwrap()
+        .contains("Missing Authorization header"));
     assert_eq!(res.body["error"]["type"], "authentication_error");
 }
 
@@ -71,12 +73,10 @@ async fn completions_401_with_wrong_key() {
     )
     .await;
     common::expect_status(&res, StatusCode::UNAUTHORIZED);
-    assert!(
-        res.body["error"]["message"]
-            .as_str()
-            .unwrap()
-            .contains("Invalid API key")
-    );
+    assert!(res.body["error"]["message"]
+        .as_str()
+        .unwrap()
+        .contains("Invalid API key"));
     assert_eq!(res.body["error"]["type"], "authentication_error");
 }
 
@@ -108,7 +108,13 @@ async fn completions_400_for_empty_body() {
 #[tokio::test]
 async fn completions_400_for_malformed_json() {
     let app = common::setup().await;
-    let res = raw_post(&app.app, "/v1/completions", Some(&app.api_key), "not json at all").await;
+    let res = raw_post(
+        &app.app,
+        "/v1/completions",
+        Some(&app.api_key),
+        "not json at all",
+    )
+    .await;
     common::expect_status(&res, StatusCode::BAD_REQUEST);
     assert_eq!(res.body["error"]["type"], "invalid_request_error");
 }
@@ -116,8 +122,13 @@ async fn completions_400_for_malformed_json() {
 #[tokio::test]
 async fn completions_400_when_model_missing() {
     let app = common::setup().await;
-    let res = common::post_json(&app.app, "/v1/completions", &app.api_key, json!({ "prompt": "Hello" }))
-        .await;
+    let res = common::post_json(
+        &app.app,
+        "/v1/completions",
+        &app.api_key,
+        json!({ "prompt": "Hello" }),
+    )
+    .await;
     common::expect_status(&res, StatusCode::BAD_REQUEST);
     assert_eq!(res.body["error"]["type"], "invalid_request_error");
 }
@@ -125,8 +136,13 @@ async fn completions_400_when_model_missing() {
 #[tokio::test]
 async fn completions_400_when_prompt_missing() {
     let app = common::setup().await;
-    let res = common::post_json(&app.app, "/v1/completions", &app.api_key, json!({ "model": "auto" }))
-        .await;
+    let res = common::post_json(
+        &app.app,
+        "/v1/completions",
+        &app.api_key,
+        json!({ "model": "auto" }),
+    )
+    .await;
     common::expect_status(&res, StatusCode::BAD_REQUEST);
     assert_eq!(res.body["error"]["type"], "invalid_request_error");
 }
@@ -449,8 +465,7 @@ fn completion_schema_parses_minimal_valid_request() {
         "prompt": "Hello",
     }))
     .expect("valid request");
-    // The TS port resolves the prompt to a single-element array; the Rust
-    // handler flattens PromptField::Text to vec![s] — same semantics.
+    // A text prompt resolves to a single-element message array.
     match &result.prompt {
         PromptField::Text(s) => assert_eq!(s, "Hello"),
         PromptField::List(l) => assert_eq!(l, &["Hello"]),
@@ -520,50 +535,42 @@ fn completion_schema_defaults_optional_fields() {
 
 #[test]
 fn completion_schema_rejects_max_tokens_zero() {
-    assert!(
-        validate_completion_body_value(&json!({
-            "model": "gpt-3.5-turbo",
-            "prompt": "Hello",
-            "max_tokens": 0,
-        }))
-        .is_err()
-    );
+    assert!(validate_completion_body_value(&json!({
+        "model": "gpt-3.5-turbo",
+        "prompt": "Hello",
+        "max_tokens": 0,
+    }))
+    .is_err());
 }
 
 #[test]
 fn completion_schema_rejects_max_tokens_over_4000() {
-    assert!(
-        validate_completion_body_value(&json!({
-            "model": "gpt-3.5-turbo",
-            "prompt": "Hello",
-            "max_tokens": 5000,
-        }))
-        .is_err()
-    );
+    assert!(validate_completion_body_value(&json!({
+        "model": "gpt-3.5-turbo",
+        "prompt": "Hello",
+        "max_tokens": 5000,
+    }))
+    .is_err());
 }
 
 #[test]
 fn completion_schema_rejects_n_zero() {
-    assert!(
-        validate_completion_body_value(&json!({
-            "model": "gpt-3.5-turbo",
-            "prompt": "Hello",
-            "n": 0,
-        }))
-        .is_err()
-    );
+    assert!(validate_completion_body_value(&json!({
+        "model": "gpt-3.5-turbo",
+        "prompt": "Hello",
+        "n": 0,
+    }))
+    .is_err());
 }
 
 #[test]
 fn completion_schema_rejects_n_over_10() {
-    assert!(
-        validate_completion_body_value(&json!({
-            "model": "gpt-3.5-turbo",
-            "prompt": "Hello",
-            "n": 11,
-        }))
-        .is_err()
-    );
+    assert!(validate_completion_body_value(&json!({
+        "model": "gpt-3.5-turbo",
+        "prompt": "Hello",
+        "n": 11,
+    }))
+    .is_err());
 }
 
 // ─────────────────────────────────────────────────────────────────────
@@ -581,57 +588,47 @@ fn chat_schema_defaults_n_to_1() {
 
 #[test]
 fn chat_schema_accepts_n_1_explicit() {
-    assert!(
-        validate_chat_body_value(&json!({
-            "messages": [{ "role": "user", "content": "Hello" }],
-            "n": 1,
-        }))
-        .is_ok()
-    );
+    assert!(validate_chat_body_value(&json!({
+        "messages": [{ "role": "user", "content": "Hello" }],
+        "n": 1,
+    }))
+    .is_ok());
 }
 
 #[test]
 fn chat_schema_accepts_n_10_max() {
-    assert!(
-        validate_chat_body_value(&json!({
-            "messages": [{ "role": "user", "content": "Hello" }],
-            "n": 10,
-        }))
-        .is_ok()
-    );
+    assert!(validate_chat_body_value(&json!({
+        "messages": [{ "role": "user", "content": "Hello" }],
+        "n": 10,
+    }))
+    .is_ok());
 }
 
 #[test]
 fn chat_schema_rejects_n_zero() {
-    assert!(
-        validate_chat_body_value(&json!({
-            "messages": [{ "role": "user", "content": "Hello" }],
-            "n": 0,
-        }))
-        .is_err()
-    );
+    assert!(validate_chat_body_value(&json!({
+        "messages": [{ "role": "user", "content": "Hello" }],
+        "n": 0,
+    }))
+    .is_err());
 }
 
 #[test]
 fn chat_schema_rejects_n_11() {
-    assert!(
-        validate_chat_body_value(&json!({
-            "messages": [{ "role": "user", "content": "Hello" }],
-            "n": 11,
-        }))
-        .is_err()
-    );
+    assert!(validate_chat_body_value(&json!({
+        "messages": [{ "role": "user", "content": "Hello" }],
+        "n": 11,
+    }))
+    .is_err());
 }
 
 #[test]
 fn chat_schema_rejects_n_negative() {
-    assert!(
-        validate_chat_body_value(&json!({
-            "messages": [{ "role": "user", "content": "Hello" }],
-            "n": -1,
-        }))
-        .is_err()
-    );
+    assert!(validate_chat_body_value(&json!({
+        "messages": [{ "role": "user", "content": "Hello" }],
+        "n": -1,
+    }))
+    .is_err());
 }
 
 // ─────────────────────────────────────────────────────────────────────
@@ -640,134 +637,110 @@ fn chat_schema_rejects_n_negative() {
 
 #[test]
 fn chat_schema_accepts_seed() {
-    assert!(
-        validate_chat_body_value(&json!({
-            "messages": [{ "role": "user", "content": "Hello" }],
-            "seed": 42,
-        }))
-        .is_ok()
-    );
+    assert!(validate_chat_body_value(&json!({
+        "messages": [{ "role": "user", "content": "Hello" }],
+        "seed": 42,
+    }))
+    .is_ok());
 }
 
 #[test]
 fn chat_schema_accepts_frequency_penalty_in_range() {
-    assert!(
-        validate_chat_body_value(&json!({
-            "messages": [{ "role": "user", "content": "Hello" }],
-            "frequency_penalty": 0.5,
-        }))
-        .is_ok()
-    );
+    assert!(validate_chat_body_value(&json!({
+        "messages": [{ "role": "user", "content": "Hello" }],
+        "frequency_penalty": 0.5,
+    }))
+    .is_ok());
 }
 
 #[test]
 fn chat_schema_rejects_frequency_penalty_outside_range() {
-    assert!(
-        validate_chat_body_value(&json!({
-            "messages": [{ "role": "user", "content": "Hello" }],
-            "frequency_penalty": 3,
-        }))
-        .is_err()
-    );
+    assert!(validate_chat_body_value(&json!({
+        "messages": [{ "role": "user", "content": "Hello" }],
+        "frequency_penalty": 3,
+    }))
+    .is_err());
 }
 
 #[test]
 fn chat_schema_accepts_presence_penalty_in_range() {
-    assert!(
-        validate_chat_body_value(&json!({
-            "messages": [{ "role": "user", "content": "Hello" }],
-            "presence_penalty": -1,
-        }))
-        .is_ok()
-    );
+    assert!(validate_chat_body_value(&json!({
+        "messages": [{ "role": "user", "content": "Hello" }],
+        "presence_penalty": -1,
+    }))
+    .is_ok());
 }
 
 #[test]
 fn chat_schema_rejects_presence_penalty_outside_range() {
-    assert!(
-        validate_chat_body_value(&json!({
-            "messages": [{ "role": "user", "content": "Hello" }],
-            "presence_penalty": -3,
-        }))
-        .is_err()
-    );
+    assert!(validate_chat_body_value(&json!({
+        "messages": [{ "role": "user", "content": "Hello" }],
+        "presence_penalty": -3,
+    }))
+    .is_err());
 }
 
 #[test]
 fn chat_schema_accepts_user() {
-    assert!(
-        validate_chat_body_value(&json!({
-            "messages": [{ "role": "user", "content": "Hello" }],
-            "user": "end-user-123",
-        }))
-        .is_ok()
-    );
+    assert!(validate_chat_body_value(&json!({
+        "messages": [{ "role": "user", "content": "Hello" }],
+        "user": "end-user-123",
+    }))
+    .is_ok());
 }
 
 #[test]
 fn chat_schema_accepts_response_format_json_object() {
-    assert!(
-        validate_chat_body_value(&json!({
-            "messages": [{ "role": "user", "content": "Hello" }],
-            "response_format": { "type": "json_object" },
-        }))
-        .is_ok()
-    );
+    assert!(validate_chat_body_value(&json!({
+        "messages": [{ "role": "user", "content": "Hello" }],
+        "response_format": { "type": "json_object" },
+    }))
+    .is_ok());
 }
 
 #[test]
 fn chat_schema_accepts_response_format_json_schema() {
-    assert!(
-        validate_chat_body_value(&json!({
-            "messages": [{ "role": "user", "content": "Hello" }],
-            "response_format": { "type": "json_schema", "json_schema": { "name": "test" } },
-        }))
-        .is_ok()
-    );
+    assert!(validate_chat_body_value(&json!({
+        "messages": [{ "role": "user", "content": "Hello" }],
+        "response_format": { "type": "json_schema", "json_schema": { "name": "test" } },
+    }))
+    .is_ok());
 }
 
 #[test]
 fn chat_schema_rejects_response_format_invalid_type() {
-    assert!(
-        validate_chat_body_value(&json!({
-            "messages": [{ "role": "user", "content": "Hello" }],
-            "response_format": { "type": "invalid" },
-        }))
-        .is_err()
-    );
+    assert!(validate_chat_body_value(&json!({
+        "messages": [{ "role": "user", "content": "Hello" }],
+        "response_format": { "type": "invalid" },
+    }))
+    .is_err());
 }
 
 #[test]
 fn chat_schema_accepts_logprobs_boolean() {
-    assert!(
-        validate_chat_body_value(&json!({
-            "messages": [{ "role": "user", "content": "Hello" }],
-            "logprobs": true,
-        }))
-        .is_ok()
-    );
+    assert!(validate_chat_body_value(&json!({
+        "messages": [{ "role": "user", "content": "Hello" }],
+        "logprobs": true,
+    }))
+    .is_ok());
 }
 
 #[test]
 fn chat_schema_accepts_top_logprobs_0_5() {
-    assert!(
-        validate_chat_body_value(&json!({
-            "messages": [{ "role": "user", "content": "Hello" }],
-            "top_logprobs": 3,
-        }))
-        .is_ok()
-    );
+    assert!(validate_chat_body_value(&json!({
+        "messages": [{ "role": "user", "content": "Hello" }],
+        "top_logprobs": 3,
+    }))
+    .is_ok());
 }
 
 #[test]
 fn chat_schema_rejects_top_logprobs_over_5() {
-    assert!(
-        validate_chat_body_value(&json!({
-            "messages": [{ "role": "user", "content": "Hello" }],
-            "top_logprobs": 6,
-        }))
-        .is_err()
-    );
+    assert!(validate_chat_body_value(&json!({
+        "messages": [{ "role": "user", "content": "Hello" }],
+        "top_logprobs": 6,
+    }))
+    .is_err());
 }
 
 // ─────────────────────────────────────────────────────────────────────
@@ -776,74 +749,62 @@ fn chat_schema_rejects_top_logprobs_over_5() {
 
 #[test]
 fn completion_schema_accepts_seed() {
-    assert!(
-        validate_completion_body_value(&json!({
-            "model": "auto",
-            "prompt": "Hello",
-            "seed": 42,
-        }))
-        .is_ok()
-    );
+    assert!(validate_completion_body_value(&json!({
+        "model": "auto",
+        "prompt": "Hello",
+        "seed": 42,
+    }))
+    .is_ok());
 }
 
 #[test]
 fn completion_schema_accepts_frequency_penalty() {
-    assert!(
-        validate_completion_body_value(&json!({
-            "model": "auto",
-            "prompt": "Hello",
-            "frequency_penalty": 0.8,
-        }))
-        .is_ok()
-    );
+    assert!(validate_completion_body_value(&json!({
+        "model": "auto",
+        "prompt": "Hello",
+        "frequency_penalty": 0.8,
+    }))
+    .is_ok());
 }
 
 #[test]
 fn completion_schema_accepts_presence_penalty() {
-    assert!(
-        validate_completion_body_value(&json!({
-            "model": "auto",
-            "prompt": "Hello",
-            "presence_penalty": 0.3,
-        }))
-        .is_ok()
-    );
+    assert!(validate_completion_body_value(&json!({
+        "model": "auto",
+        "prompt": "Hello",
+        "presence_penalty": 0.3,
+    }))
+    .is_ok());
 }
 
 #[test]
 fn completion_schema_accepts_user() {
-    assert!(
-        validate_completion_body_value(&json!({
-            "model": "auto",
-            "prompt": "Hello",
-            "user": "test-user",
-        }))
-        .is_ok()
-    );
+    assert!(validate_completion_body_value(&json!({
+        "model": "auto",
+        "prompt": "Hello",
+        "user": "test-user",
+    }))
+    .is_ok());
 }
 
 #[test]
 fn completion_schema_accepts_logprobs_0_5() {
-    assert!(
-        validate_completion_body_value(&json!({
-            "model": "auto",
-            "prompt": "Hello",
-            "logprobs": 3,
-        }))
-        .is_ok()
-    );
+    assert!(validate_completion_body_value(&json!({
+        "model": "auto",
+        "prompt": "Hello",
+        "logprobs": 3,
+    }))
+    .is_ok());
 }
 
 #[test]
 fn completion_schema_rejects_logprobs_over_5() {
-    assert!(
-        validate_completion_body_value(&json!({
-            "model": "auto",
-            "prompt": "Hello",
-            "logprobs": 6,
-        }))
-        .is_err()
-    );
+    assert!(validate_completion_body_value(&json!({
+        "model": "auto",
+        "prompt": "Hello",
+        "logprobs": 6,
+    }))
+    .is_err());
 }
 
 // ─────────────────────────────────────────────────────────────────────

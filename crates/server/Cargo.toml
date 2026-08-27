@@ -4,6 +4,7 @@ version.workspace = true
 edition.workspace = true
 license.workspace = true
 description = "FreeLLMAPI — OpenAI-compatible proxy over free-tier providers"
+default-run = "server"
 
 [dependencies]
 getmodelsapi = { path = "../getmodelsapi" }

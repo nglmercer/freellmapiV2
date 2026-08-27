@@ -1,5 +1,4 @@
-//! Port of `server/src/providers/cohere.ts` — OpenAI-compatible via the
-//! Cohere `/compatibility/v1` endpoint.
+//! Cohere OpenAI-compatible provider using `/compatibility/v1`.
 
 use async_trait::async_trait;
 use serde_json::Value;
@@ -29,10 +28,13 @@ impl CohereProvider {
         options: &CompletionOptions,
         stream: bool,
     ) -> Value {
-        // Mirrors the TS body object: undefined options are dropped.
+        // Omit options that were not supplied by the caller.
         let mut obj = serde_json::Map::new();
         obj.insert("model".to_string(), serde_json::json!(model_id));
-        obj.insert("messages".to_string(), serde_json::to_value(messages).unwrap());
+        obj.insert(
+            "messages".to_string(),
+            serde_json::to_value(messages).unwrap(),
+        );
         macro_rules! opt_put {
             ($k:expr, $v:expr) => {
                 if let Some(v) = $v {
@@ -58,11 +60,7 @@ impl CohereProvider {
         Value::Object(obj)
     }
 
-    async fn post(
-        &self,
-        api_key: &str,
-        body: Value,
-    ) -> Result<reqwest::Response, ProviderError> {
+    async fn post(&self, api_key: &str, body: Value) -> Result<reqwest::Response, ProviderError> {
         let req = http_client()
             .post(format!("{API_BASE}/chat/completions"))
             .header("Authorization", format!("Bearer {api_key}"))
@@ -141,14 +139,16 @@ impl Provider for CohereProvider {
             use futures::StreamExt;
             let mut stream = res.bytes_stream();
             // Buffer bytes (not chars) so multi-byte UTF-8 sequences split
-            // across TCP chunks aren't corrupted — mirrors TS TextDecoder.
+            // across TCP chunks aren't corrupted.
             let mut buffer: Vec<u8> = Vec::new();
             while let Some(chunk) = stream.next().await {
                 let chunk = match chunk {
                     Ok(c) => c,
                     Err(e) => {
                         let _ = tx
-                            .send(Err(ProviderError::new(format!("{err_name} stream error: {e}"))))
+                            .send(Err(ProviderError::new(format!(
+                                "{err_name} stream error: {e}"
+                            ))))
                             .await;
                         return;
                     }
@@ -170,7 +170,7 @@ impl Provider for CohereProvider {
                             return; // consumer dropped
                         }
                     }
-                    // Skip malformed chunks, like the TS try/catch.
+                    // Skip malformed chunks rather than aborting the stream.
                 }
             }
         });
@@ -205,7 +205,12 @@ mod tests {
             user: Some("u1".into()),
             ..CompletionOptions::default()
         };
-        let body = p.body("command-r", &[ChatMessage::text("user", "hi")], &opts, false);
+        let body = p.body(
+            "command-r",
+            &[ChatMessage::text("user", "hi")],
+            &opts,
+            false,
+        );
         assert_eq!(body["model"].as_str(), Some("command-r"));
         assert_eq!(body["temperature"].as_f64(), Some(0.7));
         assert_eq!(body["max_tokens"].as_i64(), Some(50));
@@ -238,7 +243,10 @@ mod tests {
           "usage": { "prompt_tokens": 5, "completion_tokens": 2, "total_tokens": 7 }
         }"#;
         let parsed: ChatCompletionResponse = serde_json::from_str(raw).unwrap();
-        assert_eq!(parsed.choices[0].message.content.as_text(), Some("Hi there"));
+        assert_eq!(
+            parsed.choices[0].message.content.as_text(),
+            Some("Hi there")
+        );
         assert_eq!(parsed.usage.total_tokens, 7);
         assert_eq!(parsed.choices[0].finish_reason.as_deref(), Some("stop"));
     }

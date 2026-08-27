@@ -1,41 +1,48 @@
-//! Port of `server/src/db/connection.ts`.
+//! SQLite connection management for the server.
 //!
-//! Bun's `bun:sqlite` is a single synchronous connection, so the TS server
-//! serializes all DB work on one thread. We mirror that with a single
-//! `rusqlite::Connection` behind a `tokio::sync::Mutex` — guards are held
-//! only across synchronous work, and `transaction` maps to the TS
-//! `runInTransaction`.
+//! The server intentionally uses one synchronous `rusqlite::Connection`
+//! behind a `tokio::sync::Mutex`. Guards are held only across synchronous
+//! database work, and transactions commit or roll back as a unit.
 
-use std::path::Path;
-use std::sync::OnceLock;
+use std::path::{Path, PathBuf};
 use std::sync::Mutex as StdMutex;
+use std::sync::OnceLock;
 
 use rusqlite::Connection;
 use tokio::sync::Mutex;
 
 pub static DB: OnceLock<Mutex<Connection>> = OnceLock::new();
 
-/// Overridable at runtime by tests (`with_test_db_path` before first init),
-/// mirrors the TS `initDb(dbPath?)` used by the test suite.
+/// Overridable at runtime by tests before first initialization.
 static DB_PATH_OVERRIDE: StdMutex<Option<String>> = StdMutex::new(None);
+
+fn default_db_path(root: &Path) -> PathBuf {
+    let legacy = root.join("server/data/freeapi.db");
+    if legacy.is_file() {
+        legacy
+    } else {
+        root.join("data/freeapi.db")
+    }
+}
 
 pub fn db_path() -> String {
     if let Some(p) = crate::env::env_string("DB_PATH") {
         return p;
     }
-    let override_path = DB_PATH_OVERRIDE
-        .lock()
-        .unwrap()
-        .clone();
-    override_path.unwrap_or_else(|| crate::env::project_root().join("server/data/freeapi.db").to_string_lossy().into_owned())
+    let override_path = DB_PATH_OVERRIDE.lock().unwrap().clone();
+    override_path.unwrap_or_else(|| {
+        default_db_path(&crate::env::project_root())
+            .to_string_lossy()
+            .into_owned()
+    })
 }
 
 pub fn set_db_path_override(path: &str) {
     *DB_PATH_OVERRIDE.lock().unwrap() = Some(path.to_string());
 }
 
-/// `initDb(dbPath?)` — opens the database, applies pragmas, creates tables,
-/// initializes the encryption key, and installs the global.
+/// Opens the database, applies pragmas, creates tables, initializes the
+/// encryption key, and installs the global connection.
 pub fn init_db(path: Option<&str>) -> rusqlite::Result<()> {
     let resolved = path.map(|s| s.to_string()).unwrap_or_else(db_path);
     let is_memory = resolved == ":memory:";
@@ -79,14 +86,15 @@ pub fn init_db(path: Option<&str>) -> rusqlite::Result<()> {
     Ok(())
 }
 
-/// `getDb()` — the shared connection lock. Handlers hold this guard for the
-/// duration of their DB work; provider HTTP calls happen after the drop.
+/// Returns the shared connection lock. Provider HTTP calls must happen after
+/// the database guard is dropped.
 pub fn db() -> &'static Mutex<Connection> {
-    DB.get().expect("Database not initialized. Call init_db() first.")
+    DB.get()
+        .expect("Database not initialized. Call init_db() first.")
 }
 
-/// `runInTransaction(cb)` — runs `f` inside a transaction. Rollback happens
-/// on `Err` when the `Transaction` drops.
+/// Runs `f` inside a transaction. Rollback happens on `Err` when the
+/// transaction is dropped.
 pub async fn run_in_transaction<T, F>(f: F) -> rusqlite::Result<T>
 where
     F: FnOnce(&Connection) -> rusqlite::Result<T>,
@@ -98,7 +106,7 @@ where
     Ok(result)
 }
 
-/// DDL from connection.ts — idempotent table creation + column backfills.
+/// Idempotent table creation and column backfills for current and legacy DBs.
 fn create_tables(sqlite: &Connection) -> rusqlite::Result<()> {
     sqlite.execute_batch(
         "
@@ -256,4 +264,39 @@ fn existing_columns(sqlite: &Connection, table: &str) -> rusqlite::Result<Vec<St
         .query_map([], |row| row.get::<_, String>(1))?
         .collect::<rusqlite::Result<Vec<String>>>()?;
     Ok(names)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::time::{SystemTime, UNIX_EPOCH};
+
+    fn unique_root() -> PathBuf {
+        let suffix = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .expect("system clock should be after the Unix epoch")
+            .as_nanos();
+        std::env::temp_dir().join(format!(
+            "freellmapi-db-path-{}-{suffix}",
+            std::process::id()
+        ))
+    }
+
+    #[test]
+    fn new_default_uses_data_directory() {
+        let root = unique_root();
+        assert_eq!(default_db_path(&root), root.join("data/freeapi.db"));
+    }
+
+    #[test]
+    fn existing_legacy_database_wins() {
+        let root = unique_root();
+        let legacy = root.join("server/data/freeapi.db");
+        std::fs::create_dir_all(legacy.parent().expect("legacy path has a parent")).unwrap();
+        std::fs::File::create(&legacy).unwrap();
+
+        assert_eq!(default_db_path(&root), legacy);
+
+        std::fs::remove_dir_all(root).unwrap();
+    }
 }

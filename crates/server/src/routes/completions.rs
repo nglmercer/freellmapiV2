@@ -1,4 +1,4 @@
-//! Port of `server/src/routes/completions.ts` — the legacy
+//! Legacy
 //! `POST /v1/completions` endpoint that wraps chat completions behind the
 //! classic text-completion interface.
 
@@ -64,9 +64,8 @@ fn preview(s: &str, max: usize) -> &str {
     &s[..end]
 }
 
-
-/// Route handler for `POST /v1/completions` (auth + validation included,
-/// mirroring the TS middleware chain).
+/// Route handler for `POST /v1/completions` with authentication and
+/// validation.
 pub async fn completions_handler(headers: HeaderMap, body: Bytes) -> Response {
     if let Err(resp) = api_key_auth(&headers).await {
         return resp;
@@ -101,7 +100,7 @@ async fn handle_completion(data: crate::types::CompletionRequest) -> Response {
     let echo = data.echo.unwrap_or(false);
 
     // Build the pass-through options once (rest of CompletionRequest fields).
-    // NOTE: TS runSingleCompletion passes ONLY temperature/max_tokens/top_p/
+    // The legacy route passes only temperature/max_tokens/top_p/
     // seed/frequency_penalty/presence_penalty/user/logprobs/top_logprobs —
     // `stop` is validated but never forwarded, and `stream_options` is only
     // forwarded on the streaming path.
@@ -127,9 +126,29 @@ async fn handle_completion(data: crate::types::CompletionRequest) -> Response {
     if do_stream {
         let mut options = base_options.clone();
         options.stream_options = data.stream_options.clone();
-        handle_completion_stream(prompts, suffix, echo, n, estimated_input_tokens, estimated_total, options, start).await
+        handle_completion_stream(
+            prompts,
+            suffix,
+            echo,
+            n,
+            estimated_input_tokens,
+            estimated_total,
+            options,
+            start,
+        )
+        .await
     } else {
-        handle_completion_standard(prompts, suffix, echo, n, estimated_input_tokens, estimated_total, base_options, start).await
+        handle_completion_standard(
+            prompts,
+            suffix,
+            echo,
+            n,
+            estimated_input_tokens,
+            estimated_total,
+            base_options,
+            start,
+        )
+        .await
     }
 }
 
@@ -170,15 +189,13 @@ async fn handle_completion_standard(
         };
 
         let call = async {
-            let results: Vec<SingleResult> = join_all(
-                prompts
-                    .iter()
-                    .take(n as usize)
-                    .map(|prompt| run_single_completion(&route, prompt, suffix.as_deref(), &options)),
-            )
-            .await
-            .into_iter()
-            .collect::<Result<Vec<_>, ProviderError>>()?;
+            let results: Vec<SingleResult> =
+                join_all(prompts.iter().take(n as usize).map(|prompt| {
+                    run_single_completion(&route, prompt, suffix.as_deref(), &options)
+                }))
+                .await
+                .into_iter()
+                .collect::<Result<Vec<_>, ProviderError>>()?;
 
             let mut final_texts: Vec<String> = Vec::new();
             let mut total_input_tokens = 0i64;
@@ -235,7 +252,9 @@ async fn handle_completion_standard(
                 let h = res.headers_mut();
                 h.insert(
                     "x-routed-via",
-                    format!("{}/{}", route.platform, route.model_id).parse().unwrap(),
+                    format!("{}/{}", route.platform, route.model_id)
+                        .parse()
+                        .unwrap(),
                 );
                 if attempt > 0 {
                     h.insert("x-fallback-attempts", attempt.to_string().parse().unwrap());
@@ -309,12 +328,7 @@ async fn run_single_completion(
     let messages = build_chat_messages(prompt, suffix);
     let result = route
         .provider
-        .chat_completion(
-            &route.api_key,
-            &messages,
-            &route.model_id,
-            options,
-        )
+        .chat_completion(&route.api_key, &messages, &route.model_id, options)
         .await?;
 
     let raw_content = result
@@ -372,12 +386,7 @@ async fn handle_completion_stream(
         let messages = build_chat_messages(&prompt, suffix.as_deref());
         let rx_result: Result<ChunkReceiver, ProviderError> = route
             .provider
-            .stream_chat_completion(
-                &route.api_key,
-                &messages,
-                &route.model_id,
-                &options,
-            )
+            .stream_chat_completion(&route.api_key, &messages, &route.model_id, &options)
             .await;
 
         let mut rx = match rx_result {
@@ -393,7 +402,8 @@ async fn handle_completion_stream(
                     record_rate_limit_hit(route.model_db_id);
                     continue;
                 }
-                // throw err → TS app.onError → 500 text
+                // Provider errors on this path use the plain-text server error
+                // response.
                 return (StatusCode::INTERNAL_SERVER_ERROR, err.message).into_response();
             }
         };
@@ -525,8 +535,14 @@ async fn handle_completion_stream(
         *response.status_mut() = StatusCode::OK;
         {
             let h = response.headers_mut();
-            h.insert(axum::http::header::CONTENT_TYPE, "text/event-stream".parse().unwrap());
-            h.insert(axum::http::header::CACHE_CONTROL, "no-cache".parse().unwrap());
+            h.insert(
+                axum::http::header::CONTENT_TYPE,
+                "text/event-stream".parse().unwrap(),
+            );
+            h.insert(
+                axum::http::header::CACHE_CONTROL,
+                "no-cache".parse().unwrap(),
+            );
             h.insert("connection", "keep-alive".parse().unwrap());
             h.insert("x-routed-via", routed_via_header.parse().unwrap());
             if attempt > 0 {

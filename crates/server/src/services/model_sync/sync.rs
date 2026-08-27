@@ -1,4 +1,4 @@
-//! Port of `server/src/services/model-sync/sync.ts`.
+//! Model discovery synchronization and change logging.
 
 use std::collections::{HashMap, HashSet};
 
@@ -267,9 +267,8 @@ async fn sync_models_inner(started_at: &str, log_id: i64) -> Result<SyncResult, 
     }
 
     {
-        // runInTransaction(...) — inserts/updates/disables/fallback seeding, plus
-        // the sync_changes + sync_log completion writes that the TS performs on
-        // the same connection just after. Held on one lock the whole time.
+        // Keep catalog mutations and completion log writes in one transaction.
+        // The connection lock is held only for synchronous SQL.
         let tx = conn.transaction().map_err(|e| e.to_string())?;
         for ins in &new_model_inserts {
             tx.execute(
@@ -357,7 +356,9 @@ async fn sync_models_inner(started_at: &str, log_id: i64) -> Result<SyncResult, 
                 .ok();
             if exists.is_none() {
                 let max_p: Option<i64> = tx
-                    .query_row("SELECT MAX(priority) FROM fallback_config", [], |r| r.get(0))
+                    .query_row("SELECT MAX(priority) FROM fallback_config", [], |r| {
+                        r.get(0)
+                    })
                     .ok()
                     .flatten();
                 tx.execute(

@@ -1,4 +1,4 @@
-//! Port of `server/src/services/rankings/sources/artificial-analysis.ts`.
+//! Artificial Analysis benchmark source client.
 
 use serde::Deserialize;
 
@@ -39,7 +39,10 @@ struct AABenchmark {
 }
 
 fn pick_id(m: &AARawModel) -> Option<&str> {
-    m.id.as_deref().or(m.slug.as_deref()).or(m.model_id.as_deref()).or(m.name.as_deref())
+    m.id.as_deref()
+        .or(m.slug.as_deref())
+        .or(m.model_id.as_deref())
+        .or(m.name.as_deref())
 }
 
 fn pick_intelligence(m: &AARawModel) -> Option<f64> {
@@ -73,14 +76,19 @@ async fn fetch_aa_benchmarks() -> Result<Vec<AABenchmark>, String> {
         .map_err(|e| e.message)?;
     let status = resp.status();
     if !status.is_success() {
-        return Err(format!("AA responded {} {}", status.as_u16(), status.canonical_reason().unwrap_or("")));
+        return Err(format!(
+            "AA responded {} {}",
+            status.as_u16(),
+            status.canonical_reason().unwrap_or("")
+        ));
     }
     let body: AAResponse = resp.json().await.map_err(|e| e.to_string())?;
     let list = body.data.or(body.models).unwrap_or_default();
 
     let mut out = Vec::new();
     for m in &list {
-        let (Some(id), Some(intel), Some(speed)) = (pick_id(m), pick_intelligence(m), pick_speed(m))
+        let (Some(id), Some(intel), Some(speed)) =
+            (pick_id(m), pick_intelligence(m), pick_speed(m))
         else {
             continue;
         };

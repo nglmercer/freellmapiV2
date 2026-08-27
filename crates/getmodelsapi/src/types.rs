@@ -1,12 +1,12 @@
-//! Shared types mirroring `getmodelsapi/src/types/index.ts`.
+//! Shared model-discovery types.
 //!
 //! All structs/enums serialize to (and deserialize from) the same JSON wire
-//! format as the TypeScript library (camelCase field names, optional fields
+//! format (camelCase field names, optional fields
 //! omitted when absent).
 
 use serde::{Deserialize, Serialize};
 
-/// Pricing in USD per 1M tokens, matching the TS `Model.pricing`.
+/// Pricing in USD per one million tokens.
 #[derive(Debug, Clone, Copy, PartialEq, Serialize, Deserialize, Default)]
 pub struct Pricing {
     pub prompt: f64,
@@ -46,8 +46,7 @@ pub enum ProviderType {
 
 /// A registered provider/gateway configuration.
 ///
-/// `api_key` is never serialized (like the TS version strips it from
-/// `getProviders` results).
+/// `api_key` is never serialized in provider listings.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct ProviderConfig {
     pub name: String,
@@ -64,10 +63,10 @@ pub struct ProviderConfig {
     pub free_tier: bool,
 }
 
-/// Options for [`crate::get_models`], mirroring the TS `getModels` options.
+/// Options for [`crate::get_models`].
 ///
-/// The Rust defaults for `limit`/`offset` (100 / 0) are applied inside
-/// `get_models`, matching the `limit = 100, offset = 0` TS defaults.
+/// The defaults for `limit`/`offset` (100 / 0) are applied inside
+/// `get_models`.
 #[derive(Debug, Clone, Default, PartialEq)]
 pub struct GetModelsOptions {
     pub provider: Option<String>,

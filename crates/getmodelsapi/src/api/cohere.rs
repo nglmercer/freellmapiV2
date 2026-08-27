@@ -1,4 +1,4 @@
-//! Cohere models API mirroring `getmodelsapi/src/api/cohere.ts`.
+//! Cohere models API client.
 
 use crate::types::{Model, ProviderConfig};
 use crate::utils::http::{get_json, HttpConfig};
@@ -22,7 +22,11 @@ pub async fn fetch_models_from_cohere(provider: &ProviderConfig) -> Vec<Model> {
             let mut models = Vec::new();
             if let Some(arr) = value.get("models").and_then(|d| d.as_array()) {
                 for m in arr {
-                    let name = m.get("name").and_then(|v| v.as_str()).unwrap_or("").to_string();
+                    let name = m
+                        .get("name")
+                        .and_then(|v| v.as_str())
+                        .unwrap_or("")
+                        .to_string();
                     let endpoints: Vec<String> = m
                         .get("endpoints")
                         .and_then(|e| e.as_array())

@@ -1,4 +1,4 @@
-//! Port of `server/src/services/model-sync/scheduler.ts`.
+//! Periodic model synchronization scheduler.
 
 use std::sync::atomic::{AtomicBool, Ordering};
 

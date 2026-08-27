@@ -1,4 +1,4 @@
-//! Kilo scraper, mirroring `getmodelsapi/src/scraper/providers/kilo.ts`.
+//! Kilo scraper.
 
 use super::ScraperResult;
 use crate::types::{Model, Pricing, ProviderConfig};
@@ -30,7 +30,7 @@ fn parse_features(id: &str, name: &str, input_modalities: &[String]) -> Vec<Stri
     features
 }
 
-/// As in TS: `parseFloat(s || "0")` with JS falsy semantics for missing fields.
+/// Parse a provider numeric field, defaulting missing or invalid values to 0.
 fn parse_price(v: Option<&serde_json::Value>) -> f64 {
     let s = match v {
         Some(serde_json::Value::Number(n)) => n.as_f64().map(|f| f.to_string()).unwrap_or_default(),
@@ -58,15 +58,27 @@ pub async fn scrape_kilo(_config: ProviderConfig) -> ScraperResult {
 
             let mut models = Vec::with_capacity(arr.len());
             for m in arr {
-                let id = m.get("id").and_then(|v| v.as_str()).unwrap_or("").to_string();
+                let id = m
+                    .get("id")
+                    .and_then(|v| v.as_str())
+                    .unwrap_or("")
+                    .to_string();
                 let openrouter_id = m
                     .get("openrouterId")
                     .and_then(|v| v.as_str())
                     .filter(|s| !s.is_empty())
                     .map(|s| s.to_string());
                 let model_id = openrouter_id.clone().unwrap_or_else(|| id.clone());
-                let name = m.get("name").and_then(|v| v.as_str()).unwrap_or("").to_string();
-                let slash = m.get("slug").and_then(|v| v.as_str()).filter(|s| !s.is_empty()).unwrap_or(&id);
+                let name = m
+                    .get("name")
+                    .and_then(|v| v.as_str())
+                    .unwrap_or("")
+                    .to_string();
+                let slash = m
+                    .get("slug")
+                    .and_then(|v| v.as_str())
+                    .filter(|s| !s.is_empty())
+                    .unwrap_or(&id);
                 let creator = m
                     .get("modelCreator")
                     .and_then(|v| v.as_str())
@@ -75,15 +87,19 @@ pub async fn scrape_kilo(_config: ProviderConfig) -> ScraperResult {
                     .unwrap_or_else(|| "kilo".into());
                 let prompt_price = parse_price(m.get("priceInput"));
                 let completion_price = parse_price(m.get("priceOutput"));
-                // TS parseFloat: garbage becomes NaN which is falsy (`!x`).
+                // Invalid numeric text is treated as an absent value.
                 let p_falsy = prompt_price == 0.0 || prompt_price.is_nan();
                 let c_falsy = completion_price == 0.0 || completion_price.is_nan();
-                let free_tier = (prompt_price == 0.0 && completion_price == 0.0)
-                    || (p_falsy && c_falsy);
+                let free_tier =
+                    (prompt_price == 0.0 && completion_price == 0.0) || (p_falsy && c_falsy);
                 let input_modalities: Vec<String> = m
                     .get("inputModalities")
                     .and_then(|v| v.as_array())
-                    .map(|arr| arr.iter().filter_map(|v| v.as_str().map(String::from)).collect())
+                    .map(|arr| {
+                        arr.iter()
+                            .filter_map(|v| v.as_str().map(String::from))
+                            .collect()
+                    })
                     .unwrap_or_default();
 
                 models.push(Model {
@@ -96,7 +112,11 @@ pub async fn scrape_kilo(_config: ProviderConfig) -> ScraperResult {
                         .and_then(|v| v.as_i64())
                         .filter(|&n| n != 0)
                         .unwrap_or(4096),
-                    supported_features: parse_features(&id, m.get("name").and_then(|v| v.as_str()).unwrap_or(""), &input_modalities),
+                    supported_features: parse_features(
+                        &id,
+                        m.get("name").and_then(|v| v.as_str()).unwrap_or(""),
+                        &input_modalities,
+                    ),
                     pricing: if prompt_price > 0.0 || completion_price > 0.0 {
                         Some(Pricing {
                             prompt: prompt_price,

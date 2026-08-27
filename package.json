@@ -8,12 +8,8 @@
   "scripts": {
     "dev": "cargo run -p server",
     "test": "cargo test --workspace",
-    "build": "cargo build --release -p server && cd client && bun run build",
+    "build": "npm run build:server && npm run build:client",
     "build:server": "cargo build --release -p server",
-    "build:client": "cd client && bun run build"
-  },
-  "devDependencies": {
-    "@types/bun": "^1.3.14",
-    "concurrently": "^9.1.2"
+    "build:client": "npm run build -w client"
   }
 }

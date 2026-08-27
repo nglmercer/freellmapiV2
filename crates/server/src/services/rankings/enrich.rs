@@ -1,4 +1,4 @@
-//! Port of `server/src/services/rankings/enrich.ts`.
+//! Model ranking enrichment from external benchmark sources.
 //!
 //! Enrichments enrich the local models table with intelligence and speed
 //! rankings fetched from external benchmark sources.
@@ -114,10 +114,8 @@ pub async fn enrich_rankings() -> EnrichResult {
     let all: Vec<(i64, String, String, Option<String>)> = conn
         .prepare("SELECT id, platform, model_id, last_ranked_at FROM models")
         .and_then(|mut s| {
-            s.query_map([], |r| {
-                Ok((r.get(0)?, r.get(1)?, r.get(2)?, r.get(3)?))
-            })?
-            .collect::<rusqlite::Result<Vec<_>>>()
+            s.query_map([], |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?, r.get(3)?)))?
+                .collect::<rusqlite::Result<Vec<_>>>()
         })
         .unwrap_or_default();
 
@@ -137,7 +135,10 @@ pub async fn enrich_rankings() -> EnrichResult {
     }
     let mut resolved: Vec<Resolved> = Vec::new();
     for (id, platform, model_id, last_ranked_at) in &all {
-        if last_ranked_at.as_ref().is_some_and(|t| t.as_str() > cutoff.as_str()) {
+        if last_ranked_at
+            .as_ref()
+            .is_some_and(|t| t.as_str() > cutoff.as_str())
+        {
             continue;
         }
         let ident = identity(platform, model_id);
@@ -156,8 +157,14 @@ pub async fn enrich_rankings() -> EnrichResult {
     // Phase 2: derive ordinal ranks from the cohort's actual scores. The
     // ranks are not stored in any source — they're computed locally so they
     // always reflect the relative ordering of the *enriched* cohort.
-    let all_scores: Vec<f64> = resolved.iter().map(|r| r.benchmark.intelligence_score).collect();
-    let all_tps: Vec<f64> = resolved.iter().map(|r| r.benchmark.speed_tokens_per_sec).collect();
+    let all_scores: Vec<f64> = resolved
+        .iter()
+        .map(|r| r.benchmark.intelligence_score)
+        .collect();
+    let all_tps: Vec<f64> = resolved
+        .iter()
+        .map(|r| r.benchmark.speed_tokens_per_sec)
+        .collect();
 
     struct Update {
         id: i64,
@@ -220,7 +227,11 @@ pub async fn enrich_rankings() -> EnrichResult {
         scanned: all.len() as i64,
         updated,
         skipped: all.len() as i64 - resolved.len() as i64,
-        source: lookups.iter().map(|(s, _)| s.as_str()).collect::<Vec<_>>().join("+"),
+        source: lookups
+            .iter()
+            .map(|(s, _)| s.as_str())
+            .collect::<Vec<_>>()
+            .join("+"),
         started_at,
         finished_at: now_iso(),
         duration_ms: chrono::Utc::now().timestamp_millis() - t0,

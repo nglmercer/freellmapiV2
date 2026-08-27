@@ -1,7 +1,6 @@
-//! HuggingFace scraper, mirroring `getmodelsapi/src/scraper/providers/huggingface.ts`.
+//! HuggingFace scraper.
 //!
-//! Note: the TS module calls `configureRetry({retries: 3, ...})` at import
-//! time; we apply the same global retry config here (idempotent).
+//! Retry configuration is installed once when the scraper is initialized.
 
 use super::ScraperResult;
 use crate::types::{Model, ProviderConfig};
@@ -35,7 +34,11 @@ pub async fn scrape_huggingface(config: ProviderConfig) -> ScraperResult {
             let mut models = Vec::new();
             if let Some(arr) = value.as_array() {
                 for m in arr {
-                    let id = m.get("id").and_then(|v| v.as_str()).unwrap_or("").to_string();
+                    let id = m
+                        .get("id")
+                        .and_then(|v| v.as_str())
+                        .unwrap_or("")
+                        .to_string();
                     let config_obj = m.get("config");
                     let context_window = config_obj
                         .and_then(|c| c.get("max_position_embeddings"))

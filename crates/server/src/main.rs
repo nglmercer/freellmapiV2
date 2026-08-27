@@ -3,16 +3,16 @@ use server::env;
 
 #[tokio::main]
 async fn main() {
-    // Side effects of `import './env.js'`: ensure .env key, load .env, validate.
     env::init();
     server::logger::init();
 
-    // Side effects of `import './db/index.js'`: initDb() + runMigrations().
     db::init_db(None).expect("failed to initialize database");
-    {
-        let conn = db::db().lock().await;
-        db::run_migrations(&conn);
-    }
+    db::run_in_transaction(|conn| {
+        db::run_migrations(conn);
+        Ok::<(), rusqlite::Error>(())
+    })
+    .await
+    .expect("failed to run database migrations");
 
     server::services::state_persistence::restore_runtime_state();
     let app = server::app::create_app();
@@ -28,14 +28,13 @@ async fn main() {
     server::services::health::start_health_checker();
     server::services::state_persistence::start_periodic_save(30_000);
 
-    // start model sync in background without crashing server on failure
+    // Start model synchronization in the background without crashing the
+    // server when a provider is unavailable.
     tokio::spawn(async {
         server::services::model_sync::run_initial_sync().await;
         server::services::model_sync::start_sync_scheduler();
     });
 
-    // Graceful shutdown on Ctrl-C — save runtime state first, like the TS
-    // registerShutdownHandlers() does.
     axum::serve(listener, app)
         .with_graceful_shutdown(shutdown_signal())
         .await
@@ -48,5 +47,24 @@ async fn main() {
 }
 
 async fn shutdown_signal() {
-    tokio::signal::ctrl_c().await.ok();
+    #[cfg(unix)]
+    {
+        use tokio::signal::unix::{signal, SignalKind};
+
+        let mut sigterm =
+            signal(SignalKind::terminate()).expect("failed to install SIGTERM handler");
+        tokio::select! {
+            result = tokio::signal::ctrl_c() => {
+                if let Err(error) = result {
+                    eprintln!("failed to listen for SIGINT: {error}");
+                }
+            }
+            _ = sigterm.recv() => {}
+        }
+    }
+
+    #[cfg(not(unix))]
+    if let Err(error) = tokio::signal::ctrl_c().await {
+        eprintln!("failed to listen for Ctrl-C: {error}");
+    }
 }

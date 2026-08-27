@@ -1,4 +1,4 @@
-//! Port of `server/src/services/rankings/types.ts`.
+//! Types for external ranking sources.
 //!
 //! All sources must return real benchmark data fetched from their API —
 //! never inferred from model name substrings, version tags, or pricing tiers.

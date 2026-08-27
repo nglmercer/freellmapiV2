@@ -1,12 +1,11 @@
-//! Port of `server/src/providers/base.ts` plus the shared HTTP helpers the
-//! TS `BaseProvider` provided.
+//! Shared provider trait and HTTP helpers.
 
 use async_trait::async_trait;
 use tokio::sync::mpsc;
 
 use crate::types::{ChatCompletionChunk, ChatCompletionResponse, ChatMessage, CompletionOptions};
 
-/// Streaming chunks arrive over a channel (replaces the TS AsyncGenerator).
+/// Streaming chunks arrive over a channel.
 pub type ChunkReceiver = mpsc::Receiver<Result<ChatCompletionChunk, ProviderError>>;
 pub type ChunkSender = mpsc::Sender<Result<ChatCompletionChunk, ProviderError>>;
 
@@ -20,10 +19,16 @@ pub struct ProviderError {
 
 impl ProviderError {
     pub fn new(message: impl Into<String>) -> Self {
-        Self { status: None, message: message.into() }
+        Self {
+            status: None,
+            message: message.into(),
+        }
     }
     pub fn http(status: u16, message: impl Into<String>) -> Self {
-        Self { status: Some(status), message: message.into() }
+        Self {
+            status: Some(status),
+            message: message.into(),
+        }
     }
     /// 429 or 5xx — worth falling over to another provider.
     pub fn is_retryable(&self) -> bool {
@@ -38,8 +43,7 @@ impl std::fmt::Display for ProviderError {
 }
 impl std::error::Error for ProviderError {}
 
-/// `BaseProvider` from base.ts. Object-safe; providers live behind
-/// `Arc<dyn Provider>`.
+/// Object-safe provider interface; providers live behind `Arc<dyn Provider>`.
 #[async_trait]
 pub trait Provider: Send + Sync {
     fn platform(&self) -> String;
@@ -65,11 +69,11 @@ pub trait Provider: Send + Sync {
 
     /// `Ok(true)` — key accepted; `Ok(false)` — confirmed 401/403; `Err` —
     /// transport error (DNS/timeout/TLS), which health checks must NOT treat
-    /// as a failure count (matches TS comment in openai-compat.ts).
+    /// as a failure count.
     async fn validate_key(&self, api_key: &str) -> Result<bool, ProviderError>;
 }
 
-/// Shared reqwest client (matches TS global fetch, with per-request timeouts).
+/// Shared reqwest client with per-request timeouts.
 pub fn http_client() -> &'static reqwest::Client {
     static CLIENT: std::sync::OnceLock<reqwest::Client> = std::sync::OnceLock::new();
     CLIENT.get_or_init(|| {
@@ -92,7 +96,7 @@ pub async fn send_request(
     req.send().await.map_err(|e| {
         if e.is_timeout() {
             // "timeout" keyword matters: proxy/completions isRetryableError
-            // matches on it, mirroring the TS AbortError messages.
+            // The timeout wording is used by the proxy's retry classifier.
             ProviderError::new(format!("Request timeout: {e}"))
         } else {
             ProviderError::new(format!("Request failed: {e}"))
@@ -115,7 +119,7 @@ pub fn make_id() -> String {
     format!("chatcmpl-{millis}-{suffix}")
 }
 
-/// Port of `normalizeChoices` in openai-compat.ts:
+/// Normalize provider response choices:
 /// - Flatten array content (Mistral magistral) → join text segments.
 /// - Fold reasoning_content/reasoning into empty content when no tool_calls.
 pub fn normalize_choices(data: &mut ChatCompletionResponse) {
@@ -135,14 +139,14 @@ pub fn normalize_choices(data: &mut ChatCompletionResponse) {
                     flat.push_str(t);
                 }
             }
-            // String segments inside the parts array are also tolerated by TS
-            // (typeof seg === 'string'); serde's untagged ContentPart drops
-            // them, which mirrors `{ text: undefined }` → '' anyway.
+            // String segments inside the parts array are also tolerated by the
+            // wire contract; untagged deserialization drops those
+            // values, which is equivalent to an empty text segment.
             msg.content = crate::types::MessageContent::Text(flat);
         }
 
         // Fold reasoning into content if content is empty/null AND there are
-        // no tool_calls (see TS comment).
+        // no tool calls.
         let empty_content = match &msg.content {
             crate::types::MessageContent::Text(s) => s.is_empty(),
             crate::types::MessageContent::Null(_) => true,

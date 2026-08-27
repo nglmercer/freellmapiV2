@@ -1,4 +1,4 @@
-//! Port of `server/src/routes/analytics.ts`.
+//! Analytics endpoints.
 
 use std::collections::HashMap;
 
@@ -64,7 +64,10 @@ fn json_round(v: f64) -> Value {
 // ─────────────────────────────────────────────────────────────────────
 
 async fn summary(Query(params): Query<HashMap<String, String>>) -> Response {
-    let range = params.get("range").cloned().unwrap_or_else(|| "7d".to_string());
+    let range = params
+        .get("range")
+        .cloned()
+        .unwrap_or_else(|| "7d".to_string());
     let since = get_since_timestamp(&range);
 
     // Aggregate without GROUP BY always returns one row; SUM/AVG are NULL
@@ -85,7 +88,7 @@ async fn summary(Query(params): Query<HashMap<String, String>>) -> Response {
     let (total_requests, success_count, total_input_tokens, total_output_tokens, avg_latency_ms) =
         row.unwrap_or_default();
 
-    // `success_count / total_requests` in TS is float division.
+    // Keep the rate as floating-point division for JSON compatibility.
     let success_rate = if total_requests > 0 {
         (success_count.unwrap_or(0) as f64 / total_requests as f64) * 100.0
     } else {
@@ -154,8 +157,14 @@ fn group_to_json(r: &GroupedStat, with_model: bool) -> Value {
         );
     }
     obj.insert("requests".to_string(), json!(r.requests));
-    obj.insert("successRate".to_string(), json_round1(r.success_rate.unwrap_or(0.0)));
-    obj.insert("avgLatencyMs".to_string(), json_round(r.avg_latency_ms.unwrap_or(0.0)));
+    obj.insert(
+        "successRate".to_string(),
+        json_round1(r.success_rate.unwrap_or(0.0)),
+    );
+    obj.insert(
+        "avgLatencyMs".to_string(),
+        json_round(r.avg_latency_ms.unwrap_or(0.0)),
+    );
     obj.insert(
         "totalInputTokens".to_string(),
         json!(r.total_input_tokens.unwrap_or(0)),
@@ -168,7 +177,10 @@ fn group_to_json(r: &GroupedStat, with_model: bool) -> Value {
 }
 
 async fn by_model(Query(params): Query<HashMap<String, String>>) -> Response {
-    let range = params.get("range").cloned().unwrap_or_else(|| "7d".to_string());
+    let range = params
+        .get("range")
+        .cloned()
+        .unwrap_or_else(|| "7d".to_string());
     let since = get_since_timestamp(&range);
 
     let rows: Vec<GroupedStat> = {
@@ -197,7 +209,10 @@ async fn by_model(Query(params): Query<HashMap<String, String>>) -> Response {
 }
 
 async fn by_platform(Query(params): Query<HashMap<String, String>>) -> Response {
-    let range = params.get("range").cloned().unwrap_or_else(|| "7d".to_string());
+    let range = params
+        .get("range")
+        .cloned()
+        .unwrap_or_else(|| "7d".to_string());
     let since = get_since_timestamp(&range);
 
     let rows: Vec<GroupedStat> = {
@@ -228,15 +243,25 @@ async fn by_platform(Query(params): Query<HashMap<String, String>>) -> Response 
 // ─────────────────────────────────────────────────────────────────────
 
 async fn timeline(Query(params): Query<HashMap<String, String>>) -> Response {
-    let range = params.get("range").cloned().unwrap_or_else(|| "7d".to_string());
-    let interval = params
-        .get("interval")
+    let range = params
+        .get("range")
         .cloned()
-        .unwrap_or_else(|| if range == "24h" { "hour".to_string() } else { "day".to_string() });
+        .unwrap_or_else(|| "7d".to_string());
+    let interval = params.get("interval").cloned().unwrap_or_else(|| {
+        if range == "24h" {
+            "hour".to_string()
+        } else {
+            "day".to_string()
+        }
+    });
     let since = get_since_timestamp(&range);
 
     // Hardcoded whitelist — never user-controlled.
-    let date_format = if interval == "hour" { "%Y-%m-%dT%H:00:00" } else { "%Y-%m-%d" };
+    let date_format = if interval == "hour" {
+        "%Y-%m-%dT%H:00:00"
+    } else {
+        "%Y-%m-%d"
+    };
 
     let rows: Vec<Value> = {
         let conn = db().lock().await;
@@ -281,9 +306,8 @@ async fn timeline(Query(params): Query<HashMap<String, String>>) -> Response {
 // GET /error-distribution
 // ─────────────────────────────────────────────────────────────────────
 
-/// The `errorCategorySql` CASE — `LIKE '%429%'` etc. Note that SQLite LIKE
-/// treats `.*` literally (only `%` and `_` are wildcards), matching the TS
-/// SQL exactly as written.
+/// Categorize error text using SQLite `LIKE` patterns. SQLite treats `.*`
+/// literally; only `%` and `_` are wildcards.
 const ERROR_CATEGORY_SQL: &str = "CASE \
         WHEN error LIKE '%429%' OR error LIKE '%rate limit%' OR error LIKE '%too many%' OR error LIKE '%quota%' THEN 'Rate Limited (429)' \
         WHEN error LIKE '%401%' OR error LIKE '%unauthorized%' OR error LIKE '%invalid.*key%' THEN 'Auth Error (401)' \
@@ -295,7 +319,10 @@ const ERROR_CATEGORY_SQL: &str = "CASE \
         ELSE 'Other' END";
 
 async fn error_distribution(Query(params): Query<HashMap<String, String>>) -> Response {
-    let range = params.get("range").cloned().unwrap_or_else(|| "7d".to_string());
+    let range = params
+        .get("range")
+        .cloned()
+        .unwrap_or_else(|| "7d".to_string());
     let since = get_since_timestamp(&range);
     let category = ERROR_CATEGORY_SQL;
 
@@ -346,8 +373,8 @@ async fn error_distribution(Query(params): Query<HashMap<String, String>>) -> Re
             .into_iter()
             .map(|(platform, count)| json!({ "platform": platform, "count": count }))
             .collect();
-        // The `detailed` rows keep the snake_case `error_category` field
-        // name exactly as the TS select object literal spelled it.
+        // Keep the snake_case `error_category` field used by the response
+        // contract.
         let detailed: Vec<Value> = conn
             .prepare(&detailed_sql)
             .ok()
@@ -386,7 +413,10 @@ async fn error_distribution(Query(params): Query<HashMap<String, String>>) -> Re
 // ─────────────────────────────────────────────────────────────────────
 
 async fn errors(Query(params): Query<HashMap<String, String>>) -> Response {
-    let range = params.get("range").cloned().unwrap_or_else(|| "7d".to_string());
+    let range = params
+        .get("range")
+        .cloned()
+        .unwrap_or_else(|| "7d".to_string());
     let since = get_since_timestamp(&range);
 
     let rows: Vec<Value> = {

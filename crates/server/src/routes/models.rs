@@ -1,4 +1,4 @@
-//! Port of `server/src/routes/models.ts`.
+//! Model catalog, synchronization, filtering, and ranking endpoints.
 
 use std::collections::{HashMap, HashSet};
 
@@ -107,9 +107,7 @@ async fn list_models() -> Response {
             })
             .unwrap_or_default();
         let key_counts: Vec<(String, i64)> = conn
-            .prepare(
-                "SELECT platform, COUNT(*) FROM api_keys WHERE enabled = 1 GROUP BY platform",
-            )
+            .prepare("SELECT platform, COUNT(*) FROM api_keys WHERE enabled = 1 GROUP BY platform")
             .ok()
             .and_then(|mut s| {
                 s.query_map([], |r| Ok((r.get(0)?, r.get::<_, i64>(1)?)))
@@ -161,8 +159,8 @@ async fn list_models() -> Response {
 }
 
 // ─────────────────────────────────────────────────────────────────────
-// GET /search — query the catalog. Port of the drizzle conditions + the
-// `AND(...)`/`LIKE` building.
+// GET /search — query the catalog with provider, gateway, free-tier, and text
+// filters.
 // ─────────────────────────────────────────────────────────────────────
 
 fn build_search_conditions(query: &HashMap<String, String>) -> (String, Vec<SqlValue>) {
@@ -180,9 +178,8 @@ fn build_search_conditions(query: &HashMap<String, String>) -> (String, Vec<SqlV
         conditions.push("free_tier = 1".to_string());
     }
     if let Some(search) = query.get("search").filter(|s| !s.is_empty()) {
-        conditions.push(
-            "(display_name LIKE ? OR model_id LIKE ? OR description LIKE ?)".to_string(),
-        );
+        conditions
+            .push("(display_name LIKE ? OR model_id LIKE ? OR description LIKE ?)".to_string());
         let q = SqlValue::Text(format!("%{search}%"));
         values.push(q.clone());
         values.push(q.clone());
@@ -283,9 +280,12 @@ async fn search_models(Query(params): Query<HashMap<String, String>>) -> Respons
             .prepare(&data_sql)
             .ok()
             .and_then(|mut s| {
-                s.query_map(rusqlite::params_from_iter(data_values.iter()), search_row_from_row)
-                    .ok()
-                    .and_then(|it| it.collect::<rusqlite::Result<Vec<_>>>().ok())
+                s.query_map(
+                    rusqlite::params_from_iter(data_values.iter()),
+                    search_row_from_row,
+                )
+                .ok()
+                .and_then(|it| it.collect::<rusqlite::Result<Vec<_>>>().ok())
             })
             .unwrap_or_default();
         let total = conn
@@ -379,11 +379,7 @@ fn calc_validation_issues(v: &Value) -> Vec<Value> {
         }
     }
 
-    fn check_string(
-        obj: &serde_json::Map<String, Value>,
-        key: &str,
-        issues: &mut Vec<Value>,
-    ) {
+    fn check_string(obj: &serde_json::Map<String, Value>, key: &str, issues: &mut Vec<Value>) {
         match obj.get(key) {
             None => issues.push(zod_type(&[json!(key)], "string", "undefined")),
             Some(v) if !v.is_string() => {
@@ -393,11 +389,7 @@ fn calc_validation_issues(v: &Value) -> Vec<Value> {
         }
     }
 
-    fn check_int_min(
-        obj: &serde_json::Map<String, Value>,
-        key: &str,
-        issues: &mut Vec<Value>,
-    ) {
+    fn check_int_min(obj: &serde_json::Map<String, Value>, key: &str, issues: &mut Vec<Value>) {
         match obj.get(key) {
             None => issues.push(zod_type(&[json!(key)], "number", "undefined")),
             Some(v) => {
@@ -442,12 +434,15 @@ async fn calculate_pricing(bytes: Bytes) -> Response {
     if !issues.is_empty() {
         return (StatusCode::BAD_REQUEST, Json(json!({ "error": issues }))).into_response();
     }
-    let platform = raw.get("platform").and_then(Value::as_str).unwrap_or_default();
-    let model_id = raw.get("modelId").and_then(Value::as_str).unwrap_or_default();
-    let prompt_tokens = raw
-        .get("promptTokens")
-        .and_then(Value::as_i64)
-        .unwrap_or(0);
+    let platform = raw
+        .get("platform")
+        .and_then(Value::as_str)
+        .unwrap_or_default();
+    let model_id = raw
+        .get("modelId")
+        .and_then(Value::as_str)
+        .unwrap_or_default();
+    let prompt_tokens = raw.get("promptTokens").and_then(Value::as_i64).unwrap_or(0);
     let completion_tokens = raw
         .get("completionTokens")
         .and_then(Value::as_i64)
@@ -520,9 +515,11 @@ async fn rankings_status() -> Response {
             )
             .ok()
             .and_then(|mut s| {
-                s.query_map([], |r| Ok((r.get::<_, Option<String>>(0)?, r.get::<_, i64>(1)?)))
-                    .ok()
-                    .and_then(|it| it.collect::<rusqlite::Result<Vec<_>>>().ok())
+                s.query_map([], |r| {
+                    Ok((r.get::<_, Option<String>>(0)?, r.get::<_, i64>(1)?))
+                })
+                .ok()
+                .and_then(|it| it.collect::<rusqlite::Result<Vec<_>>>().ok())
             })
             .unwrap_or_default();
         (total, ranked_row, by_source)
@@ -594,16 +591,14 @@ async fn sync_status() -> Response {
             .as_ref()
             .and_then(|l| l.get("id").and_then(Value::as_i64))
             .map(|log_id| {
-                conn.prepare(&format!(
-                    "SELECT {SYNC_CHANGE_COLS} WHERE sync_log_id = ?1"
-                ))
-                .ok()
-                .and_then(|mut s| {
-                    s.query_map(rusqlite::params![log_id], sync_change_row_to_json)
-                        .ok()
-                        .and_then(|it| it.collect::<rusqlite::Result<Vec<_>>>().ok())
-                })
-                .unwrap_or_default()
+                conn.prepare(&format!("SELECT {SYNC_CHANGE_COLS} WHERE sync_log_id = ?1"))
+                    .ok()
+                    .and_then(|mut s| {
+                        s.query_map(rusqlite::params![log_id], sync_change_row_to_json)
+                            .ok()
+                            .and_then(|it| it.collect::<rusqlite::Result<Vec<_>>>().ok())
+                    })
+                    .unwrap_or_default()
             })
             .unwrap_or_default();
         (last, changes)
@@ -633,7 +628,10 @@ async fn sync_history(Query(params): Query<HashMap<String, String>>) -> Response
 
 async fn sync_changes(Path(log_id): Path<String>) -> Response {
     let Ok(log_id) = log_id.parse::<i64>() else {
-        return (StatusCode::BAD_REQUEST, Json(json!({ "error": "Invalid logId" })))
+        return (
+            StatusCode::BAD_REQUEST,
+            Json(json!({ "error": "Invalid logId" })),
+        )
             .into_response();
     };
     let rows: Vec<Value> = {
@@ -654,26 +652,25 @@ async fn sync_changes(Path(log_id): Path<String>) -> Response {
 // Bulk enable / disable — require `{ "confirm": true }` in the body.
 // ─────────────────────────────────────────────────────────────────────
 
-/// Port of `parseBulkConfirm`: parses the body, returns the response to
-/// send on failure.
+/// Parse the confirmation body and return an error response on failure.
 fn parse_bulk_confirm(bytes: &Bytes) -> Result<(), Box<Response>> {
     // `c.req.json()` throws → body stays `{}` → "Missing confirm" message.
     let raw: Value = serde_json::from_slice(bytes).unwrap_or_else(|_| json!({}));
-    // TS: `typeof body !== 'object' || body === null` → arrays pass the
-    // typeof check (typeof [] === 'object') and fall through to the missing
-    // confirm branch; primitives and null get "Invalid body".
+    // Arrays are object-like for this validation and fall through to the
+    // missing-confirmation branch; primitives and null are invalid bodies.
     let js_object_like = raw.is_object() || raw.is_array();
     if !js_object_like {
-        return Err(Box::new((
-            StatusCode::BAD_REQUEST,
-            Json(json!({
-                "error": { "message": "Invalid body. Expected { \"confirm\": true }." }
-            })),
-        )
-            .into_response()));
+        return Err(Box::new(
+            (
+                StatusCode::BAD_REQUEST,
+                Json(json!({
+                    "error": { "message": "Invalid body. Expected { \"confirm\": true }." }
+                })),
+            )
+                .into_response(),
+        ));
     }
-    let confirm =
-        raw.is_object() && raw.get("confirm").and_then(Value::as_bool) == Some(true);
+    let confirm = raw.is_object() && raw.get("confirm").and_then(Value::as_bool) == Some(true);
     if !confirm {
         return Err(Box::new((
             StatusCode::BAD_REQUEST,
@@ -740,20 +737,16 @@ async fn enable_free(bytes: Bytes) -> Response {
     }
     let (free_enabled, paid_disabled, fb_free_enabled, fb_paid_disabled) = {
         let conn = db().lock().await;
-        let free_enabled = match conn.execute(
-            "UPDATE models SET enabled = 1 WHERE free_tier = 1",
-            [],
-        ) {
-            Ok(n) => n as i64,
-            Err(e) => return crate::app::error_text(500, &e.to_string()),
-        };
-        let paid_disabled = match conn.execute(
-            "UPDATE models SET enabled = 0 WHERE free_tier != 1",
-            [],
-        ) {
-            Ok(n) => n as i64,
-            Err(e) => return crate::app::error_text(500, &e.to_string()),
-        };
+        let free_enabled =
+            match conn.execute("UPDATE models SET enabled = 1 WHERE free_tier = 1", []) {
+                Ok(n) => n as i64,
+                Err(e) => return crate::app::error_text(500, &e.to_string()),
+            };
+        let paid_disabled =
+            match conn.execute("UPDATE models SET enabled = 0 WHERE free_tier != 1", []) {
+                Ok(n) => n as i64,
+                Err(e) => return crate::app::error_text(500, &e.to_string()),
+            };
 
         let free_ids: Vec<i64> = conn
             .prepare("SELECT id FROM models WHERE free_tier = 1")
@@ -766,16 +759,18 @@ async fn enable_free(bytes: Bytes) -> Response {
             .unwrap_or_default();
 
         if free_ids.is_empty() {
-            let fb_paid_disabled =
-                match conn.execute("UPDATE fallback_config SET enabled = 0", []) {
-                    Ok(n) => n as i64,
-                    Err(e) => return crate::app::error_text(500, &e.to_string()),
-                };
+            let fb_paid_disabled = match conn.execute("UPDATE fallback_config SET enabled = 0", [])
+            {
+                Ok(n) => n as i64,
+                Err(e) => return crate::app::error_text(500, &e.to_string()),
+            };
             (free_enabled, paid_disabled, 0, fb_paid_disabled)
         } else {
             let placeholders = free_ids.iter().map(|_| "?").collect::<Vec<_>>().join(",");
             let fb_free_enabled = match conn.execute(
-                &format!("UPDATE fallback_config SET enabled = 1 WHERE model_db_id IN ({placeholders})"),
+                &format!(
+                    "UPDATE fallback_config SET enabled = 1 WHERE model_db_id IN ({placeholders})"
+                ),
                 rusqlite::params_from_iter(free_ids.iter()),
             ) {
                 Ok(n) => n as i64,
@@ -788,7 +783,12 @@ async fn enable_free(bytes: Bytes) -> Response {
                 Ok(n) => n as i64,
                 Err(e) => return crate::app::error_text(500, &e.to_string()),
             };
-            (free_enabled, paid_disabled, fb_free_enabled, fb_paid_disabled)
+            (
+                free_enabled,
+                paid_disabled,
+                fb_free_enabled,
+                fb_paid_disabled,
+            )
         }
     };
     Json(json!({
@@ -818,7 +818,9 @@ mod tests {
         assert!(sql.contains("free_tier = 1"));
         assert!(sql.contains("display_name LIKE ?"));
         assert_eq!(values.len(), 5);
-        assert!(values.iter().any(|v| *v == SqlValue::Text("%gemini%".into())));
+        assert!(values
+            .iter()
+            .any(|v| *v == SqlValue::Text("%gemini%".into())));
     }
 
     #[test]

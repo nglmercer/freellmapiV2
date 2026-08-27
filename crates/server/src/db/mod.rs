@@ -1,4 +1,4 @@
-//! Port of `server/src/db/index.ts`.
+//! Database modules, migrations, seeds, and key persistence.
 
 pub mod connection;
 pub mod migrations;
@@ -12,10 +12,8 @@ pub use unified_key::{ensure_unified_key, get_unified_api_key, regenerate_unifie
 pub use migrations::*;
 pub use seed::*;
 
-/// `runMigrations(tx)` — seeds the model catalog and applies the v1..v13
-/// data migrations in order, then ensures the unified API key exists.
-/// `seed_models` and every `migrate_models_v*` are idempotent (guard on
-/// `source`/`manual` rows), mirroring the TS implementation.
+/// Seed the model catalog, apply data migrations in order, and ensure that a
+/// unified API key exists. Every operation is idempotent.
 pub fn run_migrations(conn: &rusqlite::Connection) {
     seed_models(conn);
     migrate_models(conn);

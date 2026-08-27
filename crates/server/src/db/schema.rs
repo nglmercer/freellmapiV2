@@ -2,7 +2,7 @@
 //! (see also the DDL in `connection.rs`). Field names are snake_case and map
 //! column-by-column.
 
-use rusqlite::{Row, types::FromSql};
+use rusqlite::{types::FromSql, Row};
 
 fn opt_text<R: FromSql>(row: &Row<'_>, idx: usize) -> rusqlite::Result<Option<R>> {
     row.get(idx)
@@ -39,7 +39,8 @@ pub struct ModelRow {
     pub last_ranked_at: Option<String>,
 }
 
-pub const MODEL_COLS: &str = "id, platform, model_id, display_name, intelligence_rank, speed_rank, \
+pub const MODEL_COLS: &str =
+    "id, platform, model_id, display_name, intelligence_rank, speed_rank, \
      size_label, rpm_limit, rpd_limit, tpm_limit, tpd_limit, monthly_token_budget, context_window, \
      enabled, pricing_prompt, pricing_completion, free_tier, gateway, supported_features, \
      external_url, description, last_synced_at, source, intelligence_score, speed_tokens_per_sec, \
@@ -112,7 +113,8 @@ pub struct ApiKeyRow {
     pub last_checked_at: Option<String>,
 }
 
-pub const API_KEY_COLS: &str = "id, platform, label, encrypted_key, iv, auth_tag, status, enabled, \
+pub const API_KEY_COLS: &str =
+    "id, platform, label, encrypted_key, iv, auth_tag, status, enabled, \
      created_at, last_checked_at";
 
 impl ApiKeyRow {
@@ -269,6 +271,8 @@ where
     F: Fn(&Row<'_>) -> rusqlite::Result<T>,
 {
     let mut stmt = conn.prepare(sql)?;
-    let rows = stmt.query_map([], mapper)?.collect::<rusqlite::Result<Vec<T>>>()?;
+    let rows = stmt
+        .query_map([], mapper)?
+        .collect::<rusqlite::Result<Vec<T>>>()?;
     Ok(rows)
 }

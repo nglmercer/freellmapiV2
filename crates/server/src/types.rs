@@ -1,10 +1,9 @@
-//! Port of `shared/types.ts`. OpenAI-compatible wire types stay snake_case;
-//! admin/dashboard DTOs use camelCase to match the TS server's JSON exactly.
+//! OpenAI-compatible wire types use snake_case; admin and dashboard DTOs use
+//! camelCase to preserve the public JSON contract.
 
 use serde::{Deserialize, Serialize};
 
-/// Active platforms — must match `providers/mod.rs` and the `routes/keys.rs`
-/// PLATFORMS allowlist. Mirrors `Platform` in shared/types.ts.
+/// Active provider platforms accepted by the API-key and model routes.
 pub const PLATFORMS: &[&str] = &[
     "google",
     "groq",
@@ -92,8 +91,7 @@ pub struct ContentPart {
     pub text: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub image_url: Option<ImageUrl>,
-    /// Unknown provider-specific fields pass through, matching JSON.parse →
-    /// JSON.stringify behavior of the TS server.
+    /// Unknown provider-specific fields pass through the JSON representation.
     #[serde(flatten, default, skip_serializing_if = "serde_json::Map::is_empty")]
     pub extra: serde_json::Map<String, serde_json::Value>,
 }
@@ -296,7 +294,7 @@ pub struct ChatCompletionRequest {
     pub top_logprobs: Option<i64>,
 }
 
-/// Per-provider-call options — mirrors `CompletionOptions` in providers/base.ts.
+/// Options passed to an individual provider call.
 #[derive(Serialize, Deserialize, Clone, Debug, Default)]
 pub struct CompletionOptions {
     #[serde(default, skip_serializing_if = "Option::is_none")]

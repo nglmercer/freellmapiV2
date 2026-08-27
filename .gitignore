@@ -1,6 +1,8 @@
 node_modules/
 dist/
+/data/
 server/data/
+runtime-state.json
 *.db
 *.db-wal
 *.db-shm

@@ -1,4 +1,4 @@
-//! Google scraper, mirroring `getmodelsapi/src/scraper/providers/google.ts`.
+//! Google scraper.
 
 use super::ScraperResult;
 use crate::types::{Model, ProviderConfig};
@@ -53,13 +53,17 @@ fn regex_replace(s: &str, pat: &str, to: &str) -> String {
 fn extract_cards(doc: &Html) -> Vec<CardData> {
     let mut cards: Vec<CardData> = Vec::new();
 
-    for card in doc.select(&Selector::parse(".gemini-model-grid-compact .gemini-model-row").unwrap()) {
+    for card in
+        doc.select(&Selector::parse(".gemini-model-grid-compact .gemini-model-row").unwrap())
+    {
         let heading = card
             .select(&Selector::parse("h3[id*=\"gemini\"]").unwrap())
             .next();
         let raw_id = heading.and_then(|h| h.attr("id")).map(|s| s.to_string());
         if let Some(raw_id) = raw_id {
-            let name = heading.map(|h| h.text().collect::<String>()).unwrap_or_default();
+            let name = heading
+                .map(|h| h.text().collect::<String>())
+                .unwrap_or_default();
             let desc = card
                 .select(&Selector::parse(".gemini-model-desc").unwrap())
                 .next()
@@ -74,13 +78,17 @@ fn extract_cards(doc: &Html) -> Vec<CardData> {
         }
     }
 
-    for card in doc.select(&Selector::parse(".gemini-centered-model-grid .gemini-card-centered").unwrap()) {
+    for card in
+        doc.select(&Selector::parse(".gemini-centered-model-grid .gemini-card-centered").unwrap())
+    {
         let heading = card
             .select(&Selector::parse("h3[id*=\"gemini\"]").unwrap())
             .next();
         let raw_id = heading.and_then(|h| h.attr("id")).map(|s| s.to_string());
         if let Some(raw_id) = raw_id {
-            let name = heading.map(|h| h.text().collect::<String>()).unwrap_or_default();
+            let name = heading
+                .map(|h| h.text().collect::<String>())
+                .unwrap_or_default();
             let desc = card
                 .select(&Selector::parse(".description-centered").unwrap())
                 .next()
@@ -161,7 +169,7 @@ fn deduce_features(name: &str, desc: &str, id: &str) -> Vec<String> {
 fn normalize_for_match(id: &str) -> String {
     let mut s = strip_first(id, "google/");
     s = s.replace('.', "-");
-    // Order matches the TS `.replace` chain.
+    // Keep the replacement order stable because provider names can overlap.
     let suffix_pats = [
         r"-preview.*$",
         r"-deprecated$",
@@ -208,7 +216,10 @@ async fn get_context_from_openrouter() -> HashMap<String, i64> {
         if let Some(arr) = value.get("data").and_then(|d| d.as_array()) {
             for m in arr {
                 let id = m.get("id").and_then(|v| v.as_str()).unwrap_or("");
-                let ctx = m.get("context_length").and_then(|v| v.as_i64()).unwrap_or(0);
+                let ctx = m
+                    .get("context_length")
+                    .and_then(|v| v.as_i64())
+                    .unwrap_or(0);
                 if id.starts_with("google/") && ctx > 0 {
                     let key = normalize_for_match(id);
                     let existing = map.get(&key).copied().unwrap_or(0);
@@ -264,7 +275,11 @@ async fn scrape_google_page() -> Result<Vec<Model>, String> {
             provider: "google".into(),
             gateway: None,
             context_window,
-            supported_features: deduce_features(&c.id, c.description.as_deref().unwrap_or(""), &c.id),
+            supported_features: deduce_features(
+                &c.id,
+                c.description.as_deref().unwrap_or(""),
+                &c.id,
+            ),
             pricing: None,
             url: Some(format!(
                 "https://ai.google.dev/gemini-api/docs/models#{}",
@@ -299,10 +314,16 @@ fn features_from_methods(m: &serde_json::Value, name: &str) -> Vec<String> {
     {
         features.push("chat".into());
     }
-    if methods.iter().any(|mt| mt.contains("vision") || mt.contains("image")) {
+    if methods
+        .iter()
+        .any(|mt| mt.contains("vision") || mt.contains("image"))
+    {
         features.push("vision".into());
     }
-    if methods.iter().any(|mt| mt.contains("audio") || mt.contains("speech")) {
+    if methods
+        .iter()
+        .any(|mt| mt.contains("audio") || mt.contains("speech"))
+    {
         features.push("audio".into());
     }
     if methods.iter().any(|mt| mt.contains("video")) {
@@ -317,8 +338,8 @@ fn features_from_methods(m: &serde_json::Value, name: &str) -> Vec<String> {
     features
 }
 
-/// Mirror of `scrapeGoogle`: if an API key is configured, try the API first,
-/// then fall through to scraping the docs page.
+/// If an API key is configured, try the API first, then fall through to the
+/// documentation scraper.
 pub async fn scrape_google(config: ProviderConfig) -> ScraperResult {
     if let Some(api_key) = config.api_key.as_deref() {
         let url = format!("{}/models", config.base_url);
@@ -351,9 +372,7 @@ pub async fn scrape_google(config: ProviderConfig) -> ScraperResult {
                             .unwrap_or(DEFAULT_CONTEXT),
                         supported_features: features_from_methods(m, full_name),
                         pricing: None,
-                        url: Some(format!(
-                            "https://ai.google.dev/gemini-api/docs/models#{id}"
-                        )),
+                        url: Some(format!("https://ai.google.dev/gemini-api/docs/models#{id}")),
                         description: m
                             .get("description")
                             .and_then(|v| v.as_str())

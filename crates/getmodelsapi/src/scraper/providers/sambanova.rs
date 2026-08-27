@@ -1,4 +1,4 @@
-//! SambaNova scraper, mirroring `getmodelsapi/src/scraper/providers/sambanova.ts`.
+//! SambaNova scraper.
 
 use super::ScraperResult;
 use crate::types::{Model, Pricing, ProviderConfig};
@@ -27,7 +27,11 @@ pub async fn scrape_sambanova(_config: ProviderConfig) -> ScraperResult {
 
             let mut models = Vec::with_capacity(arr.len());
             for m in arr {
-                let id = m.get("id").and_then(|v| v.as_str()).unwrap_or("").to_string();
+                let id = m
+                    .get("id")
+                    .and_then(|v| v.as_str())
+                    .unwrap_or("")
+                    .to_string();
                 let pricing_json = m.get("pricing").filter(|p| !p.is_null());
                 let pricing = pricing_json.map(|p| Pricing {
                     prompt: parse_float(p.get("prompt")),

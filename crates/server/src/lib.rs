@@ -1,5 +1,5 @@
-//! FreeLLMAPI server — Rust port of the Bun/TypeScript Hono app.
-//! Same HTTP API, same SQLite file, same encrypted-key format.
+//! FreeLLMAPI server library and HTTP application.
+//! The public API and SQLite/encryption formats remain backwards compatible.
 
 pub mod app;
 pub mod db;
@@ -18,14 +18,17 @@ pub mod crypto;
 pub mod logger {
     use tracing_subscriber::{fmt, EnvFilter};
 
-    /// Mirrors lib/logger.ts: level from LOG_LEVEL (default 'warn'),
-    /// fully disabled when LOG_ENABLED=false.
+    /// Initializes tracing. `RUST_LOG` is preferred, with `LOG_LEVEL` kept as
+    /// a backwards-compatible alias; `LOG_ENABLED=false` disables logging.
     pub fn init() {
-        let enabled = std::env::var("LOG_ENABLED").map(|v| v != "false").unwrap_or(true);
+        let enabled = std::env::var("LOG_ENABLED")
+            .map(|v| v != "false")
+            .unwrap_or(true);
         let filter = if !enabled {
             EnvFilter::new("off")
         } else {
-            let level = std::env::var("LOG_LEVEL")
+            let level = std::env::var("RUST_LOG")
+                .or_else(|_| std::env::var("LOG_LEVEL"))
                 .map(|v| v.to_lowercase())
                 .unwrap_or_else(|_| "warn".to_string());
             EnvFilter::try_new(&level).unwrap_or_else(|_| EnvFilter::new("warn"))

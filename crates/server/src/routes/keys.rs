@@ -1,5 +1,5 @@
-//! Port of `server/src/routes/keys.ts` — API key management (masked list,
-//! add, delete, re-encrypt / toggle enable).
+//! API-key management: masked listing, add, delete, re-encryption, and
+//! enable/disable operations.
 
 use axum::body::Bytes;
 use axum::extract::Path;
@@ -14,7 +14,7 @@ use crate::db::connection::db;
 use crate::db::schema::{ApiKeyRow, API_KEY_COLS};
 use crate::types::PLATFORMS;
 
-/// Mirrors zod's type-name strings (`z.string()` errors) — integers and
+/// Uses the established validation type-name strings — integers and
 /// floats both report "number".
 fn type_name(v: &Value) -> &'static str {
     match v {
@@ -50,7 +50,7 @@ fn malformed_body() -> Response {
     json_error(400, "Malformed JSON body")
 }
 
-/// `addKeySchema.safeParse` — mirrors zod v3 messages exactly.
+/// Validate an API-key creation body and retain the established error text.
 fn validate_add_key(body: &Value) -> Result<(String, String, Option<String>), String> {
     let mut errors: Vec<String> = Vec::new();
 
@@ -91,9 +91,17 @@ fn validate_add_key(body: &Value) -> Result<(String, String, Option<String>), St
         return Err(errors.join(", "));
     }
     Ok((
-        body.get("platform").and_then(|p| p.as_str()).unwrap_or_default().to_string(),
-        body.get("key").and_then(|k| k.as_str()).unwrap_or_default().to_string(),
-        body.get("label").and_then(|l| l.as_str()).map(|s| s.to_string()),
+        body.get("platform")
+            .and_then(|p| p.as_str())
+            .unwrap_or_default()
+            .to_string(),
+        body.get("key")
+            .and_then(|k| k.as_str())
+            .unwrap_or_default()
+            .to_string(),
+        body.get("label")
+            .and_then(|l| l.as_str())
+            .map(|s| s.to_string()),
     ))
 }
 
@@ -102,11 +110,10 @@ async fn list_keys() -> Response {
     let rows: Vec<ApiKeyRow> = {
         let conn = db().lock().await;
         let sql = format!("SELECT {API_KEY_COLS} FROM api_keys ORDER BY created_at DESC, id DESC");
-        match conn
-            .prepare(&sql)
-            .and_then(|mut s| {
-                s.query_map([], ApiKeyRow::from_row)?.collect::<rusqlite::Result<Vec<_>>>()
-            }) {
+        match conn.prepare(&sql).and_then(|mut s| {
+            s.query_map([], ApiKeyRow::from_row)?
+                .collect::<rusqlite::Result<Vec<_>>>()
+        }) {
             Ok(rows) => rows,
             Err(e) => return crate::app::error_text(500, &e.to_string()),
         }
@@ -193,7 +200,7 @@ async fn delete_key(Path(id): Path<String>) -> Response {
 }
 
 /// `PATCH /:id` — re-encrypt the key value (decryption-failed keys) or toggle
-/// `enabled`. Note the "Key not found" cases return 400 here (matching TS).
+/// `enabled`. Missing-key cases return 400 for API compatibility.
 async fn patch_key(Path(id): Path<String>, body: Bytes) -> Response {
     let Some(id) = parse_id(&id) else {
         return json_error(400, "Invalid key ID");
@@ -203,8 +210,12 @@ async fn patch_key(Path(id): Path<String>, body: Bytes) -> Response {
         Err(_) => return malformed_body(),
     };
 
-    // Re-encrypt branch — TS checks typeof body.key === 'string' && length > 0.
-    if let Some(key) = raw.get("key").and_then(|k| k.as_str()).filter(|k| !k.is_empty()) {
+    // Re-encrypt only when a non-empty replacement key was supplied.
+    if let Some(key) = raw
+        .get("key")
+        .and_then(|k| k.as_str())
+        .filter(|k| !k.is_empty())
+    {
         let (encrypted, iv, auth_tag) = encrypt(key);
         let changed = {
             let conn = db().lock().await;
@@ -242,7 +253,10 @@ async fn patch_key(Path(id): Path<String>, body: Bytes) -> Response {
         };
     }
 
-    json_error(400, "Provide either \"key\" (string) or \"enabled\" (boolean)")
+    json_error(
+        400,
+        "Provide either \"key\" (string) or \"enabled\" (boolean)",
+    )
 }
 
 pub fn router() -> axum::Router {
@@ -286,7 +300,10 @@ mod tests {
         );
 
         let body = json!({ "platform": "google", "key": "sk-123", "label": null });
-        assert_eq!(validate_add_key(&body).unwrap_err(), "Expected string, received null");
+        assert_eq!(
+            validate_add_key(&body).unwrap_err(),
+            "Expected string, received null"
+        );
 
         let body = json!({ "key": "k" });
         assert_eq!(validate_add_key(&body).unwrap_err(), "Required");

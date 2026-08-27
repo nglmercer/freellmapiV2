@@ -1,4 +1,4 @@
-//! Port of `server/tests/state-persistence.test.ts`.
+//! Runtime-state snapshot and restore integration tests.
 
 mod common;
 
@@ -102,7 +102,10 @@ async fn preserves_rate_limit_penalties() {
     record_rate_limit_hit(1);
     let penalties_before = get_all_penalties();
     assert!(!penalties_before.is_empty());
-    let model1 = penalties_before.iter().find(|p| p.model_db_id == 1).unwrap();
+    let model1 = penalties_before
+        .iter()
+        .find(|p| p.model_db_id == 1)
+        .unwrap();
     assert!(model1.penalty > 0);
     let penalty_val = model1.penalty;
 
@@ -121,7 +124,7 @@ async fn preserves_rate_limit_penalties() {
 async fn round_robin_snapshot_is_array() {
     let _app = common::setup().await;
     let snap = snapshot_router_state();
-    // Serialized form must be a JSON array of pairs (TS Array.from(entries()))
+    // Serialized form is a JSON array of key/value pairs.
     let v = serde_json::to_value(&snap).unwrap();
     assert!(v["roundRobinIndex"].is_array());
 }
@@ -195,8 +198,7 @@ async fn discards_stale_state_older_than_60_minutes() {
     };
     let raw = std::fs::read_to_string(&state_file).unwrap();
     let mut parsed: serde_json::Value = serde_json::from_str(&raw).unwrap();
-    parsed["savedAt"] =
-        json!(chrono::Utc::now().timestamp_millis() - 61 * 60 * 1000);
+    parsed["savedAt"] = json!(chrono::Utc::now().timestamp_millis() - 61 * 60 * 1000);
     std::fs::write(&state_file, parsed.to_string()).unwrap();
 
     assert!(!restore_runtime_state());

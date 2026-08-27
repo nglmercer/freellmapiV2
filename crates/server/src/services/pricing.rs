@@ -1,4 +1,4 @@
-//! Port of `server/src/services/pricing.ts`.
+//! Model pricing lookup and cost calculation.
 
 use rusqlite::Connection;
 use serde::Serialize;

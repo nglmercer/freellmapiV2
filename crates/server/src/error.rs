@@ -1,6 +1,4 @@
-//! Shared error type — the Rust equivalent of Hono's `HTTPException`.
-//! Renders as plain text with the given status, matching the TS error
-//! handler (`c.text(message, status)`).
+//! Shared HTTP error type rendered as plain text with its status code.
 
 use axum::response::{IntoResponse, Response};
 
@@ -12,7 +10,10 @@ pub struct ApiError {
 
 impl ApiError {
     pub fn new(status: u16, message: impl Into<String>) -> Self {
-        Self { status, message: message.into() }
+        Self {
+            status,
+            message: message.into(),
+        }
     }
 }
 

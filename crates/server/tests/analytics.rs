@@ -1,18 +1,17 @@
-//! Port of `server/tests/analytics.test.ts`.
+//! Analytics route integration tests.
 
 mod common;
 
 use axum::http::StatusCode;
 use serde_json::json;
 
-/// `new Date(Date.now() - h hours).toISOString()` — the ISO timestamps that
-/// the TS test inserts into the requests table.
+/// Return an ISO timestamp from the requested number of hours ago.
 fn hours_ago(h: i64) -> String {
     (chrono::Utc::now() - chrono::Duration::hours(h))
         .to_rfc3339_opts(chrono::SecondsFormat::Millis, true)
 }
 
-/// Insert a request log row (mirrors the drizzle `db.insert(requests).values`.
+/// Insert a request log row for analytics assertions.
 #[allow(clippy::too_many_arguments)]
 async fn insert_request(
     platform: &str,
@@ -286,10 +285,39 @@ async fn errors_accepts_range() {
 // ─────────────────────────────────────────────────────────────────────
 
 async fn seed_request_fixture() {
-    insert_request("google", "gemini-2.5-flash", "success", 100, 50, 500, None, 1).await;
-    insert_request("google", "gemini-2.5-flash", "success", 200, 100, 600, None, 2).await;
-    insert_request("google", "gemini-2.5-flash", "error", 50, 0, 300, Some("429 rate limit"), 3)
-        .await;
+    insert_request(
+        "google",
+        "gemini-2.5-flash",
+        "success",
+        100,
+        50,
+        500,
+        None,
+        1,
+    )
+    .await;
+    insert_request(
+        "google",
+        "gemini-2.5-flash",
+        "success",
+        200,
+        100,
+        600,
+        None,
+        2,
+    )
+    .await;
+    insert_request(
+        "google",
+        "gemini-2.5-flash",
+        "error",
+        50,
+        0,
+        300,
+        Some("429 rate limit"),
+        3,
+    )
+    .await;
     insert_request(
         "groq",
         "llama-3.3-70b-versatile",

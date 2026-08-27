@@ -1,18 +1,15 @@
-//! Ports of `server/src/db/migrations-v1.ts`, `migrations-v4.ts`,
-//! `migrations-v5.ts`, `migrations-v12.ts`, `migrations-v13.ts`.
+//! Data migrations for the current schema and older FreeLLMAPI databases.
 //!
-//! Every function mirrors the TS source's literal data values and its
-//! idempotency guards (SELECT-then-act, existence checks). UPDATE/DELETE/DDL
-//! statements propagate errors via `.expect()` (the TS `.run()` throws on
-//! error and aborts the surrounding transaction); SELECTs that may legitimately
-//! return no row use `.ok()` to match the TS `.get()`/`.all()` behavior.
+//! The migrations are idempotent and are run inside the startup transaction.
+//! Existing user data is updated in place; missing tables and columns are
+//! added by the connection layer before these data migrations run.
 
 use rusqlite::Connection;
 
 use crate::db::seed::{ensure_fallback_entries, UNRANKED_INTELLIGENCE, UNRANKED_SPEED};
 
-/// Mirrors the TS pattern of selecting a model id by (platform, modelId) then
-/// deleting its fallback entry and the model row when present.
+/// Select a model by platform and ID, then remove its fallback entry and row
+/// when present.
 fn delete_model_if_exists(conn: &Connection, platform: &str, model_id: &str) {
     let id: Option<i64> = conn
         .query_row(
@@ -74,7 +71,14 @@ pub fn migrate_models(conn: &Connection) {
         "UPDATE models SET model_id = ?1, display_name = ?2, intelligence_rank = ?3, \
          monthly_token_budget = ?4, context_window = ?5, size_label = ?6 \
          WHERE platform = 'github' AND model_id = 'gpt-4o'",
-        rusqlite::params!["openai/gpt-5", "GPT-5 (GitHub)", 1, "~18M", 128000, "Frontier"],
+        rusqlite::params![
+            "openai/gpt-5",
+            "GPT-5 (GitHub)",
+            1,
+            "~18M",
+            128000,
+            "Frontier"
+        ],
     )
     .expect("v1: remap github gpt-4o to openai/gpt-5");
 
@@ -159,7 +163,10 @@ pub fn migrate_models_v4(conn: &Connection) {
         ("moonshot", "kimi-latest"),
         ("minimax", "MiniMax-M1"),
         ("openrouter", "google/gemma-4-31b-it:free"),
-        ("huggingface", "accounts/fireworks/models/llama-v3p3-70b-instruct"),
+        (
+            "huggingface",
+            "accounts/fireworks/models/llama-v3p3-70b-instruct",
+        ),
     ];
     for &(platform, model_id) in REMOVALS {
         delete_model_if_exists(conn, platform, model_id);
@@ -253,8 +260,7 @@ pub fn migrate_models_v8(conn: &Connection) {
     ensure_fallback_entries(conn);
 }
 
-/// `migrateModelsV9(tx)` — migrations-v5.ts. Note: TS does NOT call
-/// ensureFallbackEntries here, so neither do we.
+/// Apply the v9 model update without adding fallback entries.
 pub fn migrate_models_v9(conn: &Connection) {
     conn.execute(
         "UPDATE models SET enabled = 0 \
@@ -305,8 +311,10 @@ pub fn migrate_models_v12(conn: &Connection) {
     let existing = existing_columns(conn, "models");
     for &(col_name, col_def) in MODEL_NEW_COLS {
         if !existing.iter().any(|c| c == col_name) {
-            conn.execute_batch(&format!("ALTER TABLE models ADD COLUMN {col_name} {col_def}"))
-                .expect("v12: add models column");
+            conn.execute_batch(&format!(
+                "ALTER TABLE models ADD COLUMN {col_name} {col_def}"
+            ))
+            .expect("v12: add models column");
         }
     }
 
@@ -367,9 +375,9 @@ pub fn migrate_models_v12(conn: &Connection) {
     }
 }
 
-/// `migrateModelsV13(tx)` — migrations-v13.ts. Resets every row's
-/// intelligence/speed rank back to the unranked sentinel and re-sequences
-/// fallback priorities (unranked rows sort last but stay enabled).
+/// Resets legacy ranking fields to the unranked sentinel and re-sequences
+/// fallback priorities while preserving the user's existing fallback order
+/// and enabled flags.
 pub fn migrate_models_v13(conn: &Connection) {
     const RANKING_COLS: &[(&str, &str)] = &[
         ("intelligence_score", "REAL"),
@@ -380,10 +388,30 @@ pub fn migrate_models_v13(conn: &Connection) {
     let existing = existing_columns(conn, "models");
     for &(col_name, col_def) in RANKING_COLS {
         if !existing.iter().any(|c| c == col_name) {
-            conn.execute_batch(&format!("ALTER TABLE models ADD COLUMN {col_name} {col_def}"))
-                .expect("v13: add ranking column");
+            conn.execute_batch(&format!(
+                "ALTER TABLE models ADD COLUMN {col_name} {col_def}"
+            ))
+            .expect("v13: add ranking column");
         }
     }
+
+    // Capture the configured order before resetting ranking metadata. Older
+    // versions used model ranking to build this list, but users can reorder
+    // the fallback chain from the dashboard and that order is user data.
+    let ordered: Vec<(i64, i64)> = conn
+        .prepare(
+            "SELECT m.id,
+                    COALESCE(f.enabled, CASE WHEN m.enabled = 1 THEN 1 ELSE 0 END)
+             FROM models AS m
+             LEFT JOIN fallback_config AS f ON f.model_db_id = m.id
+             ORDER BY CASE WHEN f.id IS NULL THEN 1 ELSE 0 END,
+                      f.priority ASC, f.id ASC, m.id ASC",
+        )
+        .expect("v13: prepare ordered models select")
+        .query_map([], |row| Ok((row.get(0)?, row.get(1)?)))
+        .expect("v13: query ordered models")
+        .collect::<rusqlite::Result<Vec<_>>>()
+        .expect("v13: collect ordered models");
 
     conn.execute(
         "UPDATE models SET intelligence_rank = ?1, speed_rank = ?2, \
@@ -393,23 +421,12 @@ pub fn migrate_models_v13(conn: &Connection) {
     )
     .expect("v13: reset ranking columns on all models");
 
-    let ordered: Vec<i64> = conn
-        .prepare(
-            "SELECT id FROM models \
-             ORDER BY CASE WHEN intelligence_rank = ?1 THEN 1 ELSE 0 END, intelligence_rank, id",
-        )
-        .expect("v13: prepare ordered models select")
-        .query_map(rusqlite::params![UNRANKED_INTELLIGENCE], |row| row.get::<_, i64>(0))
-        .expect("v13: query ordered models")
-        .collect::<rusqlite::Result<Vec<i64>>>()
-        .expect("v13: collect ordered models");
-
     conn.execute("DELETE FROM fallback_config", [])
         .expect("v13: clear fallback_config");
-    for (i, id) in ordered.iter().enumerate() {
+    for (i, (id, enabled)) in ordered.iter().enumerate() {
         conn.execute(
-            "INSERT INTO fallback_config (model_db_id, priority, enabled) VALUES (?1, ?2, 1)",
-            rusqlite::params![id, i as i64 + 1],
+            "INSERT INTO fallback_config (model_db_id, priority, enabled) VALUES (?1, ?2, ?3)",
+            rusqlite::params![id, i as i64 + 1, enabled],
         )
         .expect("v13: insert re-sequenced fallback entry");
     }
@@ -428,14 +445,31 @@ mod tests {
         let conn: &Connection = &conn;
 
         // The migrations are pure UPDATE/DELETE/DDL (seed_models is a no-op),
-        // so a fresh DB starts with zero models. Insert a small fixture first —
-        // mirroring the TS tests' runMigrations-then-seedTestModels setup —
-        // so the v1..v13 statements have rows to act on.
+        // A fresh DB starts with zero models. Insert a small fixture first so
+        // the data migrations have rows to act on.
         let fixture = [
             ("github", "gpt-4o", "GPT-4o", 5_i64, 4_i64),
-            ("google", "gemini-2.5-flash", "Gemini 2.5 Flash", 3_i64, 2_i64),
-            ("openrouter", "deepseek/deepseek-r1:free", "DeepSeek R1 (free)", 2_i64, 1_i64),
-            ("unknown", "not-yet-ranked", "Not Yet Ranked", 99_i64, 10_i64),
+            (
+                "google",
+                "gemini-2.5-flash",
+                "Gemini 2.5 Flash",
+                3_i64,
+                2_i64,
+            ),
+            (
+                "openrouter",
+                "deepseek/deepseek-r1:free",
+                "DeepSeek R1 (free)",
+                2_i64,
+                1_i64,
+            ),
+            (
+                "unknown",
+                "not-yet-ranked",
+                "Not Yet Ranked",
+                99_i64,
+                10_i64,
+            ),
         ];
         for (platform, model_id, display_name, int_rank, spd_rank) in fixture {
             conn.execute(
@@ -462,7 +496,10 @@ mod tests {
             )
             .unwrap();
 
-        assert!(model_count > 0, "expected fixture models to survive migrations");
+        assert!(
+            model_count > 0,
+            "expected fixture models to survive migrations"
+        );
         assert!(
             !key_value.is_empty(),
             "unified_api_key setting should exist after run_migrations"
@@ -489,11 +526,17 @@ mod tests {
             )
             .unwrap();
 
-        assert_eq!(model_count, model_count_2, "models row count must be stable");
+        assert_eq!(
+            model_count, model_count_2,
+            "models row count must be stable"
+        );
         assert_eq!(
             fallback_count, fallback_count_2,
             "fallback_config row count must be stable"
         );
-        assert_eq!(key_count, 1, "unified_api_key must still exist exactly once");
+        assert_eq!(
+            key_count, 1,
+            "unified_api_key must still exist exactly once"
+        );
     }
 }

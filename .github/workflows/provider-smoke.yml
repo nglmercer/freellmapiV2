@@ -1,0 +1,22 @@
+name: Provider smoke tests
+
+on:
+  workflow_dispatch:
+  schedule:
+    - cron: '17 3 * * *'
+
+jobs:
+  getmodels-network:
+    name: getmodelsapi network provider tests
+    runs-on: ubuntu-latest
+    env:
+      GETMODELS_NETWORK_TESTS: '1'
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: dtolnay/rust-toolchain@stable
+
+      - uses: Swatinem/rust-cache@v2
+
+      - name: Run provider smoke tests
+        run: cargo test -p getmodelsapi --test getmodels -- --nocapture

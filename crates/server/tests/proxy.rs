@@ -1,5 +1,5 @@
-//! Port of `server/tests/proxy.test.ts` — the OpenAI-compatible proxy
-//! (`GET /v1/models`, `POST /v1/chat/completions`).
+//! OpenAI-compatible proxy integration tests (`GET /v1/models` and
+//! `POST /v1/chat/completions`).
 
 mod common;
 
@@ -11,7 +11,12 @@ use tower::ServiceExt;
 /// POST /v1/chat/completions (or /v1/completions) with a RAW body string.
 /// `common::request` only serializes JSON values, so tests that exercise
 /// empty / malformed bodies build the request here.
-async fn raw_post(app: &axum::Router, path: &str, key: Option<&str>, body: &str) -> common::TestResponse {
+async fn raw_post(
+    app: &axum::Router,
+    path: &str,
+    key: Option<&str>,
+    body: &str,
+) -> common::TestResponse {
     let mut builder = Request::builder().method("POST").uri(path);
     if let Some(k) = key {
         builder = builder.header("authorization", format!("Bearer {k}"));
@@ -154,21 +159,19 @@ async fn chat_completions_rejects_empty_token() {
         &app.app,
         "/v1/chat/completions",
         Some(""),
-        &json!({ "model": "auto", "messages": [{ "role": "user", "content": "Hi" }] })
-            .to_string(),
+        &json!({ "model": "auto", "messages": [{ "role": "user", "content": "Hi" }] }).to_string(),
     )
     .await;
     common::expect_status(&res, StatusCode::UNAUTHORIZED);
-    // NOTE: the TS test expects 'Invalid API key' here (fetch trims the
+    // NOTE: the legacy client expected 'Invalid API key' here (fetch trims the
     // trailing space off `Authorization: 'Bearer '`, leaving a non-empty
     // token). The Rust server receives the raw value, so the empty token is
-    // treated as a missing header. The TS intent — reject with 401 +
+    // treated as a missing header. The compatibility intent — reject with 401 +
     // authentication_error — is preserved.
     assert_eq!(res.body["error"]["type"], "authentication_error");
     let message = res.body["error"]["message"].as_str().unwrap();
     assert!(
-        message.contains("Missing Authorization header")
-            || message.contains("Invalid API key"),
+        message.contains("Missing Authorization header") || message.contains("Invalid API key"),
         "{}",
         res.text
     );
@@ -205,8 +208,13 @@ async fn chat_completions_400_for_empty_body() {
 #[tokio::test]
 async fn chat_completions_400_for_malformed_json() {
     let app = common::setup().await;
-    let res = raw_post(&app.app, "/v1/chat/completions", Some(&app.api_key), "not json at all")
-        .await;
+    let res = raw_post(
+        &app.app,
+        "/v1/chat/completions",
+        Some(&app.api_key),
+        "not json at all",
+    )
+    .await;
     common::expect_status(&res, StatusCode::BAD_REQUEST);
     assert_eq!(res.body["error"]["type"], "invalid_request_error");
 }
@@ -254,7 +262,13 @@ async fn chat_completions_400_when_message_has_no_role() {
     assert!(res.body.get("error").is_some());
 }
 
-fn chat_hi(temperature: Option<f64>, max_tokens: Option<i64>, top_p: Option<f64>, n: Option<i64>, extra: Value) -> Value {
+fn chat_hi(
+    temperature: Option<f64>,
+    max_tokens: Option<i64>,
+    top_p: Option<f64>,
+    n: Option<i64>,
+    extra: Value,
+) -> Value {
     let mut body = json!({ "model": "auto", "messages": [{ "role": "user", "content": "hi" }] });
     if let Some(t) = temperature {
         body["temperature"] = json!(t);

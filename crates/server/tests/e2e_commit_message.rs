@@ -1,7 +1,7 @@
-//! Port of `server/tests/e2e-commit-message.test.ts` — a real E2E suite that
-//! drives `POST /v1/chat/completions` against live providers.
+//! Optional end-to-end tests that drive `POST /v1/chat/completions` against
+//! live providers.
 //!
-//! The TS file guards the whole suite with `describe.skipIf(!hasApiKeysInDb())`
+//! The suite is skipped when no usable provider key is configured.
 //! and the connection tests with `describe.skipIf(!hasWorkingProvider())`.
 //! Those guards are replicated here: each test early-returns when the required
 //! DB state / env key is absent, so the suite is a no-op in a fresh in-memory
@@ -32,9 +32,9 @@ The commit message should follow conventional commits format.";
 
 const STREAM_COMMIT_PROMPT: &str = "Write a short commit message for this change:
 
-diff --git a/server/src/routes/proxy.ts b/server/src/routes/proxy.ts
---- a/server/src/routes/proxy.ts
-+++ b/server/src/routes/proxy.ts
+diff --git a/src/routes/proxy.ts b/src/routes/proxy.ts
+--- a/src/routes/proxy.ts
++++ b/src/routes/proxy.ts
 @@ -50,3 +50,8 @@
 +// Added retry logic for transient failures
 +const MAX_RETRIES = 3;
@@ -45,11 +45,9 @@ diff --git a/server/src/routes/proxy.ts b/server/src/routes/proxy.ts
 /// `hasApiKeysInDb()` — at least one enabled key row.
 async fn has_api_keys_in_db() -> bool {
     let conn = server::db::db().lock().await;
-    conn.query_row(
-        "SELECT COUNT(*) FROM api_keys WHERE enabled = 1",
-        [],
-        |r| r.get::<_, i64>(0),
-    )
+    conn.query_row("SELECT COUNT(*) FROM api_keys WHERE enabled = 1", [], |r| {
+        r.get::<_, i64>(0)
+    })
     .unwrap_or(0)
         > 0
 }
@@ -114,14 +112,13 @@ async fn get_free_tier_model() -> Option<String> {
     None
 }
 
-/// Diagnostic: dump which platforms have keys / fallback entries. Guarded by
-/// the same `skipIf(!hasApiKeysInDb())` as the TS suite.
+/// Diagnostic: dump which platforms have keys and fallback entries. Skips when
+/// no keys are configured.
 #[tokio::test]
 async fn diagnostic_reports_keys_and_fallback_platforms() {
     let app = common::setup().await;
     if !has_api_keys_in_db().await {
-        // Mirrors describe.skipIf(!hasApiKeysInDb()) — nothing to assert on a
-        // fresh test DB.
+        // Nothing to assert on a fresh test database.
         return;
     }
     let conn = server::db::db().lock().await;
@@ -142,8 +139,7 @@ async fn diagnostic_reports_keys_and_fallback_platforms() {
     let _ = app.api_key;
 }
 
-/// OpenAI-format model list (used by AI-editor model discovery). Lives inside
-/// the outer keys guard in the TS file, so it is skipped without keys too.
+/// OpenAI-format model list used by AI-editor model discovery.
 #[tokio::test]
 async fn lists_models_in_openai_format() {
     let app = common::setup().await;
@@ -174,7 +170,7 @@ async fn lists_models_in_openai_format() {
 }
 
 // ─────────────────────────────────────────────────────────────────────
-// Connection tests — `describe.skipIf(!hasWorkingProvider())` in the TS file.
+// Connection tests require a configured working provider.
 // ─────────────────────────────────────────────────────────────────────
 
 /// Non-streaming chat completion (like Cursor/Continue).
@@ -182,7 +178,7 @@ async fn lists_models_in_openai_format() {
 async fn non_streaming_commit_message_request() {
     let app = common::setup().await;
     if !has_working_provider().await {
-        // Mirrors describe.skipIf(!hasWorkingProvider()).
+        // No configured provider means there is nothing to probe.
         return;
     }
     let Some(test_model) = get_free_tier_model().await else {
@@ -278,7 +274,10 @@ async fn streaming_commit_message_request() {
 
     assert!(saw_done, "stream must terminate with data: [DONE]");
     assert!(chunk_count > 0, "at least one SSE chunk expected");
-    assert!(!full_content.is_empty(), "streamed content must be non-empty");
+    assert!(
+        !full_content.is_empty(),
+        "streamed content must be non-empty"
+    );
 }
 
 /// Diffs containing special / URL / unicode characters (URI safety).
@@ -320,7 +319,7 @@ async fn special_characters_in_diff_are_uri_safe() {
     .await;
 
     if res.status != 200 {
-        // Mirrors the TS debug logging before the assertion.
+        // Preserve useful diagnostics before the assertion.
         eprintln!("[E2E DEBUG] URI Safety Status: {}", res.status);
         eprintln!("[E2E DEBUG] URI Safety Error: {}", res.text);
     }
@@ -335,8 +334,8 @@ async fn special_characters_in_diff_are_uri_safe() {
     );
 }
 
-/// OpenAI-compatible response shape. TS marks this `it.skip`; Rust mirrors
-/// with `#[ignore]` (run with `--ignored` to exercise it).
+/// OpenAI-compatible response shape. This test is ignored because it requires
+/// a live provider (run with `--ignored` to exercise it).
 #[tokio::test]
 #[ignore]
 async fn returns_valid_openai_compatible_response_shape() {
@@ -361,7 +360,10 @@ async fn returns_valid_openai_compatible_response_shape() {
     .await;
     common::expect_status(&res, StatusCode::OK);
 
-    assert!(res.body["id"].as_str().unwrap_or("").starts_with("chatcmpl-"));
+    assert!(res.body["id"]
+        .as_str()
+        .unwrap_or("")
+        .starts_with("chatcmpl-"));
     assert_eq!(res.body["object"], "chat.completion");
     assert!(res.body["created"].is_number());
     assert!(res.body["model"].is_string());
@@ -371,6 +373,9 @@ async fn returns_valid_openai_compatible_response_shape() {
     assert!(choices[0].get("finish_reason").is_some());
     let usage = res.body["usage"].as_object().expect("usage object");
     assert!(usage.get("prompt_tokens").unwrap_or(&json!(0)).is_number());
-    assert!(usage.get("completion_tokens").unwrap_or(&json!(0)).is_number());
+    assert!(usage
+        .get("completion_tokens")
+        .unwrap_or(&json!(0))
+        .is_number());
     assert!(usage.get("total_tokens").unwrap_or(&json!(0)).is_number());
 }

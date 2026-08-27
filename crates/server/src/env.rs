@@ -1,10 +1,8 @@
-//! Port of `server/src/env.ts`.
+//! Environment loading, validation, and project-root discovery.
 //!
-//! The TS version resolves paths relative to its own module file
-//! (`server/src/env.ts` → repo root). The Rust binary can run from anywhere,
-//! so we locate the project root by walking up from the CWD looking for
-//! markers (`client/` and `server/`, or a workspace `Cargo.toml`), then do
-//! the same `.env` ensure/load/validate dance.
+//! The binary can run from anywhere, so the project root is located by
+//! walking up from the current directory and looking for the client plus the
+//! legacy data directory or a workspace `Cargo.toml`.
 
 use std::path::{Path, PathBuf};
 use std::sync::OnceLock;
@@ -22,15 +20,13 @@ pub fn project_root() -> PathBuf {
         candidates.push(dir.to_path_buf());
         cur = dir.parent();
     }
-    // First ancestor with both client/ and server/ directories, or a
+    // First ancestor with the client and legacy data directories, or a
     // workspace Cargo.toml, wins. Fall back to CWD.
     let root = candidates
         .into_iter()
         .find(|dir| {
-            (dir.join("client").is_dir() && dir.join("server").is_dir())
-                || dir
-                    .join("Cargo.toml")
-                    .exists()
+            (dir.join("client").is_dir() && dir.join("server/data").is_dir())
+                || dir.join("Cargo.toml").exists()
                     && std::fs::read_to_string(dir.join("Cargo.toml"))
                         .map(|s| s.contains("[workspace]"))
                         .unwrap_or(false)
@@ -58,25 +54,23 @@ fn ensure_encryption_key() {
         hex::encode(bytes)
     };
 
-    let is_valid_hex64 = |v: &str| {
-        v.len() == 64 && v.chars().all(|c| c.is_ascii_hexdigit())
-    };
+    let is_valid_hex64 = |v: &str| v.len() == 64 && v.chars().all(|c| c.is_ascii_hexdigit());
 
     // Regex equivalent of /^ENCRYPTION_KEY=(.*)$/m
     let key_line_re = key_line_re();
 
     if !env_path.exists() {
         let written = if example_path.exists() {
-            std::fs::read_to_string(&example_path)
-                .ok()
-                .map(|example| {
-                    key_line_re.replace_all(&example, format!("ENCRYPTION_KEY={random_key}"))
-                        .to_string()
-                })
+            std::fs::read_to_string(&example_path).ok().map(|example| {
+                key_line_re
+                    .replace_all(&example, format!("ENCRYPTION_KEY={random_key}"))
+                    .to_string()
+            })
         } else {
             None
         };
-        let content = written.unwrap_or_else(|| format!("ENCRYPTION_KEY={random_key}\nPORT=3001\n"));
+        let content =
+            written.unwrap_or_else(|| format!("ENCRYPTION_KEY={random_key}\nPORT=3001\n"));
         std::fs::write(&env_path, content).ok();
         tracing::info!("[ENV] Created .env with generated encryption key");
         return;
@@ -94,7 +88,8 @@ fn ensure_encryption_key() {
         .unwrap_or(false);
 
     if !has_valid {
-        let replaced = key_line_re.replace_all(&env_content, format!("ENCRYPTION_KEY={random_key}"));
+        let replaced =
+            key_line_re.replace_all(&env_content, format!("ENCRYPTION_KEY={random_key}"));
         if replaced.as_ref() == env_content.as_str() {
             // No existing ENCRYPTION_KEY line — append
             std::fs::write(
@@ -111,9 +106,7 @@ fn ensure_encryption_key() {
 
 fn key_line_re() -> &'static regex::Regex {
     static RE: OnceLock<regex::Regex> = OnceLock::new();
-    RE.get_or_init(|| {
-        regex::Regex::new(r"(?m)^ENCRYPTION_KEY=(.*)$").expect("valid regex")
-    })
+    RE.get_or_init(|| regex::Regex::new(r"(?m)^ENCRYPTION_KEY=(.*)$").expect("valid regex"))
 }
 
 /// `env.validateEncryptionKey()` — panics if missing/invalid.
@@ -141,8 +134,7 @@ pub fn env_string(key: &str) -> Option<String> {
     }
 }
 
-/// Initialize: ensure .env encryption key, load .env, validate.
-/// Mirrors the module-load side effects of `env.ts`.
+/// Ensure an encryption key, load `.env`, and validate the resulting config.
 pub fn init() {
     ensure_encryption_key();
     let env_path = project_root().join(".env");

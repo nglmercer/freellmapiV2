@@ -1,12 +1,10 @@
-//! Port of `server/src/providers/openai-compat.ts`.
+//! Generic OpenAI-compatible provider implementation.
 
 use async_trait::async_trait;
 use serde_json::json;
 use tokio::sync::mpsc;
 
-use super::base::{
-    normalize_choices, send_request, ChunkReceiver, ProviderError, Provider,
-};
+use super::base::{normalize_choices, send_request, ChunkReceiver, Provider, ProviderError};
 use crate::types::{ChatCompletionChunk, ChatCompletionResponse, ChatMessage, CompletionOptions};
 
 /// Generic provider for platforms that use an OpenAI-compatible API.
@@ -46,12 +44,21 @@ impl OpenAICompatProvider {
         }
     }
 
-    fn body(&self, model_id: &str, messages: &[ChatMessage], options: &CompletionOptions, stream: bool) -> serde_json::Value {
-        // Mirrors the TS body: only the listed fields, model + messages first,
-        // undefined options omitted (serde skips Nones on ChatMessage).
+    fn body(
+        &self,
+        model_id: &str,
+        messages: &[ChatMessage],
+        options: &CompletionOptions,
+        stream: bool,
+    ) -> serde_json::Value {
+        // Send only the supported fields, with model and messages first;
+        // absent options are omitted.
         let mut obj = serde_json::Map::new();
         obj.insert("model".to_string(), json!(model_id));
-        obj.insert("messages".to_string(), serde_json::to_value(messages).unwrap());
+        obj.insert(
+            "messages".to_string(),
+            serde_json::to_value(messages).unwrap(),
+        );
         macro_rules! opt_put {
             ($k:expr, $v:expr) => {
                 if let Some(v) = $v {
@@ -164,15 +171,16 @@ impl Provider for OpenAICompatProvider {
             use futures::StreamExt;
             let mut stream = res.bytes_stream();
             // Buffer bytes (not chars) so multi-byte UTF-8 sequences split
-            // across TCP chunks aren't corrupted — mirrors TS TextDecoder
-            // streaming decode.
+            // across TCP chunks aren't corrupted during streaming decode.
             let mut buffer: Vec<u8> = Vec::new();
             while let Some(chunk) = stream.next().await {
                 let chunk = match chunk {
                     Ok(c) => c,
                     Err(e) => {
                         let _ = tx
-                            .send(Err(ProviderError::new(format!("{err_name} stream error: {e}"))))
+                            .send(Err(ProviderError::new(format!(
+                                "{err_name} stream error: {e}"
+                            ))))
                             .await;
                         return;
                     }
@@ -195,7 +203,7 @@ impl Provider for OpenAICompatProvider {
                             return; // consumer dropped
                         }
                     }
-                    // Skip malformed chunks, like the TS try/catch.
+                    // Skip malformed chunks rather than aborting the stream.
                 }
             }
         });

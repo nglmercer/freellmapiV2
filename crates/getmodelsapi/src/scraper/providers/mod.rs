@@ -1,4 +1,4 @@
-//! Scraper providers, mirroring `getmodelsapi/src/scraper/providers/`.
+//! Provider-specific scrapers.
 
 pub mod aimlapi;
 pub mod factory;
@@ -13,7 +13,7 @@ pub mod sambanova;
 use crate::types::Model;
 use serde::{Deserialize, Serialize};
 
-/// Outcome of a single provider scrape (`ScraperResult` in the TS sources).
+/// Outcome of a single provider scrape.
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
 pub struct ScraperResult {
     pub success: bool,
@@ -40,7 +40,7 @@ impl ScraperResult {
     }
 }
 
-/// Mirror of the TS `ScraperOptions` (currently unused but kept for parity).
+/// Optional scraper settings reserved for provider-specific extensions.
 #[derive(Debug, Clone, Default)]
 pub struct ScraperOptions {
     pub timeout: Option<std::time::Duration>,

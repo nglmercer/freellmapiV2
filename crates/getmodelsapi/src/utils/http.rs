@@ -1,19 +1,19 @@
-//! HTTP helper mirroring `getmodelsapi/src/utils/http.ts`.
+//! HTTP helpers for provider discovery.
 //!
 //! One shared `reqwest::Client` (via `OnceLock`), per-request timeouts,
-//! optional retry (global config, like the TS module-level `_retryConfig`),
+//! optional shared retry configuration,
 //! query params and headers.
 
 use reqwest::Client;
 use serde_json::Value;
-use std::sync::OnceLock;
 use std::sync::atomic::{AtomicBool, AtomicU32, Ordering};
+use std::sync::OnceLock;
 use std::time::Duration;
 
-/// Default timeout when none is configured (TS uses 30000ms).
+/// Default timeout for provider discovery requests.
 pub const DEFAULT_TIMEOUT: Duration = Duration::from_secs(30);
 
-/// Error returned by HTTP helpers, mirroring the TS `HttpError` class.
+/// Error returned by HTTP helpers.
 #[derive(Debug, Clone)]
 pub struct HttpError {
     pub message: String,
@@ -37,7 +37,7 @@ impl std::fmt::Display for HttpError {
 
 impl std::error::Error for HttpError {}
 
-/// Per-request options mirroring the TS `HttpConfig`.
+/// Per-request HTTP options.
 #[derive(Debug, Clone, Default)]
 pub struct HttpConfig {
     pub headers: Vec<(String, String)>,
@@ -46,26 +46,24 @@ pub struct HttpConfig {
     pub timeout: Duration,
 }
 
-/// Mirror of the TS `http.get` response shape (we carry the body string and
-/// parsed JSON lazily via `get_json`/`get_text`).
+/// Response metadata returned by the discovery HTTP helpers.
 pub struct HttpResponse {
     pub status: u16,
     pub data: Value,
 }
 
-// Global retry configuration (module-level `_retryConfig` in TS).
+// Process-wide retry configuration used by discovery requests.
 static RETRIES: AtomicU32 = AtomicU32::new(0);
 /// When true, HTTP 429 responses are not retried (the HuggingFace config sets
 /// `retryCondition: (error) => error.response?.status !== 429`).
 static NO_RETRY_ON_429: AtomicBool = AtomicBool::new(false);
 
-/// Mirror of `retry.exponentialDelay`: `2^retryCount * 1000` ms.
+/// Exponential retry delay: `2^retry_count * 1000` ms.
 pub fn exponential_delay(retry_count: u32) -> Duration {
     Duration::from_millis((1u64 << retry_count) * 1000)
 }
 
-/// Mirror of `configureRetry`, using only the settings the TS code actually
-/// overrides (retries + the 429 retry condition).
+/// Configure retry count and whether HTTP 429 responses are retryable.
 pub fn configure_retry(retries: usize, no_retry_on_429: bool) {
     RETRIES.store(retries as u32, Ordering::SeqCst);
     NO_RETRY_ON_429.store(no_retry_on_429, Ordering::SeqCst);
@@ -114,10 +112,7 @@ async fn get_raw(url: &str, config: &HttpConfig) -> Result<(u16, String), HttpEr
                         .canonical_reason()
                         .unwrap_or("Unknown")
                         .to_string();
-                    let err = HttpError::new(
-                        format!("HTTP {status}: {status_text}"),
-                        Some(status),
-                    );
+                    let err = HttpError::new(format!("HTTP {status}: {status_text}"), Some(status));
                     let should_retry = retryable && !(no_retry_429 && status == 429);
                     if should_retry {
                         last_error = Some(err);
@@ -147,7 +142,7 @@ async fn get_raw(url: &str, config: &HttpConfig) -> Result<(u16, String), HttpEr
     Err(last_error.unwrap_or_else(|| HttpError::new("request failed", None)))
 }
 
-/// Fetch a URL and parse the body as JSON (mirrors the JSON branch of TS
+/// Fetch a URL and parse the body as JSON.
 /// `http.get`, which sniffs the content-type).
 pub async fn get_json(url: &str, config: &HttpConfig) -> Result<Value, HttpError> {
     let (status, text) = get_raw(url, config).await?;

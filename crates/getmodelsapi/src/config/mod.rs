@@ -1,18 +1,14 @@
-//! Static provider registry, mirroring `getmodelsapi/src/config/providers.ts`.
+//! Static provider registry.
 
 use crate::types::{ProviderConfig, ProviderType};
 
-/// Read an env var the way `process.env.X` behaves in TS.
-///
-/// Unlike the TS version (which keeps `""`), we also drop empty strings so the
-/// common `if (!provider.apiKey) return []` guards behave identically (an
-/// empty string was falsy in JS too).
+/// Read a non-empty provider API key from the environment.
 fn env(key: &str) -> Option<String> {
     std::env::var(key).ok().filter(|s| !s.is_empty())
 }
 
-/// The full `PROVIDERS` list. API keys are resolved from the environment at
-/// call time (equivalent to the TS module reading `process.env` at load).
+/// The full provider registry. API keys are resolved from the environment at
+/// call time.
 pub fn providers() -> Vec<ProviderConfig> {
     vec![
         ProviderConfig {

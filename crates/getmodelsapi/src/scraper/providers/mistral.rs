@@ -1,4 +1,4 @@
-//! Mistral scraper, mirroring `getmodelsapi/src/scraper/providers/mistral.ts`.
+//! Mistral scraper.
 
 use super::ScraperResult;
 use crate::types::{Model, ProviderConfig};
@@ -30,8 +30,7 @@ fn model_heading_re() -> &'static Regex {
     })
 }
 
-/// Mirror of the TS `parseContextWindow` (including its accidental behavior of
-/// inspecting the regex pattern string for a "k" / "million").
+/// Parse Mistral context-window text using the supported page patterns.
 fn parse_context_window(text: &str) -> i64 {
     struct Pattern {
         re: Regex,
@@ -163,9 +162,13 @@ async fn get_context_from_openrouter() -> HashMap<String, i64> {
         if let Some(arr) = value.get("data").and_then(|d| d.as_array()) {
             for m in arr {
                 let id = m.get("id").and_then(|v| v.as_str()).unwrap_or("");
-                let ctx = m.get("context_length").and_then(|v| v.as_i64()).unwrap_or(0);
+                let ctx = m
+                    .get("context_length")
+                    .and_then(|v| v.as_i64())
+                    .unwrap_or(0);
                 if (id.starts_with("mistral/") || id.starts_with("mistralai/")) && ctx > 0 {
-                    let name_key = normalize_for_match(m.get("name").and_then(|v| v.as_str()).unwrap_or(""));
+                    let name_key =
+                        normalize_for_match(m.get("name").and_then(|v| v.as_str()).unwrap_or(""));
                     let id_key = normalize_for_match(id);
                     let existing = map.get(&name_key).copied().unwrap_or(0);
                     if existing == 0 || ctx > existing {
@@ -241,10 +244,7 @@ async fn scrape_mistral_page() -> Result<Vec<Model>, String> {
                 && display_name != "Model"
             {
                 // Remove the " ↗" suffix if present.
-                let clean_name = clean_name_re
-                    .replace(&display_name, "")
-                    .trim()
-                    .to_string();
+                let clean_name = clean_name_re.replace(&display_name, "").trim().to_string();
                 if !table_seen.contains(&clean_name) {
                     table_seen.insert(clean_name.clone());
                     table_models.push((clean_name, api_id));
@@ -313,7 +313,9 @@ async fn scrape_mistral_page() -> Result<Vec<Model>, String> {
             context_window,
             supported_features: features,
             pricing: None,
-            url: Some(format!("https://docs.mistral.ai/getting-started/models/#{id}")),
+            url: Some(format!(
+                "https://docs.mistral.ai/getting-started/models/#{id}"
+            )),
             description,
             free_tier: Some(true),
         });
@@ -352,8 +354,8 @@ async fn scrape_mistral_page() -> Result<Vec<Model>, String> {
     Ok(models)
 }
 
-/// Mirror of `scrapeMistral`: try the API when an API key exists, otherwise
-/// scrape the docs page.
+/// Try the API when an API key exists, otherwise scrape the documentation
+/// page.
 pub async fn scrape_mistral(config: ProviderConfig) -> ScraperResult {
     if let Some(api_key) = config.api_key.as_deref() {
         let url = format!("{}/models", config.base_url);
@@ -366,7 +368,11 @@ pub async fn scrape_mistral(config: ProviderConfig) -> ScraperResult {
             let mut models = Vec::new();
             if let Some(arr) = value.get("data").and_then(|d| d.as_array()) {
                 for m in arr {
-                    let name = m.get("id").and_then(|v| v.as_str()).unwrap_or("").to_string();
+                    let name = m
+                        .get("id")
+                        .and_then(|v| v.as_str())
+                        .unwrap_or("")
+                        .to_string();
                     models.push(Model {
                         id: name.clone(),
                         name: name.clone(),

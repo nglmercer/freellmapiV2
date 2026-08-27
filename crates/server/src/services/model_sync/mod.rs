@@ -1,4 +1,4 @@
-//! Port of `server/src/services/model-sync/`.
+//! Model synchronization and scheduling services.
 
 pub mod mappings;
 pub mod scheduler;
