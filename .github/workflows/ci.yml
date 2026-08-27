@@ -7,8 +7,29 @@ on:
     branches: [main]
 
 jobs:
-  test:
-    name: Test & build
+  rust:
+    name: Rust server — test & build
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          components: clippy
+
+      - uses: Swatinem/rust-cache@v2
+
+      - name: Run tests
+        run: cargo test --workspace
+
+      - name: Clippy
+        run: cargo clippy --workspace --all-targets -- -D warnings
+
+      - name: Build server (release)
+        run: cargo build --release -p server
+
+  client:
+    name: Client — build
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -16,16 +37,9 @@ jobs:
       - uses: actions/setup-node@v4
         with:
           node-version: '20'
-          cache: 'npm'
 
       - name: Install dependencies
         run: npm install
-
-      - name: Run server tests
-        run: npm test -w server
-
-      - name: Build server
-        run: npm run build -w server
 
       - name: Build client
         run: npm run build -w client
