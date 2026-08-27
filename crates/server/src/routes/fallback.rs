@@ -526,7 +526,7 @@ mod tests {
         ]);
         let entries = parse_update_entries(&ok).unwrap();
         assert_eq!(entries.len(), 2);
-        assert_eq!(entries[1].enabled, false);
+        assert!(!entries[1].enabled);
 
         // Missing field anywhere → joined zod messages.
         let bad = json!([{ "modelDbId": 1, "priority": 2 }]);

@@ -14,6 +14,7 @@ const API_BASE: &str = "https://api.cohere.ai/compatibility/v1";
 const DEFAULT_TIMEOUT_MS: u64 = 15000;
 const VALIDATE_TIMEOUT_MS: u64 = 10000;
 
+#[derive(Default)]
 pub struct CohereProvider;
 
 impl CohereProvider {

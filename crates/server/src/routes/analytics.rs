@@ -9,6 +9,8 @@ use serde_json::{json, Value};
 
 use crate::db::connection::db;
 
+type SummaryRow = (i64, Option<i64>, Option<i64>, Option<i64>, Option<f64>);
+
 pub fn router() -> axum::Router {
     use axum::routing::get;
     axum::Router::new()
@@ -67,7 +69,7 @@ async fn summary(Query(params): Query<HashMap<String, String>>) -> Response {
 
     // Aggregate without GROUP BY always returns one row; SUM/AVG are NULL
     // for an empty set.
-    let row: Option<(i64, Option<i64>, Option<i64>, Option<i64>, Option<f64>)> = {
+    let row: Option<SummaryRow> = {
         let conn = db().lock().await;
         conn.query_row(
             "SELECT COUNT(*), \
@@ -81,10 +83,7 @@ async fn summary(Query(params): Query<HashMap<String, String>>) -> Response {
     };
 
     let (total_requests, success_count, total_input_tokens, total_output_tokens, avg_latency_ms) =
-        match row {
-            Some(r) => r,
-            None => (0, None, None, None, None),
-        };
+        row.unwrap_or_default();
 
     // `success_count / total_requests` in TS is float division.
     let success_rate = if total_requests > 0 {

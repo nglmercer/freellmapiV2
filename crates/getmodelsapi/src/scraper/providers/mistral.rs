@@ -188,7 +188,7 @@ fn next_until<'a>(el: &ElementRef<'a>) -> Vec<ElementRef<'a>> {
     let mut out: Vec<ElementRef<'a>> = Vec::new();
     let mut cur = el.next_sibling();
     while let Some(node) = cur {
-        if let Some(e) = ElementRef::wrap(node.clone()) {
+        if let Some(e) = ElementRef::wrap(node) {
             let name: &str = e.value().name();
             if name == "h2" || name == "h3" || name == "h4" {
                 break;
@@ -224,7 +224,8 @@ async fn scrape_mistral_page() -> Result<Vec<Model>, String> {
     let table_selector = Selector::parse("table").unwrap();
     let row_selector = Selector::parse("tr").unwrap();
     let cell_selector = Selector::parse("td").unwrap();
-    if let Some(last_table) = doc.select(&table_selector).last() {
+    let clean_name_re = Regex::new(r"\s*↗$").unwrap();
+    if let Some(last_table) = doc.select(&table_selector).next_back() {
         for row in last_table.select(&row_selector) {
             let cells: Vec<ElementRef> = row.select(&cell_selector).collect();
             if cells.len() < 3 {
@@ -240,8 +241,7 @@ async fn scrape_mistral_page() -> Result<Vec<Model>, String> {
                 && display_name != "Model"
             {
                 // Remove the " ↗" suffix if present.
-                let clean_name = Regex::new(r"\s*↗$")
-                    .unwrap()
+                let clean_name = clean_name_re
                     .replace(&display_name, "")
                     .trim()
                     .to_string();
@@ -255,6 +255,8 @@ async fn scrape_mistral_page() -> Result<Vec<Model>, String> {
 
     // Extract current models from headings.
     let heading_selector = Selector::parse("h2, h3, h4").unwrap();
+    let ws_re = Regex::new(r"\s+").unwrap();
+    let bad_re = Regex::new(r"[^a-z0-9-]").unwrap();
     let mut models: Vec<Model> = Vec::new();
     let mut seen: HashSet<String> = HashSet::new();
 
@@ -283,9 +285,7 @@ async fn scrape_mistral_page() -> Result<Vec<Model>, String> {
 
         // Generate a clean ID from the API table or the heading.
         let mut id = name.to_lowercase();
-        let ws_re = Regex::new(r"\s+").unwrap();
         id = ws_re.replace_all(&id, "-").into_owned();
-        let bad_re = Regex::new(r"[^a-z0-9-]").unwrap();
         id = bad_re.replace_all(&id, "").into_owned();
         if let Some((_, table_id)) = table_models.iter().find(|(d, _)| d == &name) {
             id = table_id.clone();

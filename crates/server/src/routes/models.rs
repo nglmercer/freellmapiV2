@@ -656,7 +656,7 @@ async fn sync_changes(Path(log_id): Path<String>) -> Response {
 
 /// Port of `parseBulkConfirm`: parses the body, returns the response to
 /// send on failure.
-fn parse_bulk_confirm(bytes: &Bytes) -> Result<(), Response> {
+fn parse_bulk_confirm(bytes: &Bytes) -> Result<(), Box<Response>> {
     // `c.req.json()` throws → body stays `{}` → "Missing confirm" message.
     let raw: Value = serde_json::from_slice(bytes).unwrap_or_else(|_| json!({}));
     // TS: `typeof body !== 'object' || body === null` → arrays pass the
@@ -664,31 +664,31 @@ fn parse_bulk_confirm(bytes: &Bytes) -> Result<(), Response> {
     // confirm branch; primitives and null get "Invalid body".
     let js_object_like = raw.is_object() || raw.is_array();
     if !js_object_like {
-        return Err((
+        return Err(Box::new((
             StatusCode::BAD_REQUEST,
             Json(json!({
                 "error": { "message": "Invalid body. Expected { \"confirm\": true }." }
             })),
         )
-            .into_response());
+            .into_response()));
     }
     let confirm =
         raw.is_object() && raw.get("confirm").and_then(Value::as_bool) == Some(true);
     if !confirm {
-        return Err((
+        return Err(Box::new((
             StatusCode::BAD_REQUEST,
             Json(json!({
                 "error": { "message": "Missing confirm: true. Bulk actions are destructive and require explicit confirmation." }
             })),
         )
-            .into_response());
+            .into_response()));
     }
     Ok(())
 }
 
 async fn disable_all(bytes: Bytes) -> Response {
     if let Err(resp) = parse_bulk_confirm(&bytes) {
-        return resp;
+        return *resp;
     }
     let (models_updated, fb_updated) = {
         let conn = db().lock().await;
@@ -712,7 +712,7 @@ async fn disable_all(bytes: Bytes) -> Response {
 
 async fn enable_all(bytes: Bytes) -> Response {
     if let Err(resp) = parse_bulk_confirm(&bytes) {
-        return resp;
+        return *resp;
     }
     let (models_updated, fb_updated) = {
         let conn = db().lock().await;
@@ -736,7 +736,7 @@ async fn enable_all(bytes: Bytes) -> Response {
 
 async fn enable_free(bytes: Bytes) -> Response {
     if let Err(resp) = parse_bulk_confirm(&bytes) {
-        return resp;
+        return *resp;
     }
     let (free_enabled, paid_disabled, fb_free_enabled, fb_paid_disabled) = {
         let conn = db().lock().await;

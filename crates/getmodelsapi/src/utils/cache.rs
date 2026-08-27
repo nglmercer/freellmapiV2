@@ -86,10 +86,8 @@ pub fn clear_cache() -> usize {
         for entry in entries.flatten() {
             let name = entry.file_name();
             let name = name.to_string_lossy().to_string();
-            if name.ends_with(".json") {
-                if fs::remove_file(entry.path()).is_ok() {
-                    count += 1;
-                }
+            if name.ends_with(".json") && fs::remove_file(entry.path()).is_ok() {
+                count += 1;
             }
         }
     }

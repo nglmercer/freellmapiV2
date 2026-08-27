@@ -340,7 +340,7 @@ async fn search_filters_results() {
     let term = first
         .name
         .split('/')
-        .last()
+        .next_back()
         .unwrap_or(&first.name)
         .split('-')
         .next()

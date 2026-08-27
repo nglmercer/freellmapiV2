@@ -16,6 +16,7 @@ const TOKEN_VERIFY_URL: &str = "https://api.cloudflare.com/client/v4/user/tokens
 const DEFAULT_TIMEOUT_MS: u64 = 15000;
 const VALIDATE_TIMEOUT_MS: u64 = 10000;
 
+#[derive(Default)]
 pub struct CloudflareProvider;
 
 impl CloudflareProvider {

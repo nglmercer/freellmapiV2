@@ -13,6 +13,8 @@ use crate::db::schema::{ApiKeyRow, API_KEY_COLS};
 use crate::providers::has_provider;
 use crate::services::health::{check_all_keys, check_key_health};
 
+type PlatformHealthRow = (String, i64, i64, i64, i64, i64, i64, i64);
+
 /// `parseInt(param, 10)`-style id parse; `None` for NaN.
 fn parse_id(s: &str) -> Option<i64> {
     s.parse::<i64>().ok()
@@ -29,7 +31,7 @@ fn json_error(status: u16, message: &str) -> Response {
 /// `GET /` — per-platform key-status aggregation plus the full key list.
 async fn get_health_status() -> Response {
     let (platform_rows, keys): (
-        Vec<(String, i64, i64, i64, i64, i64, i64, i64)>,
+        Vec<PlatformHealthRow>,
         Vec<ApiKeyRow>,
     ) = {
         let conn = db().lock().await;
@@ -44,7 +46,7 @@ async fn get_health_status() -> Response {
                     SUM(CASE WHEN enabled = 1 THEN 1 ELSE 0 END) \
              FROM api_keys GROUP BY platform"
         };
-        let aggs: rusqlite::Result<Vec<(String, i64, i64, i64, i64, i64, i64, i64)>> =
+        let aggs: rusqlite::Result<Vec<PlatformHealthRow>> =
             conn.prepare(platforms_sql).and_then(|mut s| {
                 s.query_map([], |r| {
                     Ok((

@@ -121,7 +121,7 @@ pub fn get_all_penalties() -> Vec<PenaltyInfo> {
             result.push(PenaltyInfo { model_db_id, count, penalty });
         }
     }
-    result.sort_by(|a, b| b.penalty.cmp(&a.penalty));
+    result.sort_by_key(|entry| std::cmp::Reverse(entry.penalty));
     result
 }
 

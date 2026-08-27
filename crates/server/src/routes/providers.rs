@@ -18,13 +18,7 @@ fn type_name(v: &Value) -> &'static str {
     match v {
         Value::Null => "null",
         Value::Bool(_) => "boolean",
-        Value::Number(n) => {
-            if n.is_i64() || n.is_u64() {
-                "number"
-            } else {
-                "number"
-            }
-        }
+        Value::Number(_) => "number",
         Value::String(_) => "string",
         Value::Array(_) => "array",
         Value::Object(_) => "object",
@@ -46,6 +40,11 @@ fn json_error(status: u16, message: &str) -> Response {
 
 fn malformed_body() -> Response {
     json_error(400, "Malformed JSON body")
+}
+
+struct StringConstraints {
+    min: bool,
+    max: Option<usize>,
 }
 
 /// `z.string().url()` — requires an http/https/ftp scheme, `://`, and a
@@ -125,8 +124,7 @@ fn model_row_json(m: &ModelRow) -> Value {
 fn string_field(
     body: &Value,
     key: &str,
-    min: bool,
-    max: Option<usize>,
+    constraints: StringConstraints,
     url: bool,
     required: bool,
     default: Option<&str>,
@@ -143,10 +141,10 @@ fn string_field(
             if url && !valid_url(s) {
                 errors.push("Invalid url".to_string());
             }
-            if min && s.is_empty() {
+            if constraints.min && s.is_empty() {
                 errors.push("String must contain at least 1 character(s)".to_string());
             }
-            if let Some(max) = max {
+            if let Some(max) = constraints.max {
                 if s.chars().count() > max {
                     errors.push(format!("String must contain at most {max} character(s)"));
                 }
@@ -169,7 +167,15 @@ fn optional_string(
     url: bool,
     errors: &mut Vec<String>,
 ) -> Option<String> {
-    string_field(body, key, min, max, url, false, None, errors)
+    string_field(
+        body,
+        key,
+        StringConstraints { min, max },
+        url,
+        false,
+        None,
+        errors,
+    )
 }
 
 /// Number field with zod's `int()`/`min`/`max` check messages plus a default
@@ -349,10 +355,26 @@ struct CreateProviderInput {
 
 fn validate_create_provider(body: &Value) -> Result<CreateProviderInput, String> {
     let mut errors: Vec<String> = Vec::new();
-    let name = string_field(body, "name", true, Some(100), false, true, None, &mut errors)
+    let name = string_field(
+        body,
+        "name",
+        StringConstraints { min: true, max: Some(100) },
+        false,
+        true,
+        None,
+        &mut errors,
+    )
         .unwrap_or_default();
-    let base_url =
-        string_field(body, "baseUrl", true, None, true, true, None, &mut errors).unwrap_or_default();
+    let base_url = string_field(
+        body,
+        "baseUrl",
+        StringConstraints { min: true, max: None },
+        true,
+        true,
+        None,
+        &mut errors,
+    )
+    .unwrap_or_default();
     let timeout_ms = int_field(
         body, "timeoutMs", false, Some(1000), Some(300000), Some(15000), &mut errors,
     );
@@ -419,22 +441,53 @@ struct CreateModelInput {
 
 fn validate_create_model(body: &Value) -> Result<CreateModelInput, String> {
     let mut errors: Vec<String> = Vec::new();
-    let model_id = string_field(body, "modelId", true, None, false, true, None, &mut errors)
+    let model_id = string_field(
+        body,
+        "modelId",
+        StringConstraints { min: true, max: None },
+        false,
+        true,
+        None,
+        &mut errors,
+    )
         .unwrap_or_default();
-    let display_name =
-        string_field(body, "displayName", true, None, false, true, None, &mut errors)
-            .unwrap_or_default();
+    let display_name = string_field(
+        body,
+        "displayName",
+        StringConstraints { min: true, max: None },
+        false,
+        true,
+        None,
+        &mut errors,
+    )
+    .unwrap_or_default();
     let intelligence_rank =
         int_field(body, "intelligenceRank", false, Some(1), Some(999), Some(99), &mut errors);
     let speed_rank = int_field(body, "speedRank", false, Some(1), Some(999), Some(10), &mut errors);
-    let size_label = string_field(body, "sizeLabel", false, None, false, false, Some(""), &mut errors)
+    let size_label = string_field(
+        body,
+        "sizeLabel",
+        StringConstraints { min: false, max: None },
+        false,
+        false,
+        Some(""),
+        &mut errors,
+    )
         .unwrap_or_default();
     let rpm_limit = int_field(body, "rpmLimit", true, None, None, None, &mut errors);
     let rpd_limit = int_field(body, "rpdLimit", true, None, None, None, &mut errors);
     let tpm_limit = int_field(body, "tpmLimit", true, None, None, None, &mut errors);
     let tpd_limit = int_field(body, "tpdLimit", true, None, None, None, &mut errors);
     let monthly_token_budget =
-        string_field(body, "monthlyTokenBudget", false, None, false, false, Some(""), &mut errors)
+        string_field(
+            body,
+            "monthlyTokenBudget",
+            StringConstraints { min: false, max: None },
+            false,
+            false,
+            Some(""),
+            &mut errors,
+        )
             .unwrap_or_default();
     let context_window = int_field(body, "contextWindow", true, None, None, None, &mut errors);
     let enabled = bool_field(body, "enabled", true, true, &mut errors).unwrap_or(true);

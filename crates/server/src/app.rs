@@ -46,7 +46,7 @@ pub fn create_app() -> axum::Router {
                 .route("/completions", post(routes::completions::completions_handler)),
         );
 
-    let app = app
+    app
         .layer(CorsLayer::permissive())
         .layer(RequestBodyLimitLayer::new(1024 * 1024)) // 1MB, like bodyLimit
         .fallback_service(
@@ -54,9 +54,7 @@ pub fn create_app() -> axum::Router {
             // without an extension rewrite to /index.html).
             ServeDir::new(dist_dir())
                 .fallback(ServeFile::new(dist_dir().join("index.html"))),
-        );
-
-    app
+        )
 }
 
 /// Error handler port: TS `app.onError` renders the message as plain text

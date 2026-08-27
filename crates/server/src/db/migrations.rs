@@ -446,7 +446,7 @@ mod tests {
             .expect("insert fixture model");
         }
 
-        crate::db::run_migrations(&conn);
+        crate::db::run_migrations(conn);
 
         let model_count: i64 = conn
             .query_row("SELECT COUNT(*) FROM models", [], |r| r.get(0))
@@ -473,7 +473,7 @@ mod tests {
         );
 
         // Second run must not change any row counts (idempotency).
-        crate::db::run_migrations(&conn);
+        crate::db::run_migrations(conn);
 
         let model_count_2: i64 = conn
             .query_row("SELECT COUNT(*) FROM models", [], |r| r.get(0))

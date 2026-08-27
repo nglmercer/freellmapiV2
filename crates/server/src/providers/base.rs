@@ -131,9 +131,8 @@ pub fn normalize_choices(data: &mut ChatCompletionResponse) {
         if let crate::types::MessageContent::Parts(parts) = &msg.content {
             let mut flat = String::new();
             for seg in parts {
-                match (&seg.text, &seg.r#type) {
-                    (Some(t), _) => flat.push_str(t),
-                    _ => {}
+                if let Some(t) = &seg.text {
+                    flat.push_str(t);
                 }
             }
             // String segments inside the parts array are also tolerated by TS

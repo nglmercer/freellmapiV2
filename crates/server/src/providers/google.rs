@@ -577,6 +577,7 @@ fn google_chunk(
     }
 }
 
+#[derive(Default)]
 pub struct GoogleProvider;
 
 impl GoogleProvider {

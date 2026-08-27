@@ -247,19 +247,17 @@ pub async fn chat_completions(headers: HeaderMap, body: Bytes) -> Response {
                 attempt,
             )
             .await
-            .map(|resp| {
+            .inspect(|_| {
                 // recordRequest after the response starts (TS line order)
                 record_request(&route.platform, &route.model_id, route.key_id);
-                resp
             })
         } else if n > 1 {
             handle_parallel(route.clone(), messages.clone(), options.clone(), n, attempt).await
         } else {
             handle_standard_completion(&route, messages.clone(), options.clone(), attempt)
                 .await
-                .map(|resp| {
+                .inspect(|_| {
                     record_request(&route.platform, &route.model_id, route.key_id);
-                    resp
                 })
         };
 
