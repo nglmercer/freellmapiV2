@@ -14,3 +14,4 @@ deploy-pi.sh
 update-hermes.sh
 /server/.cache/
 .commandcode/
+/target

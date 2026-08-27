@@ -1,0 +1,38 @@
+[package]
+name = "server"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+description = "FreeLLMAPI — OpenAI-compatible proxy over free-tier providers"
+
+[dependencies]
+getmodelsapi = { path = "../getmodelsapi" }
+tokio = { workspace = true }
+serde = { workspace = true }
+serde_json = { workspace = true }
+reqwest = { workspace = true }
+chrono = { workspace = true }
+futures = { workspace = true }
+tokio-stream = { workspace = true }
+regex = { workspace = true }
+rand = { workspace = true }
+hex = { workspace = true }
+tracing = { workspace = true }
+tracing-subscriber = { workspace = true }
+axum = "0.8"
+tower-http = { version = "0.6", features = ["cors", "fs", "limit"] }
+tower = "0.5"
+rusqlite = { version = "0.37", features = ["bundled", "chrono"] }
+aes-gcm = "0.10"
+async-trait = "0.1"
+sha1 = "0.10"
+async-stream = "0.3"
+dotenvy = "0.15"
+
+[dev-dependencies]
+tokio = { version = "1", features = ["macros", "rt-multi-thread"] }
+rusqlite = { version = "0.37", features = ["bundled", "chrono"] }
+serde_json = "1"
+axum = "0.8"
+tower = "0.5"
+futures = "0.3"

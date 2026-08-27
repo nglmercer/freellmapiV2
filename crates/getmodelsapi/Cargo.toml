@@ -1,0 +1,20 @@
+[package]
+name = "getmodelsapi"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+description = "Discover free-tier LLM models across providers (APIs + public catalog scrapers)"
+
+[dependencies]
+tokio = { workspace = true }
+serde = { workspace = true }
+serde_json = { workspace = true }
+reqwest = { workspace = true }
+chrono = { workspace = true }
+tracing = { workspace = true }
+regex = { workspace = true }
+rand = { workspace = true }
+scraper = "0.23"
+
+[dev-dependencies]
+tokio = { version = "1", features = ["macros", "rt-multi-thread"] }
