@@ -12,7 +12,8 @@ use axum::Json;
 use serde_json::{json, Value};
 
 use crate::db::connection::db;
-use crate::services::router::get_all_penalties;
+use crate::routes::ranking_json;
+use crate::services::router::{get_all_penalties, route_availability};
 
 pub fn router() -> axum::Router {
     use axum::routing::{get, post, put};
@@ -20,6 +21,7 @@ pub fn router() -> axum::Router {
         .route("/", get(get_fallback))
         .route("/", put(update_fallback))
         .route("/sort/{preset}", post(sort_fallback))
+        .route("/strategy", get(get_strategy).post(set_strategy))
         .route("/token-usage", get(token_usage))
 }
 
@@ -30,6 +32,7 @@ pub fn router() -> axum::Router {
 struct FallbackItem {
     model_db_id: i64,
     priority: i64,
+    manual_priority: Option<i64>,
     enabled: i64,
     platform: String,
     model_id: String,
@@ -45,40 +48,81 @@ struct FallbackItem {
     rpd_limit: Option<i64>,
     monthly_token_budget: String,
     free_tier: i64,
+    external_speed_tps: Option<f64>,
+    observed_speed_tps: Option<f64>,
+    quality_source: Option<String>,
+    speed_source: Option<String>,
+    ranking_confidence: Option<f64>,
+    quality_confidence: Option<f64>,
+    speed_confidence: Option<f64>,
+    quality_updated_at: Option<String>,
+    external_speed_updated_at: Option<String>,
+    observed_speed_updated_at: Option<String>,
+    canonical_model_id: Option<i64>,
+    sample_count: i64,
+    success_count: i64,
+    rate_limit_count: i64,
+    ewma_output_tps: Option<f64>,
+    ewma_output_tps_confidence: Option<f64>,
+    performance_updated_at: Option<String>,
 }
 
 fn fallback_item_from_row(row: &rusqlite::Row<'_>) -> rusqlite::Result<FallbackItem> {
     Ok(FallbackItem {
         model_db_id: row.get(0)?,
         priority: row.get(1)?,
-        enabled: row.get::<_, i64>(2).unwrap_or(1),
-        platform: row.get(3)?,
-        model_id: row.get(4)?,
-        display_name: row.get(5)?,
-        intelligence_rank: row.get(6)?,
-        speed_rank: row.get(7)?,
-        intelligence_score: row.get(8)?,
-        speed_tokens_per_sec: row.get(9)?,
-        ranking_source: row.get(10)?,
-        last_ranked_at: row.get(11)?,
-        size_label: row.get::<_, String>(12).unwrap_or_default(),
-        rpm_limit: row.get(13)?,
-        rpd_limit: row.get(14)?,
-        monthly_token_budget: row.get::<_, String>(15).unwrap_or_default(),
-        free_tier: row.get::<_, i64>(16).unwrap_or(0),
+        manual_priority: row.get(2)?,
+        enabled: row.get::<_, i64>(3).unwrap_or(1),
+        platform: row.get(4)?,
+        model_id: row.get(5)?,
+        display_name: row.get(6)?,
+        intelligence_rank: row.get(7)?,
+        speed_rank: row.get(8)?,
+        intelligence_score: row.get(9)?,
+        speed_tokens_per_sec: row.get(10)?,
+        ranking_source: row.get(11)?,
+        last_ranked_at: row.get(12)?,
+        size_label: row.get::<_, String>(13).unwrap_or_default(),
+        rpm_limit: row.get(14)?,
+        rpd_limit: row.get(15)?,
+        monthly_token_budget: row.get::<_, String>(16).unwrap_or_default(),
+        free_tier: row.get::<_, i64>(17).unwrap_or(0),
+        external_speed_tps: row.get(18)?,
+        observed_speed_tps: row.get(19)?,
+        quality_source: row.get(20)?,
+        speed_source: row.get(21)?,
+        ranking_confidence: row.get(22)?,
+        quality_confidence: row.get(23)?,
+        speed_confidence: row.get(24)?,
+        quality_updated_at: row.get(25)?,
+        external_speed_updated_at: row.get(26)?,
+        observed_speed_updated_at: row.get(27)?,
+        canonical_model_id: row.get(28)?,
+        sample_count: row.get::<_, Option<i64>>(29)?.unwrap_or(0),
+        success_count: row.get::<_, Option<i64>>(30)?.unwrap_or(0),
+        rate_limit_count: row.get::<_, Option<i64>>(31)?.unwrap_or(0),
+        ewma_output_tps: row.get(32)?,
+        ewma_output_tps_confidence: row.get(33)?,
+        performance_updated_at: row.get(34)?,
     })
 }
 
 async fn get_fallback() -> Response {
-    let (rows, key_counts) = {
+    let (rows, key_counts, availability_by_model) = {
         let conn = db().lock().await;
         let rows: Vec<FallbackItem> = conn
             .prepare(
-                "SELECT fc.model_db_id, fc.priority, fc.enabled, m.platform, m.model_id, \
-                 m.display_name, m.intelligence_rank, m.speed_rank, m.intelligence_score, \
+                "SELECT fc.model_db_id, fc.priority, fc.manual_priority, fc.enabled, \
+                 m.platform, m.model_id, m.display_name, m.intelligence_rank, m.speed_rank, m.intelligence_score, \
                  m.speed_tokens_per_sec, m.ranking_source, m.last_ranked_at, m.size_label, \
-                 m.rpm_limit, m.rpd_limit, m.monthly_token_budget, m.free_tier \
+                 m.rpm_limit, m.rpd_limit, m.monthly_token_budget, m.free_tier, \
+                 m.external_speed_tps, m.observed_speed_tps, m.quality_source, m.speed_source, \
+                 m.ranking_confidence, m.quality_confidence, m.speed_confidence, \
+                 m.quality_updated_at, m.external_speed_updated_at, m.observed_speed_updated_at, \
+                 m.canonical_model_id, mp.sample_count, mp.success_count, mp.rate_limit_count, \
+                 mp.ewma_output_tps, mp.ewma_output_tps_confidence, mp.updated_at \
                  FROM fallback_config fc INNER JOIN models m ON m.id = fc.model_db_id \
+                 LEFT JOIN model_performance mp ON mp.platform = m.platform AND mp.model_id = m.model_id \
                  ORDER BY fc.priority ASC",
             )
             .ok()
@@ -97,7 +141,19 @@ async fn get_fallback() -> Response {
                     .and_then(|it| it.collect::<rusqlite::Result<Vec<_>>>().ok())
             })
             .unwrap_or_default();
-        (rows, key_counts)
+        let availability_by_model: HashMap<i64, f64> = rows
+            .iter()
+            .map(|row| {
+                let availability =
+                    if crate::providers::get_provider_with_conn(&conn, &row.platform).is_some() {
+                        route_availability(&conn, &row.platform, &row.model_id)
+                    } else {
+                        0.0
+                    };
+                (row.model_db_id, availability)
+            })
+            .collect();
+        (rows, key_counts, availability_by_model)
     };
 
     let key_count_map: HashMap<String, i64> = key_counts.into_iter().collect();
@@ -105,14 +161,78 @@ async fn get_fallback() -> Response {
         .into_iter()
         .map(|p| (p.model_db_id, (p.count, p.penalty)))
         .collect();
+    let balanced_scores: HashMap<i64, f64> = crate::services::rankings::routing::score_candidates(
+        &rows
+            .iter()
+            .map(|row| {
+                let (_, penalty) = penalty_map.get(&row.model_db_id).copied().unwrap_or((0, 0));
+                crate::services::rankings::routing::RoutingCandidate {
+                    model_db_id: row.model_db_id,
+                    manual_priority: row.manual_priority.unwrap_or(row.priority),
+                    quality: row.intelligence_score,
+                    speed: ranking_json::effective_speed(
+                        row.ewma_output_tps.or(row.observed_speed_tps),
+                        row.external_speed_tps,
+                        row.speed_tokens_per_sec,
+                    ),
+                    reliability: crate::services::rankings::routing::reliability_score(
+                        row.success_count,
+                        row.sample_count,
+                    ),
+                    availability: availability_by_model
+                        .get(&row.model_db_id)
+                        .copied()
+                        .unwrap_or(0.0),
+                    penalty,
+                }
+            })
+            .collect::<Vec<_>>(),
+        crate::services::rankings::routing::RoutingStrategy::Balanced,
+    )
+    .into_iter()
+    .filter_map(|candidate| candidate.score.map(|score| (candidate.model_db_id, score)))
+    .collect();
 
     let data: Vec<Value> = rows
         .iter()
         .map(|r| {
             let (hits, penalty) = penalty_map.get(&r.model_db_id).copied().unwrap_or((0, 0));
+            let effective_speed = ranking_json::effective_speed(
+                r.ewma_output_tps.or(r.observed_speed_tps),
+                r.external_speed_tps,
+                r.speed_tokens_per_sec,
+            );
+            let quality_source = r.quality_source.as_deref().or(r.ranking_source.as_deref());
+            let speed_source = if r.ewma_output_tps.is_some() {
+                Some("local-observed")
+            } else {
+                r.speed_source.as_deref().or(r.ranking_source.as_deref())
+            };
+            let quality = ranking_json::quality(
+                r.intelligence_score,
+                r.intelligence_rank,
+                quality_source,
+                r.quality_confidence,
+                r.quality_updated_at
+                    .as_deref()
+                    .or(r.last_ranked_at.as_deref()),
+            );
+            let speed = ranking_json::speed(
+                effective_speed,
+                r.speed_rank,
+                speed_source,
+                r.ewma_output_tps_confidence.or(r.speed_confidence),
+                r.performance_updated_at
+                    .as_deref()
+                    .or(r.observed_speed_updated_at.as_deref())
+                    .or(r.external_speed_updated_at.as_deref())
+                    .or(r.last_ranked_at.as_deref()),
+                r.sample_count,
+            );
             json!({
                 "modelDbId": r.model_db_id,
                 "priority": r.priority,
+                "manualPriority": r.manual_priority,
                 "effectivePriority": r.priority + penalty,
                 "penalty": penalty,
                 "rateLimitHits": hits,
@@ -120,12 +240,32 @@ async fn get_fallback() -> Response {
                 "platform": r.platform,
                 "modelId": r.model_id,
                 "displayName": r.display_name,
-                "intelligenceRank": r.intelligence_rank,
-                "speedRank": r.speed_rank,
+                "intelligenceRank": quality["rank"],
+                "speedRank": speed["rank"],
                 "intelligenceScore": r.intelligence_score,
-                "speedTokensPerSec": r.speed_tokens_per_sec,
+                "speedTokensPerSec": effective_speed,
                 "rankingSource": r.ranking_source,
                 "lastRankedAt": r.last_ranked_at,
+                "quality": quality,
+                "speed": speed,
+                "reliability": ranking_json::reliability(
+                    r.success_count,
+                    r.sample_count,
+                    r.rate_limit_count,
+                ),
+                "rankingConfidence": ranking_json::overall_confidence(
+                    r.quality_confidence,
+                    r.ewma_output_tps_confidence.or(r.speed_confidence),
+                    r.ranking_confidence,
+                ),
+                "ranked": effective_speed.is_some() || r.intelligence_score.is_some(),
+                "qualityRanked": r.intelligence_score.is_some(),
+                "speedRanked": effective_speed.is_some(),
+                "locallyMeasured": r.sample_count > 0,
+                "routing": {
+                    "balancedScore": balanced_scores.get(&r.model_db_id).copied(),
+                },
+                "canonicalModelId": r.canonical_model_id,
                 "sizeLabel": r.size_label,
                 "rpmLimit": r.rpm_limit,
                 "rpdLimit": r.rpd_limit,
@@ -254,7 +394,7 @@ async fn update_fallback(bytes: Bytes) -> Response {
     let result = crate::db::connection::run_in_transaction(move |conn| {
         for entry in &entries {
             conn.execute(
-                "UPDATE fallback_config SET priority = ?1, enabled = ?2 \
+                "UPDATE fallback_config SET priority = ?1, manual_priority = ?1, enabled = ?2 \
                  WHERE model_db_id = ?3",
                 rusqlite::params![
                     entry.priority,
@@ -263,6 +403,11 @@ async fn update_fallback(bytes: Bytes) -> Response {
                 ],
             )?;
         }
+        conn.execute(
+            "INSERT INTO settings (key, value) VALUES ('fallback_strategy', 'manual')
+             ON CONFLICT(key) DO UPDATE SET value = 'manual'",
+            [],
+        )?;
         Ok(())
     })
     .await;
@@ -301,11 +446,18 @@ fn parse_budget_value(s: &str) -> f64 {
 
 struct SortRow {
     id: i64,
+    platform: String,
+    model_id: String,
+    manual_priority: i64,
     intelligence_rank: i64,
     speed_rank: i64,
     intelligence_score: Option<f64>,
     speed_tokens_per_sec: Option<f64>,
     monthly_token_budget: String,
+    success_count: i64,
+    sample_count: i64,
+    availability: f64,
+    penalty: i64,
 }
 
 fn descending_cmp(a: f64, b: f64) -> Ordering {
@@ -317,7 +469,8 @@ fn descending_cmp(a: f64, b: f64) -> Ordering {
 fn sort_cmp(a: &SortRow, b: &SortRow, preset: &str) -> Ordering {
     let id_tiebreak = a.id.cmp(&b.id);
     match preset {
-        "intelligence" => {
+        "manual" => a.manual_priority.cmp(&b.manual_priority).then(id_tiebreak),
+        "intelligence" | "quality" => {
             if a.intelligence_score.is_some() && b.intelligence_score.is_some() {
                 descending_cmp(
                     a.intelligence_score.unwrap_or(0.0),
@@ -334,7 +487,7 @@ fn sort_cmp(a: &SortRow, b: &SortRow, preset: &str) -> Ordering {
                     .then(id_tiebreak)
             }
         }
-        "speed" => {
+        "speed" | "fastest" => {
             if a.speed_tokens_per_sec.is_some() && b.speed_tokens_per_sec.is_some() {
                 descending_cmp(
                     a.speed_tokens_per_sec.unwrap_or(0.0),
@@ -349,6 +502,22 @@ fn sort_cmp(a: &SortRow, b: &SortRow, preset: &str) -> Ordering {
                 a.speed_rank.cmp(&b.speed_rank).then(id_tiebreak)
             }
         }
+        "reliability" => {
+            let a_rate = crate::services::rankings::routing::reliability_score(
+                a.success_count,
+                a.sample_count,
+            );
+            let b_rate = crate::services::rankings::routing::reliability_score(
+                b.success_count,
+                b.sample_count,
+            );
+            match (a_rate, b_rate) {
+                (Some(a), Some(b)) => descending_cmp(a, b).then(id_tiebreak),
+                (Some(_), None) => Ordering::Less,
+                (None, Some(_)) => Ordering::Greater,
+                (None, None) => id_tiebreak,
+            }
+        }
         _ => {
             // budget: `parseBudgetValue(b) - parseBudgetValue(a)`
             descending_cmp(
@@ -361,22 +530,47 @@ fn sort_cmp(a: &SortRow, b: &SortRow, preset: &str) -> Ordering {
 }
 
 fn sort_row_from_row(row: &rusqlite::Row<'_>) -> rusqlite::Result<SortRow> {
+    let legacy_speed: Option<f64> = row.get(7)?;
+    let observed_speed: Option<f64> = row.get(8)?;
+    let external_speed: Option<f64> = row.get(9)?;
+    let ewma_speed: Option<f64> = row.get(10)?;
     Ok(SortRow {
         id: row.get(0)?,
-        intelligence_rank: row.get(1)?,
-        speed_rank: row.get(2)?,
-        intelligence_score: row.get(3)?,
-        speed_tokens_per_sec: row.get(4)?,
-        monthly_token_budget: row.get::<_, String>(5).unwrap_or_default(),
+        platform: row.get(1)?,
+        model_id: row.get(2)?,
+        manual_priority: row.get(3)?,
+        intelligence_rank: row.get(4)?,
+        speed_rank: row.get(5)?,
+        intelligence_score: row.get(6)?,
+        speed_tokens_per_sec: ranking_json::effective_speed(
+            ewma_speed.or(observed_speed),
+            external_speed,
+            legacy_speed,
+        ),
+        monthly_token_budget: row.get::<_, String>(11).unwrap_or_default(),
+        success_count: row.get::<_, Option<i64>>(12)?.unwrap_or(0),
+        sample_count: row.get::<_, Option<i64>>(13)?.unwrap_or(0),
+        availability: 1.0,
+        penalty: 0,
     })
 }
 
 async fn sort_fallback(Path(preset): Path<String>) -> Response {
-    if preset != "intelligence" && preset != "speed" && preset != "budget" {
+    if !matches!(
+        preset.as_str(),
+        "manual"
+            | "intelligence"
+            | "quality"
+            | "speed"
+            | "fastest"
+            | "reliability"
+            | "balanced"
+            | "budget"
+    ) {
         return (
             StatusCode::BAD_REQUEST,
             Json(json!({
-                "error": { "message": format!("Unknown preset: {preset}. Use: intelligence, speed, budget") }
+                "error": { "message": format!("Unknown preset: {preset}. Use: manual, quality, fastest, reliability, balanced, budget") }
             })),
         )
             .into_response();
@@ -384,23 +578,72 @@ async fn sort_fallback(Path(preset): Path<String>) -> Response {
 
     let rows: Vec<SortRow> = {
         let conn = db().lock().await;
-        conn.prepare(
-            "SELECT fc.model_db_id, m.intelligence_rank, m.speed_rank, m.intelligence_score, \
-             m.speed_tokens_per_sec, m.monthly_token_budget \
-             FROM fallback_config fc INNER JOIN models m ON m.id = fc.model_db_id",
-        )
-        .ok()
-        .and_then(|mut s| {
-            s.query_map([], sort_row_from_row)
-                .ok()
-                .and_then(|it| it.collect::<rusqlite::Result<Vec<_>>>().ok())
-        })
-        .unwrap_or_default()
+        let mut rows = conn
+            .prepare(
+            "SELECT fc.model_db_id, m.platform, m.model_id, \
+             COALESCE(fc.manual_priority, fc.priority), m.intelligence_rank, m.speed_rank, \
+             m.intelligence_score, m.speed_tokens_per_sec, m.observed_speed_tps, \
+             m.external_speed_tps, mp.ewma_output_tps, m.monthly_token_budget, \
+             mp.success_count, mp.sample_count \
+             FROM fallback_config fc INNER JOIN models m ON m.id = fc.model_db_id \
+             LEFT JOIN model_performance mp ON mp.platform = m.platform AND mp.model_id = m.model_id",
+            )
+            .ok()
+            .and_then(|mut statement| {
+                statement
+                    .query_map([], sort_row_from_row)
+                    .ok()
+                    .and_then(|it| it.collect::<rusqlite::Result<Vec<_>>>().ok())
+            })
+            .unwrap_or_default();
+        let penalty_map: HashMap<i64, i64> = get_all_penalties()
+            .into_iter()
+            .map(|entry| (entry.model_db_id, entry.penalty))
+            .collect();
+        for row in &mut rows {
+            row.penalty = penalty_map.get(&row.id).copied().unwrap_or(0);
+            row.availability =
+                if crate::providers::get_provider_with_conn(&conn, &row.platform).is_some() {
+                    route_availability(&conn, &row.platform, &row.model_id)
+                } else {
+                    0.0
+                };
+        }
+        rows
     };
 
     let mut sorted = rows;
-    sorted.sort_by(|a, b| sort_cmp(a, b, &preset));
+    if preset == "balanced" {
+        let candidates = sorted
+            .iter()
+            .map(|row| crate::services::rankings::routing::RoutingCandidate {
+                model_db_id: row.id,
+                manual_priority: row.manual_priority,
+                quality: row.intelligence_score,
+                speed: row.speed_tokens_per_sec,
+                reliability: crate::services::rankings::routing::reliability_score(
+                    row.success_count,
+                    row.sample_count,
+                ),
+                availability: row.availability,
+                penalty: row.penalty,
+            })
+            .collect::<Vec<_>>();
+        let scores = crate::services::rankings::routing::score_candidates(
+            &candidates,
+            crate::services::rankings::routing::RoutingStrategy::Balanced,
+        );
+        let order: HashMap<i64, usize> = scores
+            .iter()
+            .enumerate()
+            .map(|(index, score)| (score.model_db_id, index))
+            .collect();
+        sorted.sort_by_key(|row| order.get(&row.id).copied().unwrap_or(usize::MAX));
+    } else {
+        sorted.sort_by(|a, b| sort_cmp(a, b, &preset));
+    }
 
+    let preset_for_transaction = preset.clone();
     let result = crate::db::connection::run_in_transaction(move |conn| {
         for (i, row) in sorted.iter().enumerate() {
             conn.execute(
@@ -408,6 +651,19 @@ async fn sort_fallback(Path(preset): Path<String>) -> Response {
                 rusqlite::params![(i as i64) + 1, row.id],
             )?;
         }
+        let strategy = match preset_for_transaction.as_str() {
+            "intelligence" | "quality" => "quality",
+            "speed" | "fastest" => "fastest",
+            "reliability" => "reliability",
+            "balanced" => "balanced",
+            "manual" => "manual",
+            _ => "manual",
+        };
+        conn.execute(
+            "INSERT INTO settings (key, value) VALUES ('fallback_strategy', ?1)
+             ON CONFLICT(key) DO UPDATE SET value = excluded.value",
+            rusqlite::params![strategy],
+        )?;
         Ok(())
     })
     .await;
@@ -415,6 +671,73 @@ async fn sort_fallback(Path(preset): Path<String>) -> Response {
     match result {
         Ok(_) => Json(json!({ "success": true, "preset": preset })).into_response(),
         Err(e) => crate::app::error_text(500, &e.to_string()),
+    }
+}
+
+async fn get_strategy() -> Response {
+    let strategy = {
+        let conn = db().lock().await;
+        conn.query_row(
+            "SELECT value FROM settings WHERE key = 'fallback_strategy'",
+            [],
+            |row| row.get::<_, String>(0),
+        )
+        .ok()
+        .and_then(|value| crate::services::rankings::routing::RoutingStrategy::parse(&value))
+        .unwrap_or(crate::services::rankings::routing::RoutingStrategy::Manual)
+    };
+    Json(json!({
+        "strategy": strategy.as_str(),
+        "weights": {
+            "quality": crate::services::rankings::routing::QUALITY_WEIGHT,
+            "reliability": crate::services::rankings::routing::RELIABILITY_WEIGHT,
+            "speed": crate::services::rankings::routing::SPEED_WEIGHT,
+            "availability": crate::services::rankings::routing::AVAILABILITY_WEIGHT,
+        }
+    }))
+    .into_response()
+}
+
+async fn set_strategy(bytes: Bytes) -> Response {
+    let raw: Value = match serde_json::from_slice(&bytes) {
+        Ok(value) => value,
+        Err(_) => return crate::app::error_text(400, "Failed to parse JSON body"),
+    };
+    let requested = raw.as_str().map(str::to_string).or_else(|| {
+        raw.get("strategy")
+            .and_then(Value::as_str)
+            .map(str::to_string)
+    });
+    let Some(strategy) = requested
+        .as_deref()
+        .and_then(crate::services::rankings::routing::RoutingStrategy::parse)
+    else {
+        return (
+            StatusCode::BAD_REQUEST,
+            Json(json!({
+                "error": { "message": "Unknown strategy. Use: manual, balanced, quality, fastest, reliability" }
+            })),
+        )
+            .into_response();
+    };
+    let result = crate::db::connection::run_in_transaction(move |conn| {
+        if strategy == crate::services::rankings::routing::RoutingStrategy::Manual {
+            conn.execute(
+                "UPDATE fallback_config SET priority = COALESCE(manual_priority, priority)",
+                [],
+            )?;
+        }
+        conn.execute(
+            "INSERT INTO settings (key, value) VALUES ('fallback_strategy', ?1)
+             ON CONFLICT(key) DO UPDATE SET value = excluded.value",
+            rusqlite::params![strategy.as_str()],
+        )?;
+        Ok(())
+    })
+    .await;
+    match result {
+        Ok(_) => Json(json!({ "success": true, "strategy": strategy.as_str() })).into_response(),
+        Err(error) => crate::app::error_text(500, &error.to_string()),
     }
 }
 
@@ -556,11 +879,18 @@ mod tests {
     fn sort_comparator_intelligence() {
         let make = |id: i64, iq: Option<f64>, rank: i64| SortRow {
             id,
+            platform: "test".to_string(),
+            model_id: format!("model-{id}"),
+            manual_priority: rank,
             intelligence_rank: rank,
             speed_rank: rank,
             intelligence_score: iq,
             speed_tokens_per_sec: None,
             monthly_token_budget: String::new(),
+            success_count: 0,
+            sample_count: 0,
+            availability: 1.0,
+            penalty: 0,
         };
         // Both ranked → higher score first.
         let a = make(1, Some(50.0), 3);
@@ -585,19 +915,33 @@ mod tests {
     fn sort_comparator_budget() {
         let cheap = SortRow {
             id: 1,
+            platform: "test".to_string(),
+            model_id: "cheap".to_string(),
+            manual_priority: 1,
             intelligence_rank: 1,
             speed_rank: 1,
             intelligence_score: None,
             speed_tokens_per_sec: None,
             monthly_token_budget: "100K".to_string(),
+            success_count: 0,
+            sample_count: 0,
+            availability: 1.0,
+            penalty: 0,
         };
         let rich = SortRow {
             id: 2,
+            platform: "test".to_string(),
+            model_id: "rich".to_string(),
+            manual_priority: 2,
             intelligence_rank: 2,
             speed_rank: 2,
             intelligence_score: None,
             speed_tokens_per_sec: None,
             monthly_token_budget: "1M".to_string(),
+            success_count: 0,
+            sample_count: 0,
+            availability: 1.0,
+            penalty: 0,
         };
         assert_eq!(sort_cmp(&cheap, &rich, "budget"), Ordering::Greater);
     }

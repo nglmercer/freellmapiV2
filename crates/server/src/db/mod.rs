@@ -29,5 +29,6 @@ pub fn run_migrations(conn: &rusqlite::Connection) {
     migrate_models_v11(conn);
     migrate_models_v12(conn);
     migrate_models_v13(conn);
+    migrate_models_v14(conn);
     ensure_unified_key(conn);
 }

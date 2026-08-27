@@ -1,5 +1,32 @@
 // ---- Platform & Model Types ----
 
+export interface RankingMetric {
+  score: number | null;
+  rank: number | null;
+  source: string | null;
+  confidence: number;
+  updatedAt: string | null;
+  status: 'fresh' | 'stale' | 'unknown';
+  ranked: boolean;
+}
+
+export interface SpeedMetric {
+  tokensPerSecond: number | null;
+  rank: number | null;
+  source: string | null;
+  confidence: number;
+  updatedAt: string | null;
+  status: 'fresh' | 'stale' | 'unknown';
+  ranked: boolean;
+  sampleCount: number;
+}
+
+export interface ReliabilityMetric {
+  successRate: number | null;
+  sampleCount: number;
+  rateLimitRate: number | null;
+}
+
 // Active platforms — must match the Rust provider registry and API-key route
 // allowlist.
 // Hugging Face, Moonshot, and MiniMax direct integrations were dropped
@@ -26,8 +53,8 @@ export interface Model {
   platform: Platform;
   modelId: string;
   displayName: string;
-  intelligenceRank: number;
-  speedRank: number;
+  intelligenceRank: number | null;
+  speedRank: number | null;
   sizeLabel: string;
   rpmLimit: number | null;
   rpdLimit: number | null;
@@ -36,6 +63,11 @@ export interface Model {
   monthlyTokenBudget: string;
   contextWindow: number | null;
   enabled: boolean;
+  quality?: RankingMetric;
+  speed?: SpeedMetric;
+  reliability?: ReliabilityMetric;
+  rankingConfidence?: number;
+  routing?: { balancedScore: number | null };
 }
 
 export type KeyStatus = 'healthy' | 'rate_limited' | 'invalid' | 'error' | 'unknown';
@@ -63,10 +95,20 @@ export interface FallbackEntry {
   modelId: number;
   platform: Platform;
   displayName: string;
-  intelligenceRank: number;
-  speedRank: number;
+  intelligenceRank: number | null;
+  speedRank: number | null;
   priority: number;
   enabled: boolean;
+  manualPriority?: number | null;
+  intelligenceScore?: number | null;
+  speedTokensPerSec?: number | null;
+  rankingSource?: string | null;
+  lastRankedAt?: string | null;
+  quality?: RankingMetric;
+  speed?: SpeedMetric;
+  reliability?: ReliabilityMetric;
+  rankingConfidence?: number;
+  routing?: { balancedScore: number | null };
 }
 
 // ---- OpenAI-Compatible Types ----

@@ -7,3 +7,4 @@ pub mod rankings;
 pub mod ratelimit;
 pub mod router;
 pub mod state_persistence;
+pub mod telemetry;

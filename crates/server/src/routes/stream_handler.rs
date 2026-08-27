@@ -7,6 +7,7 @@ use axum::response::{IntoResponse, Response};
 use crate::providers::base::{ChunkReceiver, ProviderError};
 use crate::services::ratelimit::{record_tokens, set_sticky_model};
 use crate::services::router::{record_success, RouteResult};
+use crate::services::telemetry::{record_observation, ObservationOutcome, RuntimeObservation};
 use crate::types::{ChatCompletionChunk, ChatMessage, CompletionOptions};
 
 fn sse_headers(platform_model: String, attempt: i64) -> HeaderMap {
@@ -53,10 +54,12 @@ pub async fn handle_streaming_completion(
     // starts. If this errors, propagate for retry.
     let mut first_chunk: Option<ChatCompletionChunk> = None;
     let mut stream_id: Option<String> = None;
+    let mut first_chunk_ttft_ms: Option<i64> = None;
     match rx.recv().await {
         Some(Ok(chunk)) => {
             stream_id = Some(chunk.id.clone());
             first_chunk = Some(chunk);
+            first_chunk_ttft_ms = Some(chrono::Utc::now().timestamp_millis() - start);
         }
         Some(Err(err)) => return Err(err),
         None => {}
@@ -77,6 +80,13 @@ pub async fn handle_streaming_completion(
     let body = async_stream::stream! {
         let mut total_output_tokens: i64 = 0;
         let mut stream_started = false;
+        // Providers may send authoritative usage in a final chunk. Keep that
+        // separate from the character-based compatibility estimate below.
+        let mut observed_output_tokens: Option<i64> = first_chunk
+            .as_ref()
+            .and_then(|chunk| chunk.usage.as_ref())
+            .map(|usage| usage.completion_tokens)
+            .filter(|tokens| *tokens > 0);
 
         // Write the pre-fetched first chunk (if any)
         if let Some(ref first) = first_chunk {
@@ -91,6 +101,14 @@ pub async fn handle_streaming_completion(
         while let Some(item) = rx.recv().await {
             match item {
                 Ok(chunk) => {
+                    if let Some(tokens) = chunk
+                        .usage
+                        .as_ref()
+                        .map(|usage| usage.completion_tokens)
+                        .filter(|tokens| *tokens > 0)
+                    {
+                        observed_output_tokens = Some(tokens);
+                    }
                     total_output_tokens +=
                         (chunk_delta_text(&chunk).chars().count() as f64 / 4.0).ceil() as i64;
                     yield Ok(sse_line(&serde_json::to_value(&chunk).unwrap()));
@@ -117,6 +135,27 @@ pub async fn handle_streaming_completion(
                     "{platform} {model_id} error {estimated_input_tokens} {total_output_tokens} {} {stream_err}",
                     chrono::Utc::now().timestamp_millis() - start
                 );
+                let _ = record_observation(
+                    &platform,
+                    &model_id,
+                    RuntimeObservation {
+                        outcome: ObservationOutcome::Failure {
+                            status_code: None,
+                            message: stream_err,
+                        },
+                        latency_ms: Some(chrono::Utc::now().timestamp_millis() - start),
+                        ttft_ms: first_chunk_ttft_ms,
+                        // Only provider-reported usage is authoritative. The
+                        // character count above is only for the compatibility
+                        // response usage field, so it must not become a
+                        // fabricated TPS observation.
+                        output_tokens: observed_output_tokens,
+                        generation_duration_ms: first_chunk_ttft_ms
+                            .map(|ttft| chrono::Utc::now().timestamp_millis() - start - ttft)
+                            .filter(|duration| *duration > 0),
+                    },
+                )
+                .await;
                 return;
             }
             // Pre-stream errors are caught by the outer handshake; this
@@ -156,6 +195,23 @@ pub async fn handle_streaming_completion(
         record_tokens(&platform, &model_id, key_id, estimated_input_tokens + total_output_tokens);
         record_success(model_db_id);
         set_sticky_model(&messages, model_db_id);
+        let elapsed_ms = chrono::Utc::now().timestamp_millis() - start;
+        let _ = record_observation(
+            &platform,
+            &model_id,
+            RuntimeObservation {
+                outcome: ObservationOutcome::Success,
+                latency_ms: Some(elapsed_ms),
+                ttft_ms: first_chunk_ttft_ms,
+                // If the provider omitted usage, keep runtime TPS unknown
+                // instead of deriving it from compatibility characters.
+                output_tokens: observed_output_tokens,
+                generation_duration_ms: first_chunk_ttft_ms
+                    .map(|ttft| elapsed_ms - ttft)
+                    .filter(|duration| *duration > 0),
+            },
+        )
+        .await;
         tracing::info!(
             "{platform} {model_id} success {estimated_input_tokens} {total_output_tokens} {}",
             chrono::Utc::now().timestamp_millis() - start
@@ -175,6 +231,7 @@ pub async fn handle_standard_completion(
     messages: Vec<ChatMessage>,
     options: CompletionOptions,
     attempt: i64,
+    start: i64,
 ) -> Result<Response, ProviderError> {
     let result = route
         .provider
@@ -185,6 +242,18 @@ pub async fn handle_standard_completion(
     record_tokens(&route.platform, &route.model_id, route.key_id, total_tokens);
     record_success(route.model_db_id);
     set_sticky_model(&messages, route.model_db_id);
+    let _ = record_observation(
+        &route.platform,
+        &route.model_id,
+        RuntimeObservation {
+            outcome: ObservationOutcome::Success,
+            latency_ms: Some(chrono::Utc::now().timestamp_millis() - start),
+            ttft_ms: None,
+            output_tokens: Some(result.usage.completion_tokens),
+            generation_duration_ms: None,
+        },
+    )
+    .await;
 
     let mut response = axum::Json(result).into_response();
     {

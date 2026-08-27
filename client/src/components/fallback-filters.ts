@@ -9,12 +9,39 @@ export interface FallbackEntry {
   platform: string
   modelId: string
   displayName: string
-  intelligenceRank: number
-  speedRank: number
+  intelligenceRank: number | null
+  speedRank: number | null
   intelligenceScore: number | null
   speedTokensPerSec: number | null
   rankingSource: string | null
   lastRankedAt: string | null
+  manualPriority?: number | null
+  quality?: {
+    score: number | null
+    rank: number | null
+    source: string | null
+    confidence: number
+    updatedAt: string | null
+    status: 'fresh' | 'stale' | 'unknown'
+    ranked: boolean
+  }
+  speed?: {
+    tokensPerSecond: number | null
+    rank: number | null
+    source: string | null
+    sampleCount: number
+    confidence: number
+    updatedAt: string | null
+    status: 'fresh' | 'stale' | 'unknown'
+    ranked: boolean
+  }
+  reliability?: {
+    successRate: number | null
+    sampleCount: number
+    rateLimitRate: number | null
+  }
+  rankingConfidence?: number
+  routing?: { balancedScore?: number | null }
   sizeLabel: string
   rpmLimit: number | null
   rpdLimit: number | null
@@ -22,11 +49,11 @@ export interface FallbackEntry {
   keyCount: number
 }
 
-export type SortPreset = 'intelligence' | 'speed' | 'budget'
+export type SortPreset = 'manual' | 'intelligence' | 'quality' | 'speed' | 'fastest' | 'reliability' | 'balanced' | 'budget'
 
 export type TierFilter = 'all' | 'free' | 'paid'
 export type StateFilter = 'all' | 'enabled' | 'disabled'
-export type RankingFilter = 'all' | 'ranked' | 'unranked'
+export type RankingFilter = 'all' | 'ranked' | 'unranked' | 'high-confidence' | 'has-quality' | 'has-speed' | 'local-performance'
 
 export interface FallbackFilters {
   search: string
@@ -45,7 +72,19 @@ export const EMPTY_FILTERS: FallbackFilters = {
 }
 
 export function isRanked(entry: FallbackEntry): boolean {
-  return entry.intelligenceScore != null
+  return entry.intelligenceScore != null || hasSpeed(entry)
+}
+
+export function hasQuality(entry: FallbackEntry): boolean {
+  return entry.intelligenceScore != null || entry.quality?.score != null
+}
+
+export function hasSpeed(entry: FallbackEntry): boolean {
+  return entry.speedTokensPerSec != null || entry.speed?.tokensPerSecond != null
+}
+
+export function hasLocalPerformance(entry: FallbackEntry): boolean {
+  return (entry.speed?.sampleCount ?? entry.reliability?.sampleCount ?? 0) > 0
 }
 
 export function filterEntries(entries: FallbackEntry[], f: FallbackFilters): FallbackEntry[] {
@@ -58,6 +97,10 @@ export function filterEntries(entries: FallbackEntry[], f: FallbackFilters): Fal
     if (f.state === 'disabled' && e.enabled) return false
     if (f.ranking === 'ranked' && !isRanked(e)) return false
     if (f.ranking === 'unranked' && isRanked(e)) return false
+    if (f.ranking === 'high-confidence' && (e.rankingConfidence ?? 0) < 0.8) return false
+    if (f.ranking === 'has-quality' && !hasQuality(e)) return false
+    if (f.ranking === 'has-speed' && !hasSpeed(e)) return false
+    if (f.ranking === 'local-performance' && !hasLocalPerformance(e)) return false
     if (q) {
       const hay = `${e.displayName} ${e.modelId} ${e.platform}`.toLowerCase()
       if (!hay.includes(q)) return false

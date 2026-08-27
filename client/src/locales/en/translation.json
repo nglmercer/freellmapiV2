@@ -175,8 +175,9 @@
       "remaining": "{{remaining}} remaining",
       "of": "{{remainingPct}}% of {{total}}"
     },
-    "intelligenceRank": "Intel #{{rank}}",
-    "speedRank": "Speed #{{rank}}",
+    "quality": "Quality",
+    "speed": "Speed",
+    "reliability": "Reliability {{rate}}%",
     "rpm": "{{count}} rpm",
     "rpd": "{{count}} rpd",
     "tokensPerMonth": "{{count}} tok/mo",
@@ -203,6 +204,10 @@
       "rankingAll": "All",
       "rankingRanked": "Ranked only",
       "rankingUnranked": "Unranked only",
+      "rankingHighConfidence": "High confidence",
+      "rankingHasQuality": "Has quality",
+      "rankingHasSpeed": "Has speed",
+      "rankingLocalPerformance": "Has local performance",
       "clear": "Clear filters",
       "empty": "No models match the current filters."
     },
@@ -210,6 +215,11 @@
       "title": "Bulk actions",
       "sort": {
         "label": "Sort",
+        "manual": "Manual order",
+        "balanced": "Balanced",
+        "quality": "Best quality",
+        "fastest": "Fastest",
+        "reliability": "Most reliable",
         "intelligence": "By intelligence",
         "speed": "By speed",
         "budget": "By budget"
@@ -244,7 +254,11 @@
       "total_other": "{{count}} models",
       "enabled": "{{count}} enabled",
       "free": "{{count}} free",
-      "ranked": "{{count}} ranked"
+      "ranked": "{{count}} ranked",
+      "qualityRanked": "{{count}} quality-ranked",
+      "speedRanked": "{{count}} speed-ranked",
+      "localMeasured": "{{count}} locally measured",
+      "unranked": "{{count}} unranked"
     }
   },
   "analytics": {
@@ -338,8 +352,10 @@
     "active": "active",
     "disabled": "disabled",
     "contextTokens": "{{count}} tokens",
-    "intelligenceRank": "Intel #{{rank}}",
-    "speedRank": "Speed #{{rank}}",
+    "quality": "Quality",
+    "speed": "Speed",
+    "qualityUnknown": "Quality —",
+    "speedUnknown": "Speed —",
     "deleteConfirm": "Delete model \"{{name}}\"?",
     "contextTokensLabel": "{{count}} tokens"
   }

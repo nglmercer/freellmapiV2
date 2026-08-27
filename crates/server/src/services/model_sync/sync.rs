@@ -362,7 +362,7 @@ async fn sync_models_inner(started_at: &str, log_id: i64) -> Result<SyncResult, 
                     .ok()
                     .flatten();
                 tx.execute(
-                    "INSERT INTO fallback_config (model_db_id, priority, enabled) VALUES (?1, ?2, 1)",
+                    "INSERT INTO fallback_config (model_db_id, priority, manual_priority, enabled) VALUES (?1, ?2, ?2, 1)",
                     rusqlite::params![inserted_id, max_p.unwrap_or(0) + 1],
                 )
                 .map_err(|e| e.to_string())?;

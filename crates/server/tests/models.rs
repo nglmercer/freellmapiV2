@@ -127,6 +127,26 @@ async fn should_include_model_fields_from_fallback_config() {
     assert!(first["fallbackEnabled"].is_boolean());
 }
 
+/// Legacy storage defaults (99/10) never leak through the JSON API as ranks.
+#[tokio::test]
+async fn unknown_ranking_values_are_nullable() {
+    let app = common::setup().await;
+    let res = common::get(&app.app, "/api/models").await;
+    common::expect_status(&res, StatusCode::OK);
+    let model = res
+        .body
+        .as_array()
+        .expect("models array")
+        .iter()
+        .find(|model| model["modelId"] == json!("not-yet-ranked-model"))
+        .expect("unranked fixture model");
+    assert!(model["intelligenceRank"].is_null());
+    assert!(model["speedRank"].is_null());
+    assert_eq!(model["quality"]["rank"], json!(null));
+    assert_eq!(model["speed"]["rank"], json!(null));
+    assert_eq!(model["ranked"], json!(false));
+}
+
 // ─────────────────────────────────────────────────────────────────────
 // Bulk actions
 // ─────────────────────────────────────────────────────────────────────

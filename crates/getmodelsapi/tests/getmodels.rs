@@ -46,8 +46,7 @@ fn all_providers_have_required_fields() {
             p.type_,
             ProviderType::Provider | ProviderType::Gateway
         ));
-        assert!(p.supports_scraping || !p.supports_scraping); // bool
-        assert!(p.free_tier || !p.free_tier); // bool
+        assert!(p.name.is_ascii(), "provider names are stable identifiers");
         assert!(p.priority > 0);
     }
 }
@@ -94,7 +93,7 @@ async fn get_providers_returns_all_without_api_key() {
     assert_eq!(providers.len(), all_providers().len());
     for p in &providers {
         assert!(p.api_key.is_none(), "apiKey must not be exposed");
-        assert!(p.free_tier || !p.free_tier);
+        assert!(!p.name.trim().is_empty());
     }
 }
 

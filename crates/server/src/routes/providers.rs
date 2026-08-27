@@ -13,6 +13,7 @@ use crate::db::schema::{
     query_rows, CustomProviderRow, ModelRow, CUSTOM_PROVIDER_COLS, MODEL_COLS,
 };
 use crate::providers::provider_id_to_platform;
+use crate::routes::ranking_json;
 
 /// Return the established validation type-name strings.
 fn type_name(v: &Value) -> &'static str {
@@ -91,13 +92,38 @@ fn provider_json(row: &CustomProviderRow) -> Value {
 /// `{ ...m, enabled: m.enabled === 1 }` — the full models-row spread with all
 /// columns camelCased (the dashboard reads these shapes directly).
 fn model_row_json(m: &ModelRow) -> Value {
+    let effective_speed = ranking_json::effective_speed(
+        m.observed_speed_tps,
+        m.external_speed_tps,
+        m.speed_tokens_per_sec,
+    );
+    let quality = ranking_json::quality(
+        m.intelligence_score,
+        m.intelligence_rank,
+        m.quality_source.as_deref().or(m.ranking_source.as_deref()),
+        m.quality_confidence,
+        m.quality_updated_at
+            .as_deref()
+            .or(m.last_ranked_at.as_deref()),
+    );
+    let speed = ranking_json::speed(
+        effective_speed,
+        m.speed_rank,
+        m.speed_source.as_deref().or(m.ranking_source.as_deref()),
+        m.speed_confidence,
+        m.observed_speed_updated_at
+            .as_deref()
+            .or(m.external_speed_updated_at.as_deref())
+            .or(m.last_ranked_at.as_deref()),
+        0,
+    );
     json!({
         "id": m.id,
         "platform": m.platform,
         "modelId": m.model_id,
         "displayName": m.display_name,
-        "intelligenceRank": m.intelligence_rank,
-        "speedRank": m.speed_rank,
+        "intelligenceRank": quality["rank"],
+        "speedRank": speed["rank"],
         "sizeLabel": m.size_label,
         "rpmLimit": m.rpm_limit,
         "rpdLimit": m.rpd_limit,
@@ -116,9 +142,20 @@ fn model_row_json(m: &ModelRow) -> Value {
         "lastSyncedAt": m.last_synced_at,
         "source": m.source,
         "intelligenceScore": m.intelligence_score,
-        "speedTokensPerSec": m.speed_tokens_per_sec,
+        "speedTokensPerSec": effective_speed,
         "rankingSource": m.ranking_source,
         "lastRankedAt": m.last_ranked_at,
+        "quality": quality,
+        "speed": speed,
+        "rankingConfidence": ranking_json::overall_confidence(
+            m.quality_confidence,
+            m.speed_confidence,
+            m.ranking_confidence,
+        ),
+        "canonicalModelId": m.canonical_model_id,
+        "ranked": effective_speed.is_some() || m.intelligence_score.is_some(),
+        "qualityRanked": m.intelligence_score.is_some(),
+        "speedRanked": effective_speed.is_some(),
     })
 }
 
@@ -958,7 +995,7 @@ async fn create_provider_model(Path(id): Path<String>, body: Bytes) -> Response 
                 .ok()
                 .flatten();
             conn.execute(
-                "INSERT INTO fallback_config (model_db_id, priority, enabled) VALUES (?1, ?2, 1)",
+            "INSERT INTO fallback_config (model_db_id, priority, manual_priority, enabled) VALUES (?1, ?2, ?2, 1)",
                 rusqlite::params![last_id, mx.unwrap_or(0) + 1],
             )?;
         }

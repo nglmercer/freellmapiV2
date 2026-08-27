@@ -14,7 +14,8 @@ The backend and model-discovery implementations are entirely Rust. The frontend 
 ## Requirements
 
 - Rust stable
-- Node.js 20+ (or Bun for frontend dependency installation)
+- Node.js 20+
+- npm
 - SQLite support provided by the Rust dependencies
 
 ## Development

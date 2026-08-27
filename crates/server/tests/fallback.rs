@@ -60,6 +60,26 @@ async fn fallback_starts_with_zero_penalties() {
     }
 }
 
+/// Unknown benchmark dimensions are represented as null, never as the old
+/// 99/10 storage sentinels.
+#[tokio::test]
+async fn unknown_ranking_values_are_nullable() {
+    let app = common::setup().await;
+    let res = common::get(&app.app, "/api/fallback").await;
+    common::expect_status(&res, StatusCode::OK);
+    let entry = res
+        .body
+        .as_array()
+        .expect("fallback array")
+        .iter()
+        .find(|entry| entry["modelId"] == json!("not-yet-ranked-model"))
+        .expect("unranked fixture model");
+    assert!(entry["intelligenceRank"].is_null());
+    assert!(entry["speedRank"].is_null());
+    assert_eq!(entry["quality"]["rank"], json!(null));
+    assert_eq!(entry["speed"]["rank"], json!(null));
+}
+
 /// effectivePriority equals priority while no dynamic penalties are active.
 #[tokio::test]
 async fn effective_priority_equals_priority_initially() {

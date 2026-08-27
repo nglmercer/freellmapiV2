@@ -138,6 +138,17 @@ fn create_tables(sqlite: &Connection) -> rusqlite::Result<()> {
       speed_tokens_per_sec REAL,
       ranking_source TEXT,
       last_ranked_at TEXT,
+      external_speed_tps REAL,
+      observed_speed_tps REAL,
+      quality_source TEXT,
+      speed_source TEXT,
+      ranking_confidence REAL,
+      quality_confidence REAL,
+      speed_confidence REAL,
+      quality_updated_at TEXT,
+      external_speed_updated_at TEXT,
+      observed_speed_updated_at TEXT,
+      canonical_model_id INTEGER,
       UNIQUE(platform, model_id)
     );
 
@@ -196,6 +207,7 @@ fn create_tables(sqlite: &Connection) -> rusqlite::Result<()> {
       id INTEGER PRIMARY KEY AUTOINCREMENT,
       model_db_id INTEGER NOT NULL REFERENCES models(id),
       priority INTEGER NOT NULL,
+      manual_priority INTEGER,
       enabled INTEGER NOT NULL DEFAULT 1,
       UNIQUE(model_db_id)
     );
@@ -214,6 +226,79 @@ fn create_tables(sqlite: &Connection) -> rusqlite::Result<()> {
       enabled INTEGER NOT NULL DEFAULT 1,
       created_at TEXT NOT NULL DEFAULT (datetime('now')),
       updated_at TEXT NOT NULL DEFAULT (datetime('now'))
+    );
+
+    CREATE TABLE IF NOT EXISTS canonical_models (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      canonical_id TEXT NOT NULL UNIQUE,
+      display_name TEXT,
+      publisher TEXT,
+      parameter_count_b REAL,
+      parameter_count_label TEXT,
+      created_at TEXT NOT NULL DEFAULT (datetime('now')),
+      updated_at TEXT NOT NULL DEFAULT (datetime('now'))
+    );
+
+    CREATE TABLE IF NOT EXISTS model_aliases (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      canonical_model_id INTEGER NOT NULL REFERENCES canonical_models(id),
+      source TEXT NOT NULL,
+      source_model_id TEXT NOT NULL,
+      confidence REAL NOT NULL DEFAULT 1.0,
+      verified INTEGER NOT NULL DEFAULT 0,
+      created_at TEXT NOT NULL DEFAULT (datetime('now')),
+      UNIQUE(source, source_model_id)
+    );
+
+    CREATE TABLE IF NOT EXISTS model_benchmarks (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      canonical_model_id INTEGER NOT NULL REFERENCES canonical_models(id),
+      source TEXT NOT NULL,
+      source_model_id TEXT NOT NULL,
+      source_model_slug TEXT,
+      intelligence_score REAL,
+      speed_tokens_per_sec REAL,
+      confidence REAL NOT NULL DEFAULT 1.0,
+      fetched_at TEXT NOT NULL,
+      raw_updated_at TEXT,
+      UNIQUE(canonical_model_id, source)
+    );
+
+    CREATE TABLE IF NOT EXISTS ranking_unmatched (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      source TEXT NOT NULL,
+      source_model_id TEXT NOT NULL,
+      local_candidate TEXT,
+      seen_at TEXT NOT NULL,
+      resolved INTEGER NOT NULL DEFAULT 0
+    );
+
+    CREATE TABLE IF NOT EXISTS ranking_source_status (
+      source TEXT PRIMARY KEY,
+      enabled INTEGER NOT NULL DEFAULT 0,
+      last_success TEXT,
+      last_failure TEXT,
+      model_count INTEGER,
+      last_error TEXT
+    );
+
+    CREATE TABLE IF NOT EXISTS model_performance (
+      platform TEXT NOT NULL,
+      model_id TEXT NOT NULL,
+      sample_count INTEGER NOT NULL DEFAULT 0,
+      success_count INTEGER NOT NULL DEFAULT 0,
+      failure_count INTEGER NOT NULL DEFAULT 0,
+      rate_limit_count INTEGER NOT NULL DEFAULT 0,
+      timeout_count INTEGER NOT NULL DEFAULT 0,
+      server_error_count INTEGER NOT NULL DEFAULT 0,
+      ewma_latency_ms REAL,
+      ewma_ttft_ms REAL,
+      ewma_output_tps REAL,
+      ewma_output_tps_confidence REAL,
+      last_success_at TEXT,
+      last_failure_at TEXT,
+      updated_at TEXT NOT NULL DEFAULT (datetime('now')),
+      PRIMARY KEY(platform, model_id)
     );
 
     CREATE INDEX IF NOT EXISTS idx_requests_created_at ON requests(created_at);
@@ -238,6 +323,17 @@ fn create_tables(sqlite: &Connection) -> rusqlite::Result<()> {
         ("speed_tokens_per_sec", "REAL"),
         ("ranking_source", "TEXT"),
         ("last_ranked_at", "TEXT"),
+        ("external_speed_tps", "REAL"),
+        ("observed_speed_tps", "REAL"),
+        ("quality_source", "TEXT"),
+        ("speed_source", "TEXT"),
+        ("ranking_confidence", "REAL"),
+        ("quality_confidence", "REAL"),
+        ("speed_confidence", "REAL"),
+        ("quality_updated_at", "TEXT"),
+        ("external_speed_updated_at", "TEXT"),
+        ("observed_speed_updated_at", "TEXT"),
+        ("canonical_model_id", "INTEGER"),
     ];
     let existing: Vec<String> = existing_columns(sqlite, "models")?;
     for (name, def) in new_cols {
@@ -255,6 +351,21 @@ fn create_tables(sqlite: &Connection) -> rusqlite::Result<()> {
             "CREATE INDEX IF NOT EXISTS idx_models_last_ranked_at ON models(last_ranked_at)",
         )?;
     }
+    if !existing_columns(sqlite, "fallback_config")?
+        .iter()
+        .any(|c| c == "manual_priority")
+    {
+        sqlite.execute_batch("ALTER TABLE fallback_config ADD COLUMN manual_priority INTEGER")?;
+        sqlite.execute_batch(
+            "UPDATE fallback_config SET manual_priority = priority WHERE manual_priority IS NULL",
+        )?;
+    }
+    sqlite.execute_batch(
+        "CREATE INDEX IF NOT EXISTS idx_model_aliases_canonical ON model_aliases(canonical_model_id);
+         CREATE INDEX IF NOT EXISTS idx_model_benchmarks_source ON model_benchmarks(source);
+         CREATE INDEX IF NOT EXISTS idx_ranking_unmatched_source ON ranking_unmatched(source);
+         CREATE INDEX IF NOT EXISTS idx_model_performance_updated_at ON model_performance(updated_at);",
+    )?;
     Ok(())
 }
 

@@ -19,6 +19,7 @@ use crate::services::ratelimit::{
     get_sticky_model, record_request, record_tokens, set_cooldown, set_sticky_model,
 };
 use crate::services::router::{record_rate_limit_hit, record_success, route_request, RouteResult};
+use crate::services::telemetry::{record_observation, ObservationOutcome, RuntimeObservation};
 use crate::types::{ChatCompletionResponse, ChatMessage, CompletionOptions};
 
 // Virtual "auto" model. Clients like Hermes require a non-empty `model` field
@@ -119,6 +120,7 @@ pub async fn list_models() -> Response {
     axum::Json(json!({ "object": "list", "data": data })).into_response()
 }
 
+#[allow(clippy::too_many_arguments)]
 fn log_request(
     platform: String,
     model_id: String,
@@ -127,15 +129,33 @@ fn log_request(
     output_tokens: i64,
     latency_ms: i64,
     error: Option<String>,
+    status_code: Option<u16>,
 ) {
     tokio::spawn(async move {
-        let conn = db().lock().await;
-        conn.execute(
-            "INSERT INTO requests (platform, model_id, status, input_tokens, output_tokens, latency_ms, error) \
-             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7)",
-            rusqlite::params![platform, model_id, status, input_tokens, output_tokens, latency_ms, error],
+        {
+            let conn = db().lock().await;
+            conn.execute(
+                "INSERT INTO requests (platform, model_id, status, input_tokens, output_tokens, latency_ms, error) \
+                 VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7)",
+                rusqlite::params![platform, model_id, status, input_tokens, output_tokens, latency_ms, error],
+            )
+            .ok();
+        }
+        let _ = record_observation(
+            &platform,
+            &model_id,
+            RuntimeObservation {
+                outcome: ObservationOutcome::Failure {
+                    status_code,
+                    message: error.unwrap_or_default(),
+                },
+                latency_ms: Some(latency_ms),
+                ttft_ms: None,
+                output_tokens: Some(output_tokens),
+                generation_duration_ms: None,
+            },
         )
-        .ok();
+        .await;
     });
 }
 
@@ -248,9 +268,17 @@ pub async fn chat_completions(headers: HeaderMap, body: Bytes) -> Response {
                 record_request(&route.platform, &route.model_id, route.key_id);
             })
         } else if n > 1 {
-            handle_parallel(route.clone(), messages.clone(), options.clone(), n, attempt).await
+            handle_parallel(
+                route.clone(),
+                messages.clone(),
+                options.clone(),
+                n,
+                attempt,
+                start,
+            )
+            .await
         } else {
-            handle_standard_completion(&route, messages.clone(), options.clone(), attempt)
+            handle_standard_completion(&route, messages.clone(), options.clone(), attempt, start)
                 .await
                 .inspect(|_| {
                     record_request(&route.platform, &route.model_id, route.key_id);
@@ -275,6 +303,7 @@ pub async fn chat_completions(headers: HeaderMap, body: Bytes) -> Response {
             0,
             chrono::Utc::now().timestamp_millis() - start,
             Some(error_message.clone()),
+            err.status,
         );
 
         if is_retryable_error(&err) {
@@ -367,6 +396,7 @@ async fn handle_parallel(
     options: CompletionOptions,
     n: i64,
     attempt: i64,
+    start: i64,
 ) -> Result<Response, ProviderError> {
     let calls = (0..n).map(|_| {
         route
@@ -407,6 +437,18 @@ async fn handle_parallel(
     record_tokens(&route.platform, &route.model_id, route.key_id, total_tokens);
     record_success(route.model_db_id);
     set_sticky_model(&messages, route.model_db_id);
+    let _ = record_observation(
+        &route.platform,
+        &route.model_id,
+        RuntimeObservation {
+            outcome: ObservationOutcome::Success,
+            latency_ms: Some(chrono::Utc::now().timestamp_millis() - start),
+            ttft_ms: None,
+            output_tokens: Some(total_usage["completion_tokens"].as_i64().unwrap_or(0)),
+            generation_duration_ms: None,
+        },
+    )
+    .await;
 
     let mut response = (
         StatusCode::OK,

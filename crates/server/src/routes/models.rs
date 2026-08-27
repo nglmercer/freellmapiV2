@@ -11,9 +11,11 @@ use rusqlite::types::Value as SqlValue;
 use serde_json::{json, Value};
 
 use crate::db::connection::db;
+use crate::routes::ranking_json;
 use crate::services::model_sync::sync_models;
 use crate::services::pricing::{calculate_cost, get_all_pricing};
 use crate::services::rankings::{enrich_rankings, reset_rankings};
+use crate::services::router::route_availability;
 
 pub fn router() -> axum::Router {
     use axum::routing::{get, post};
@@ -27,7 +29,11 @@ pub fn router() -> axum::Router {
         .route("/sync/history", get(sync_history))
         .route("/sync/changes/{logId}", get(sync_changes))
         .route("/enrich-rankings", post(enrich_rankings_api))
+        .route("/rankings/sync", post(enrich_rankings_api))
+        .route("/rankings/overrides", post(upsert_ranking_override))
+        .route("/rankings/aliases", post(upsert_ranking_alias))
         .route("/enrich-rankings/status", get(rankings_status))
+        .route("/ranking-sources", get(ranking_sources))
         .route("/reset-rankings", post(reset_rankings_api))
         .route("/disable-all", post(disable_all))
         .route("/enable-all", post(enable_all))
@@ -59,6 +65,23 @@ struct ModelListItem {
     enabled: i64,
     priority: Option<i64>,
     fallback_enabled: Option<i64>,
+    external_speed_tps: Option<f64>,
+    observed_speed_tps: Option<f64>,
+    quality_source: Option<String>,
+    speed_source: Option<String>,
+    ranking_confidence: Option<f64>,
+    quality_confidence: Option<f64>,
+    speed_confidence: Option<f64>,
+    quality_updated_at: Option<String>,
+    external_speed_updated_at: Option<String>,
+    observed_speed_updated_at: Option<String>,
+    canonical_model_id: Option<i64>,
+    sample_count: i64,
+    success_count: i64,
+    rate_limit_count: i64,
+    ewma_output_tps: Option<f64>,
+    ewma_output_tps_confidence: Option<f64>,
+    performance_updated_at: Option<String>,
 }
 
 fn model_list_from_row(row: &rusqlite::Row<'_>) -> rusqlite::Result<ModelListItem> {
@@ -83,6 +106,23 @@ fn model_list_from_row(row: &rusqlite::Row<'_>) -> rusqlite::Result<ModelListIte
         enabled: row.get::<_, i64>(17).unwrap_or(1),
         priority: row.get(18)?,
         fallback_enabled: row.get(19)?,
+        external_speed_tps: row.get(20)?,
+        observed_speed_tps: row.get(21)?,
+        quality_source: row.get(22)?,
+        speed_source: row.get(23)?,
+        ranking_confidence: row.get(24)?,
+        quality_confidence: row.get(25)?,
+        speed_confidence: row.get(26)?,
+        quality_updated_at: row.get(27)?,
+        external_speed_updated_at: row.get(28)?,
+        observed_speed_updated_at: row.get(29)?,
+        canonical_model_id: row.get(30)?,
+        sample_count: row.get::<_, Option<i64>>(31)?.unwrap_or(0),
+        success_count: row.get::<_, Option<i64>>(32)?.unwrap_or(0),
+        rate_limit_count: row.get::<_, Option<i64>>(33)?.unwrap_or(0),
+        ewma_output_tps: row.get(34)?,
+        ewma_output_tps_confidence: row.get(35)?,
+        performance_updated_at: row.get(36)?,
     })
 }
 
@@ -95,8 +135,14 @@ async fn list_models() -> Response {
                  m.speed_rank, m.intelligence_score, m.speed_tokens_per_sec, m.ranking_source, \
                  m.last_ranked_at, m.size_label, m.rpm_limit, m.rpd_limit, m.tpm_limit, \
                  m.tpd_limit, m.monthly_token_budget, m.context_window, m.enabled, \
-                 fc.priority, fc.enabled \
+                 fc.priority, fc.enabled, m.external_speed_tps, m.observed_speed_tps, \
+                 m.quality_source, m.speed_source, m.ranking_confidence, m.quality_confidence, \
+                 m.speed_confidence, m.quality_updated_at, m.external_speed_updated_at, \
+                 m.observed_speed_updated_at, m.canonical_model_id, mp.sample_count, \
+                 mp.success_count, mp.rate_limit_count, mp.ewma_output_tps, \
+                 mp.ewma_output_tps_confidence, mp.updated_at \
                  FROM models m LEFT JOIN fallback_config fc ON fc.model_db_id = m.id \
+                 LEFT JOIN model_performance mp ON mp.platform = m.platform AND mp.model_id = m.model_id \
                  ORDER BY COALESCE(fc.priority, m.intelligence_rank) ASC",
             )
             .ok()
@@ -124,21 +170,123 @@ async fn list_models() -> Response {
     for p in &platforms {
         has_provider_map.insert(p.clone(), crate::providers::has_provider(p).await);
     }
+    let availability_by_model: HashMap<i64, f64> = {
+        let conn = db().lock().await;
+        rows.iter()
+            .map(|row| {
+                let availability = if has_provider_map
+                    .get(&row.platform)
+                    .copied()
+                    .unwrap_or(false)
+                {
+                    route_availability(&conn, &row.platform, &row.model_id)
+                } else {
+                    0.0
+                };
+                (row.id, availability)
+            })
+            .collect()
+    };
+    let penalty_map: HashMap<i64, i64> = crate::services::router::get_all_penalties()
+        .into_iter()
+        .map(|entry| (entry.model_db_id, entry.penalty))
+        .collect();
+    let balanced_scores: HashMap<i64, f64> = crate::services::rankings::routing::score_candidates(
+        &rows
+            .iter()
+            .map(|row| crate::services::rankings::routing::RoutingCandidate {
+                model_db_id: row.id,
+                manual_priority: row.priority.unwrap_or(i64::MAX),
+                quality: row.intelligence_score,
+                speed: ranking_json::effective_speed(
+                    row.ewma_output_tps.or(row.observed_speed_tps),
+                    row.external_speed_tps,
+                    row.speed_tokens_per_sec,
+                ),
+                reliability: crate::services::rankings::routing::reliability_score(
+                    row.success_count,
+                    row.sample_count,
+                ),
+                availability: availability_by_model.get(&row.id).copied().unwrap_or(0.0),
+                penalty: penalty_map.get(&row.id).copied().unwrap_or(0),
+            })
+            .collect::<Vec<_>>(),
+        crate::services::rankings::routing::RoutingStrategy::Balanced,
+    )
+    .into_iter()
+    .filter_map(|candidate| candidate.score.map(|score| (candidate.model_db_id, score)))
+    .collect();
 
     let data: Vec<Value> = rows
         .iter()
         .map(|r| {
+            let effective_speed = ranking_json::effective_speed(
+                r.ewma_output_tps.or(r.observed_speed_tps),
+                r.external_speed_tps,
+                r.speed_tokens_per_sec,
+            );
+            let quality_source = r.quality_source.as_deref().or(r.ranking_source.as_deref());
+            let speed_source = if r.ewma_output_tps.is_some() {
+                Some("local-observed")
+            } else {
+                r.speed_source.as_deref().or(r.ranking_source.as_deref())
+            };
+            let quality = ranking_json::quality(
+                r.intelligence_score,
+                r.intelligence_rank,
+                quality_source,
+                r.quality_confidence,
+                r.quality_updated_at
+                    .as_deref()
+                    .or(r.last_ranked_at.as_deref()),
+            );
+            let speed = ranking_json::speed(
+                effective_speed,
+                r.speed_rank,
+                speed_source,
+                r.ewma_output_tps_confidence.or(r.speed_confidence),
+                r.performance_updated_at
+                    .as_deref()
+                    .or(r.observed_speed_updated_at.as_deref())
+                    .or(r.external_speed_updated_at.as_deref())
+                    .or(r.last_ranked_at.as_deref()),
+                r.sample_count,
+            );
             json!({
                 "id": r.id,
                 "platform": r.platform,
                 "modelId": r.model_id,
                 "displayName": r.display_name,
-                "intelligenceRank": r.intelligence_rank,
-                "speedRank": r.speed_rank,
+                "intelligenceRank": quality["rank"],
+                "speedRank": speed["rank"],
                 "intelligenceScore": r.intelligence_score,
-                "speedTokensPerSec": r.speed_tokens_per_sec,
+                "speedTokensPerSec": ranking_json::effective_speed(
+                    r.ewma_output_tps.or(r.observed_speed_tps),
+                    r.external_speed_tps,
+                    r.speed_tokens_per_sec,
+                ),
                 "rankingSource": r.ranking_source,
                 "lastRankedAt": r.last_ranked_at,
+                "quality": quality,
+                "speed": speed,
+                "reliability": ranking_json::reliability(
+                    r.success_count,
+                    r.sample_count,
+                    r.rate_limit_count,
+                ),
+                "rankingConfidence": ranking_json::overall_confidence(
+                    r.quality_confidence,
+                    r.ewma_output_tps_confidence.or(r.speed_confidence),
+                    r.ranking_confidence,
+                ),
+                "canonicalModelId": r.canonical_model_id,
+                "ranked": effective_speed.is_some() || r.intelligence_score.is_some(),
+                "qualityRanked": r.intelligence_score.is_some(),
+                "speedRanked": effective_speed.is_some(),
+                "locallyMeasured": r.sample_count > 0,
+                "routing": {
+                    "balancedScore": balanced_scores.get(&r.id).copied(),
+                },
                 "sizeLabel": r.size_label,
                 "rpmLimit": r.rpm_limit,
                 "rpdLimit": r.rpd_limit,
@@ -227,6 +375,15 @@ struct SearchRow {
     size_label: String,
     last_synced_at: Option<String>,
     source: String,
+    external_speed_tps: Option<f64>,
+    observed_speed_tps: Option<f64>,
+    quality_source: Option<String>,
+    speed_source: Option<String>,
+    quality_confidence: Option<f64>,
+    speed_confidence: Option<f64>,
+    quality_updated_at: Option<String>,
+    external_speed_updated_at: Option<String>,
+    observed_speed_updated_at: Option<String>,
 }
 
 fn search_row_from_row(row: &rusqlite::Row<'_>) -> rusqlite::Result<SearchRow> {
@@ -252,13 +409,24 @@ fn search_row_from_row(row: &rusqlite::Row<'_>) -> rusqlite::Result<SearchRow> {
         size_label: row.get::<_, String>(18).unwrap_or_default(),
         last_synced_at: row.get(19)?,
         source: row.get::<_, String>(20).unwrap_or_else(|_| "manual".into()),
+        external_speed_tps: row.get(21)?,
+        observed_speed_tps: row.get(22)?,
+        quality_source: row.get(23)?,
+        speed_source: row.get(24)?,
+        quality_confidence: row.get(25)?,
+        speed_confidence: row.get(26)?,
+        quality_updated_at: row.get(27)?,
+        external_speed_updated_at: row.get(28)?,
+        observed_speed_updated_at: row.get(29)?,
     })
 }
 
 const SEARCH_COLS: &str = "id, platform, model_id, display_name, context_window, free_tier, \
      gateway, supported_features, pricing_prompt, pricing_completion, external_url, description, \
      intelligence_rank, speed_rank, intelligence_score, speed_tokens_per_sec, ranking_source, \
-     last_ranked_at, size_label, last_synced_at, source";
+     last_ranked_at, size_label, last_synced_at, source, external_speed_tps, observed_speed_tps, \
+     quality_source, speed_source, quality_confidence, speed_confidence, quality_updated_at, \
+     external_speed_updated_at, observed_speed_updated_at";
 
 async fn search_models(Query(params): Query<HashMap<String, String>>) -> Response {
     let limit = search_limit(&params);
@@ -306,6 +474,31 @@ async fn search_models(Query(params): Query<HashMap<String, String>>) -> Respons
                 .as_deref()
                 .and_then(|s| serde_json::from_str(s).ok())
                 .unwrap_or(json!([]));
+            let effective_speed = ranking_json::effective_speed(
+                m.observed_speed_tps,
+                m.external_speed_tps,
+                m.speed_tokens_per_sec,
+            );
+            let quality = ranking_json::quality(
+                m.intelligence_score,
+                m.intelligence_rank,
+                m.quality_source.as_deref().or(m.ranking_source.as_deref()),
+                m.quality_confidence,
+                m.quality_updated_at
+                    .as_deref()
+                    .or(m.last_ranked_at.as_deref()),
+            );
+            let speed = ranking_json::speed(
+                effective_speed,
+                m.speed_rank,
+                m.speed_source.as_deref().or(m.ranking_source.as_deref()),
+                m.speed_confidence,
+                m.observed_speed_updated_at
+                    .as_deref()
+                    .or(m.external_speed_updated_at.as_deref())
+                    .or(m.last_ranked_at.as_deref()),
+                0,
+            );
             json!({
                 "id": m.id,
                 "platform": m.platform,
@@ -319,12 +512,17 @@ async fn search_models(Query(params): Query<HashMap<String, String>>) -> Respons
                 "pricingCompletion": m.pricing_completion,
                 "externalUrl": m.external_url,
                 "description": m.description,
-                "intelligenceRank": m.intelligence_rank,
-                "speedRank": m.speed_rank,
+                "intelligenceRank": quality["rank"],
+                "speedRank": speed["rank"],
                 "intelligenceScore": m.intelligence_score,
-                "speedTokensPerSec": m.speed_tokens_per_sec,
+                "speedTokensPerSec": effective_speed,
                 "rankingSource": m.ranking_source,
                 "lastRankedAt": m.last_ranked_at,
+                "quality": quality,
+                "speed": speed,
+                "ranked": effective_speed.is_some() || m.intelligence_score.is_some(),
+                "qualityRanked": m.intelligence_score.is_some(),
+                "speedRanked": effective_speed.is_some(),
                 "sizeLabel": m.size_label,
                 "lastSyncedAt": m.last_synced_at,
                 "source": m.source,
@@ -480,7 +678,11 @@ async fn enrich_rankings_api() -> Response {
     let result = enrich_rankings().await;
     let mut out = serde_json::to_value(&result).unwrap_or(json!({}));
     if let Some(obj) = out.as_object_mut() {
-        obj.insert("success".to_string(), json!(true));
+        let success = obj
+            .get("errors")
+            .and_then(Value::as_array)
+            .is_none_or(Vec::is_empty);
+        obj.insert("success".to_string(), json!(success));
     }
     Json(out).into_response()
 }
@@ -490,15 +692,336 @@ async fn reset_rankings_api() -> Response {
     Json(json!({ "success": true, "reset": reset })).into_response()
 }
 
+fn ranking_metric_input(body: &Value, key: &str) -> Result<Option<Option<f64>>, String> {
+    match body.get(key) {
+        None => Ok(None),
+        Some(Value::Null) => Ok(Some(None)),
+        Some(value) => {
+            let Some(value) = value.as_f64() else {
+                return Err(format!("{key} must be a non-negative number or null"));
+            };
+            if !value.is_finite() || value < 0.0 {
+                return Err(format!("{key} must be a non-negative number or null"));
+            }
+            Ok(Some(Some(value)))
+        }
+    }
+}
+
+fn ranking_confidence_input(body: &Value) -> Result<f64, String> {
+    let value = body
+        .get("confidence")
+        .and_then(Value::as_f64)
+        .unwrap_or(1.0);
+    if !value.is_finite() || !(0.0..=1.0).contains(&value) {
+        Err("confidence must be a number between 0 and 1".to_string())
+    } else {
+        Ok(value)
+    }
+}
+
+fn model_db_id_input(body: &Value) -> Result<i64, String> {
+    let value = body
+        .get("modelDbId")
+        .and_then(Value::as_f64)
+        .filter(|value| value.is_finite() && *value > 0.0 && value.fract() == 0.0)
+        .map(|value| value as i64)
+        .ok_or_else(|| "modelDbId must be a positive integer".to_string())?;
+    Ok(value)
+}
+
+/// Add or update a clearly-labelled manual benchmark override. The value is
+/// persisted in the same provenance table as external sources; it is never
+/// presented as an Artificial Analysis value.
+async fn upsert_ranking_override(bytes: Bytes) -> Response {
+    let body: Value = match serde_json::from_slice(&bytes) {
+        Ok(value) => value,
+        Err(_) => return crate::app::error_text(400, "Failed to parse JSON body"),
+    };
+    if !body.is_object() {
+        return crate::app::error_text(400, "Expected an object");
+    }
+    let model_db_id = match model_db_id_input(&body) {
+        Ok(value) => value,
+        Err(error) => return crate::app::error_text(400, &error),
+    };
+    let intelligence = match ranking_metric_input(&body, "intelligenceScore") {
+        Ok(value) => value,
+        Err(error) => return crate::app::error_text(400, &error),
+    };
+    let speed = match ranking_metric_input(&body, "speedTokensPerSec") {
+        Ok(value) => value,
+        Err(error) => return crate::app::error_text(400, &error),
+    };
+    let has_value = intelligence.is_some_and(|value| value.is_some())
+        || speed.is_some_and(|value| value.is_some());
+    if !has_value {
+        return crate::app::error_text(
+            400,
+            "At least one of intelligenceScore or speedTokensPerSec is required",
+        );
+    }
+    let confidence = match ranking_confidence_input(&body) {
+        Ok(value) => value,
+        Err(error) => return crate::app::error_text(400, &error),
+    };
+    let now = chrono::Utc::now().to_rfc3339_opts(chrono::SecondsFormat::Millis, true);
+    let result = crate::db::connection::run_in_transaction(move |conn| {
+        let (platform, model_id, display_name): (String, String, String) = conn.query_row(
+            "SELECT platform, model_id, display_name FROM models WHERE id = ?1",
+            rusqlite::params![model_db_id],
+            |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?)),
+        )?;
+        let canonical = crate::services::rankings::match_ids::canonical_id_for_local(
+            &platform,
+            &model_id,
+        );
+        let publisher = crate::services::rankings::match_ids::publisher_from_model_id(&model_id);
+        conn.execute(
+            "INSERT INTO canonical_models (canonical_id, display_name, publisher)
+             VALUES (?1, ?2, ?3)
+             ON CONFLICT(canonical_id) DO UPDATE SET
+               display_name = COALESCE(canonical_models.display_name, excluded.display_name),
+               publisher = COALESCE(canonical_models.publisher, excluded.publisher),
+               updated_at = datetime('now')",
+            rusqlite::params![canonical, display_name, publisher],
+        )?;
+        let canonical_model_id: i64 = conn.query_row(
+            "SELECT id FROM canonical_models WHERE canonical_id = ?1",
+            rusqlite::params![canonical],
+            |row| row.get(0),
+        )?;
+        conn.execute(
+            "UPDATE models SET canonical_model_id = ?1 WHERE id = ?2",
+            rusqlite::params![canonical_model_id, model_db_id],
+        )?;
+        conn.execute(
+            "INSERT INTO model_aliases
+             (canonical_model_id, source, source_model_id, confidence, verified)
+             VALUES (?1, 'manual', ?2, ?3, 1)
+             ON CONFLICT(source, source_model_id) DO UPDATE SET
+               canonical_model_id = excluded.canonical_model_id,
+               confidence = excluded.confidence, verified = 1",
+            rusqlite::params![
+                canonical_model_id,
+                format!("{platform}:{model_id}"),
+                confidence
+            ],
+        )?;
+        conn.execute(
+            "INSERT INTO model_benchmarks
+             (canonical_model_id, source, source_model_id, source_model_slug,
+              intelligence_score, speed_tokens_per_sec, confidence, fetched_at)
+             VALUES (?1, 'manual', ?2, ?3, ?4, ?5, ?6, ?7)
+             ON CONFLICT(canonical_model_id, source) DO UPDATE SET
+               source_model_id = excluded.source_model_id,
+               source_model_slug = excluded.source_model_slug,
+               intelligence_score = COALESCE(excluded.intelligence_score, model_benchmarks.intelligence_score),
+               speed_tokens_per_sec = COALESCE(excluded.speed_tokens_per_sec, model_benchmarks.speed_tokens_per_sec),
+               confidence = excluded.confidence, fetched_at = excluded.fetched_at",
+            rusqlite::params![
+                canonical_model_id,
+                format!("{platform}:{model_id}"),
+                model_id,
+                intelligence.flatten(),
+                speed.flatten(),
+                confidence,
+                now,
+            ],
+        )?;
+        if let Some(Some(value)) = intelligence {
+            conn.execute(
+                "UPDATE models SET intelligence_score = ?1, intelligence_rank = 0,
+                        quality_source = 'manual', quality_confidence = ?2,
+                        ranking_confidence = ?2,
+                        quality_updated_at = ?3, last_ranked_at = ?3
+                 WHERE canonical_model_id = ?4",
+                rusqlite::params![value, confidence, now, canonical_model_id],
+            )?;
+        }
+        if let Some(Some(value)) = speed {
+            conn.execute(
+                "UPDATE models SET external_speed_tps = ?1,
+                        external_speed_updated_at = ?2,
+                        speed_confidence = ?3, ranking_confidence = ?3,
+                        speed_source = CASE WHEN observed_speed_tps IS NULL THEN 'manual' ELSE speed_source END,
+                        speed_rank = CASE WHEN observed_speed_tps IS NULL THEN 0 ELSE speed_rank END,
+                        last_ranked_at = ?2
+                 WHERE canonical_model_id = ?4",
+                rusqlite::params![value, now, confidence, canonical_model_id],
+            )?;
+        }
+        Ok(canonical_model_id)
+    })
+    .await;
+    match result {
+        Ok(canonical_model_id) => Json(json!({
+            "success": true,
+            "source": "manual",
+            "modelDbId": model_db_id,
+            "canonicalModelId": canonical_model_id,
+        }))
+        .into_response(),
+        Err(error) => crate::app::error_text(404, &error.to_string()),
+    }
+}
+
+/// Add a reviewed source alias. Manual aliases have explicit precedence in
+/// the identity resolver and do not perform fuzzy matching.
+async fn upsert_ranking_alias(bytes: Bytes) -> Response {
+    let body: Value = match serde_json::from_slice(&bytes) {
+        Ok(value) => value,
+        Err(_) => return crate::app::error_text(400, "Failed to parse JSON body"),
+    };
+    if !body.is_object() {
+        return crate::app::error_text(400, "Expected an object");
+    }
+    let model_db_id = match model_db_id_input(&body) {
+        Ok(value) => value,
+        Err(error) => return crate::app::error_text(400, &error),
+    };
+    let source = body
+        .get("source")
+        .and_then(Value::as_str)
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+        .map(str::to_string);
+    let source_model_id = body
+        .get("sourceModelId")
+        .and_then(Value::as_str)
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+        .map(str::to_string);
+    let (Some(source), Some(source_model_id)) = (source, source_model_id) else {
+        return crate::app::error_text(400, "source and sourceModelId are required");
+    };
+    let confidence = match ranking_confidence_input(&body) {
+        Ok(value) => value,
+        Err(error) => return crate::app::error_text(400, &error),
+    };
+    let response_source = source.clone();
+    let response_source_model_id = source_model_id.clone();
+    let result = crate::db::connection::run_in_transaction(move |conn| {
+        let (platform, model_id, display_name, existing_canonical): (
+            String,
+            String,
+            String,
+            Option<i64>,
+        ) = conn.query_row(
+            "SELECT platform, model_id, display_name, canonical_model_id
+             FROM models WHERE id = ?1",
+            rusqlite::params![model_db_id],
+            |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?, row.get(3)?)),
+        )?;
+        let canonical_model_id = if let Some(existing) = existing_canonical {
+            existing
+        } else {
+            let canonical =
+                crate::services::rankings::match_ids::canonical_id_for_local(&platform, &model_id);
+            let publisher =
+                crate::services::rankings::match_ids::publisher_from_model_id(&model_id);
+            conn.execute(
+                "INSERT INTO canonical_models (canonical_id, display_name, publisher)
+                 VALUES (?1, ?2, ?3)
+                 ON CONFLICT(canonical_id) DO NOTHING",
+                rusqlite::params![canonical, display_name, publisher],
+            )?;
+            let id: i64 = conn.query_row(
+                "SELECT id FROM canonical_models WHERE canonical_id = ?1",
+                rusqlite::params![canonical],
+                |row| row.get(0),
+            )?;
+            conn.execute(
+                "UPDATE models SET canonical_model_id = ?1 WHERE id = ?2",
+                rusqlite::params![id, model_db_id],
+            )?;
+            id
+        };
+        conn.execute(
+            "INSERT INTO model_aliases
+             (canonical_model_id, source, source_model_id, confidence, verified)
+             VALUES (?1, ?2, ?3, ?4, 1)
+             ON CONFLICT(source, source_model_id) DO UPDATE SET
+               canonical_model_id = excluded.canonical_model_id,
+               confidence = excluded.confidence, verified = 1",
+            rusqlite::params![canonical_model_id, source, source_model_id, confidence],
+        )?;
+        Ok(canonical_model_id)
+    })
+    .await;
+    match result {
+        Ok(canonical_model_id) => Json(json!({
+            "success": true,
+            "source": response_source,
+            "sourceModelId": response_source_model_id,
+            "canonicalModelId": canonical_model_id,
+        }))
+        .into_response(),
+        Err(error) => crate::app::error_text(404, &error.to_string()),
+    }
+}
+
 // ─────────────────────────────────────────────────────────────────────
 // GET /enrich-rankings/status
 // ─────────────────────────────────────────────────────────────────────
 
 async fn rankings_status() -> Response {
-    let (total, ranked_row, by_source) = {
+    let (
+        total,
+        quality_ranked,
+        speed_ranked,
+        locally_measured,
+        ranked,
+        unranked,
+        ranked_row,
+        by_source,
+    ) = {
         let conn = db().lock().await;
         let total: i64 = conn
             .query_row("SELECT count(*) FROM models", [], |r| r.get(0))
+            .unwrap_or(0);
+        let quality_ranked: i64 = conn
+            .query_row(
+                "SELECT count(*) FROM models WHERE intelligence_score IS NOT NULL",
+                [],
+                |r| r.get(0),
+            )
+            .unwrap_or(0);
+        let speed_ranked: i64 = conn
+            .query_row(
+                "SELECT count(*) FROM models
+                 WHERE COALESCE(observed_speed_tps, external_speed_tps, speed_tokens_per_sec) IS NOT NULL",
+                [],
+                |r| r.get(0),
+            )
+            .unwrap_or(0);
+        let locally_measured: i64 = conn
+            .query_row(
+                "SELECT count(*) FROM models m
+                 INNER JOIN model_performance mp
+                   ON mp.platform = m.platform AND mp.model_id = m.model_id
+                 WHERE mp.sample_count > 0",
+                [],
+                |r| r.get(0),
+            )
+            .unwrap_or(0);
+        let ranked: i64 = conn
+            .query_row(
+                "SELECT count(*) FROM models
+                 WHERE intelligence_score IS NOT NULL
+                    OR COALESCE(observed_speed_tps, external_speed_tps, speed_tokens_per_sec) IS NOT NULL",
+                [],
+                |r| r.get(0),
+            )
+            .unwrap_or(0);
+        let unranked: i64 = conn
+            .query_row(
+                "SELECT count(*) FROM models
+                 WHERE intelligence_score IS NULL
+                   AND COALESCE(observed_speed_tps, external_speed_tps, speed_tokens_per_sec) IS NULL",
+                [],
+                |r| r.get(0),
+            )
             .unwrap_or(0);
         let ranked_row: Option<(i64, Option<String>, Option<String>)> = conn
             .query_row(
@@ -522,21 +1045,78 @@ async fn rankings_status() -> Response {
                 .and_then(|it| it.collect::<rusqlite::Result<Vec<_>>>().ok())
             })
             .unwrap_or_default();
-        (total, ranked_row, by_source)
+        (
+            total,
+            quality_ranked,
+            speed_ranked,
+            locally_measured,
+            ranked,
+            unranked,
+            ranked_row,
+            by_source,
+        )
     };
 
-    let ranked = ranked_row.as_ref().map(|r| r.0).unwrap_or(0);
     let oldest_ranking = ranked_row.as_ref().and_then(|r| r.1.clone());
     let newest_ranking = ranked_row.as_ref().and_then(|r| r.2.clone());
     Json(json!({
         "total": total,
         "ranked": ranked,
-        "unranked": total - ranked,
+        "qualityRanked": quality_ranked,
+        "speedRanked": speed_ranked,
+        "locallyMeasured": locally_measured,
+        "unranked": unranked,
         "oldestRanking": oldest_ranking,
         "newestRanking": newest_ranking,
         "bySource": by_source.iter().map(|(s, c)| json!({ "source": s, "count": c })).collect::<Vec<_>>(),
     }))
     .into_response()
+}
+
+async fn ranking_sources() -> Response {
+    let configured_aa = crate::env::env_string("ARTIFICIAL_ANALYSIS_API_KEY")
+        .is_some_and(|key| !key.trim().is_empty());
+    let rows: Vec<Value> = {
+        let conn = db().lock().await;
+        conn.prepare(
+            "SELECT source, enabled, last_success, last_failure, model_count, last_error
+             FROM ranking_source_status ORDER BY source",
+        )
+        .ok()
+        .and_then(|mut stmt| {
+            stmt.query_map([], |row| {
+                Ok(json!({
+                    "name": row.get::<_, String>(0)?,
+                    "enabled": row.get::<_, i64>(1)? != 0,
+                    "lastSuccess": row.get::<_, Option<String>>(2)?,
+                    "lastFailure": row.get::<_, Option<String>>(3)?,
+                    "modelCount": row.get::<_, Option<i64>>(4)?,
+                    "lastError": row.get::<_, Option<String>>(5)?,
+                }))
+            })
+            .ok()
+            .and_then(|it| it.collect::<rusqlite::Result<Vec<_>>>().ok())
+        })
+        .unwrap_or_default()
+    };
+    let mut result = rows;
+    if !result
+        .iter()
+        .any(|row| row["name"] == "artificial-analysis")
+    {
+        result.push(json!({
+            "name": "artificial-analysis",
+            "enabled": configured_aa,
+            "lastSuccess": null,
+            "lastFailure": null,
+            "modelCount": null,
+            "lastError": null,
+        }));
+    }
+    if !result.iter().any(|row| row["name"] == "livebench") {
+        result.push(json!({ "name": "livebench", "enabled": false }));
+    }
+    Json(result).into_response()
 }
 
 // ─────────────────────────────────────────────────────────────────────

@@ -175,8 +175,9 @@
       "remaining": "{{remaining}} restantes",
       "of": "{{remainingPct}}% de {{total}}"
     },
-    "intelligenceRank": "Intel #{{rank}}",
-    "speedRank": "Velocidad #{{rank}}",
+    "quality": "Calidad",
+    "speed": "Velocidad",
+    "reliability": "Fiabilidad {{rate}}%",
     "rpm": "{{count}} rpm",
     "rpd": "{{count}} rpd",
     "tokensPerMonth": "{{count}} tok/mes",
@@ -203,6 +204,10 @@
       "rankingAll": "Todos",
       "rankingRanked": "Solo rankeados",
       "rankingUnranked": "Solo sin rankear",
+      "rankingHighConfidence": "Alta confianza",
+      "rankingHasQuality": "Con calidad",
+      "rankingHasSpeed": "Con velocidad",
+      "rankingLocalPerformance": "Con rendimiento local",
       "clear": "Limpiar filtros",
       "empty": "Ningún modelo coincide con los filtros actuales."
     },
@@ -210,6 +215,11 @@
       "title": "Acciones en lote",
       "sort": {
         "label": "Ordenar",
+        "manual": "Orden manual",
+        "balanced": "Equilibrado",
+        "quality": "Mejor calidad",
+        "fastest": "Más rápidos",
+        "reliability": "Más fiables",
         "intelligence": "Por inteligencia",
         "speed": "Por velocidad",
         "budget": "Por presupuesto"
@@ -244,7 +254,11 @@
       "total_other": "{{count}} modelos",
       "enabled": "{{count}} habilitados",
       "free": "{{count}} gratuitos",
-      "ranked": "{{count}} rankeados"
+      "ranked": "{{count}} rankeados",
+      "qualityRanked": "{{count}} con calidad",
+      "speedRanked": "{{count}} con velocidad",
+      "localMeasured": "{{count}} medidos localmente",
+      "unranked": "{{count}} sin ranking"
     }
   },
   "analytics": {
@@ -338,8 +352,10 @@
     "active": "activo",
     "disabled": "deshabilitado",
     "contextTokens": "{{count}} tokens",
-    "intelligenceRank": "Intel #{{rank}}",
-    "speedRank": "Velocidad #{{rank}}",
+    "quality": "Calidad",
+    "speed": "Velocidad",
+    "qualityUnknown": "Calidad —",
+    "speedUnknown": "Velocidad —",
     "deleteConfirm": "¿Eliminar el modelo \"{{name}}\"?"
   }
 }

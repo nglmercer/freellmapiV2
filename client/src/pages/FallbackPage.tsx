@@ -37,6 +37,39 @@ function formatTokens(n: number): string {
   return String(n)
 }
 
+function formatQuality(entry: FallbackEntry): string {
+  const score = entry.quality?.score ?? entry.intelligenceScore
+  const rank = entry.quality?.rank ?? entry.intelligenceRank
+  if (score == null) return 'Quality —'
+  return `Quality ${score.toFixed(1)}${rank == null ? '' : ` · #${rank}`}`
+}
+
+function formatSpeed(entry: FallbackEntry): string {
+  const speed = entry.speed?.tokensPerSecond ?? entry.speedTokensPerSec
+  const rank = entry.speed?.rank ?? entry.speedRank
+  if (speed == null) return 'Speed —'
+  return `Speed ${speed.toFixed(1)} tok/s${rank == null ? '' : ` · #${rank}`}`
+}
+
+function metricDetails(entry: FallbackEntry): string {
+  const quality = entry.quality
+  const speed = entry.speed
+  const reliability = entry.reliability
+  const parts = [
+    quality?.source && `Quality: ${quality.source}`,
+    quality?.confidence != null && quality.confidence > 0 && `Quality confidence: ${(quality.confidence * 100).toFixed(0)}%`,
+    quality?.updatedAt && `Quality updated: ${quality.updatedAt}`,
+    quality?.status === 'stale' && 'Quality: stale',
+    speed?.source && `Speed: ${speed.source}`,
+    speed?.confidence != null && speed.confidence > 0 && `Speed confidence: ${(speed.confidence * 100).toFixed(0)}%`,
+    speed?.updatedAt && `Speed updated: ${speed.updatedAt}`,
+    speed?.status === 'stale' && 'Speed: stale',
+    reliability?.successRate != null && `Reliability: ${(reliability.successRate * 100).toFixed(1)}%`,
+    reliability?.sampleCount ? `Samples: ${reliability.sampleCount}` : undefined,
+  ].filter(Boolean)
+  return parts.join(' · ') || 'No ranking data available'
+}
+
 interface TokenUsageData {
   totalBudget: number
   totalUsed: number
@@ -169,8 +202,13 @@ function SortableModelRow({
           )}
         </div>
         <div className="flex gap-3 mt-0.5 text-xs text-muted-foreground tabular-nums">
-          <span>{t('fallback.intelligenceRank', { rank: entry.intelligenceRank })}</span>
-          <span>{t('fallback.speedRank', { rank: entry.speedRank })}</span>
+          <span title={metricDetails(entry)}>{formatQuality(entry)}</span>
+          <span title={metricDetails(entry)}>{formatSpeed(entry)}</span>
+          {entry.reliability?.successRate != null && (
+            <span title={metricDetails(entry)}>
+              {t('fallback.reliability', { rate: (entry.reliability.successRate * 100).toFixed(1) })}
+            </span>
+          )}
           {entry.rpmLimit && <span>{t('fallback.rpm', { count: entry.rpmLimit })}</span>}
           {entry.rpdLimit && <span>{t('fallback.rpd', { count: entry.rpdLimit })}</span>}
           <span>{t('fallback.tokensPerMonth', { count: entry.monthlyTokenBudget })}</span>
@@ -249,11 +287,12 @@ export default function FallbackPage() {
     const oldIndex = displayEntries.findIndex(e => e.modelDbId === active.id)
     const newIndex = displayEntries.findIndex(e => e.modelDbId === over.id)
     const reorderedVisible = arrayMove(displayEntries, oldIndex, newIndex)
-    const unconfigured = allEntries.filter(e => e.keyCount === 0)
-    const merged = [
-      ...reorderedVisible.map((e, i) => ({ ...e, priority: i + 1 })),
-      ...unconfigured.map((e, i) => ({ ...e, priority: reorderedVisible.length + i + 1 })),
-    ]
+    let visibleIndex = 0
+    const reorderedIds = new Set(displayEntries.map(e => e.modelDbId))
+    const merged = allEntries.map(e => {
+      if (!reorderedIds.has(e.modelDbId)) return e
+      return reorderedVisible[visibleIndex++]
+    }).map((e, i) => ({ ...e, priority: i + 1 }))
     setLocalEntries(merged)
   }
 

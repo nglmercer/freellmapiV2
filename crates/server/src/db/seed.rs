@@ -2,10 +2,15 @@
 
 use rusqlite::Connection;
 
-/// Sentinel for models that have never been ranked by the enrichment service.
+/// Legacy storage sentinel. It is never emitted by an API response when the
+/// corresponding score is unknown.
 pub const UNRANKED_INTELLIGENCE: i64 = 99;
-/// Sentinel speed rank for unknown or provider-default speed.
+/// Legacy storage sentinel. It is never emitted by an API response when the
+/// corresponding speed value is unknown.
 pub const UNRANKED_SPEED: i64 = 10;
+/// A newly observed speed invalidates the old cohort rank until the next
+/// refresh. Zero is deliberately outside the valid positive rank domain.
+pub const UNRANKED_SPEED_PENDING: i64 = 0;
 
 /// No hardcoded models are bundled. The models table is populated
 /// exclusively by:
@@ -82,7 +87,7 @@ pub fn ensure_fallback_entries(conn: &Connection) {
 
         for (i, id) in missing.iter().enumerate() {
             conn.execute(
-                "INSERT INTO fallback_config (model_db_id, priority, enabled) VALUES (?1, ?2, 1)",
+                "INSERT INTO fallback_config (model_db_id, priority, manual_priority, enabled) VALUES (?1, ?2, ?2, 1)",
                 rusqlite::params![id, max_priority + i as i64 + 1],
             )
             .expect("insert missing fallback entry");

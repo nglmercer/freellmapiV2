@@ -375,9 +375,9 @@ pub fn migrate_models_v12(conn: &Connection) {
     }
 }
 
-/// Resets legacy ranking fields to the unranked sentinel and re-sequences
-/// fallback priorities while preserving the user's existing fallback order
-/// and enabled flags.
+/// Normalize legacy ranking rows without touching real benchmark values or the
+/// user's fallback order. The old rank columns remain non-null for SQLite
+/// compatibility, so the application boundary treats these sentinels as NULL.
 pub fn migrate_models_v13(conn: &Connection) {
     const RANKING_COLS: &[(&str, &str)] = &[
         ("intelligence_score", "REAL"),
@@ -395,41 +395,159 @@ pub fn migrate_models_v13(conn: &Connection) {
         }
     }
 
-    // Capture the configured order before resetting ranking metadata. Older
-    // versions used model ranking to build this list, but users can reorder
-    // the fallback chain from the dashboard and that order is user data.
-    let ordered: Vec<(i64, i64)> = conn
-        .prepare(
-            "SELECT m.id,
-                    COALESCE(f.enabled, CASE WHEN m.enabled = 1 THEN 1 ELSE 0 END)
-             FROM models AS m
-             LEFT JOIN fallback_config AS f ON f.model_db_id = m.id
-             ORDER BY CASE WHEN f.id IS NULL THEN 1 ELSE 0 END,
-                      f.priority ASC, f.id ASC, m.id ASC",
+    let already_normalized: bool = conn
+        .query_row(
+            "SELECT 1 FROM settings WHERE key = 'ranking_semantics_v13' LIMIT 1",
+            [],
+            |_| Ok(true),
         )
-        .expect("v13: prepare ordered models select")
-        .query_map([], |row| Ok((row.get(0)?, row.get(1)?)))
-        .expect("v13: query ordered models")
-        .collect::<rusqlite::Result<Vec<_>>>()
-        .expect("v13: collect ordered models");
+        .unwrap_or(false);
+    if already_normalized {
+        return;
+    }
 
     conn.execute(
-        "UPDATE models SET intelligence_rank = ?1, speed_rank = ?2, \
-         intelligence_score = NULL, speed_tokens_per_sec = NULL, \
-         ranking_source = NULL, last_ranked_at = NULL",
-        rusqlite::params![UNRANKED_INTELLIGENCE, UNRANKED_SPEED],
+        "UPDATE models SET intelligence_rank = ?1 WHERE intelligence_score IS NULL",
+        rusqlite::params![UNRANKED_INTELLIGENCE],
     )
-    .expect("v13: reset ranking columns on all models");
+    .expect("v13: normalize unknown intelligence ranks");
+    conn.execute(
+        "UPDATE models SET speed_rank = ?1 WHERE speed_tokens_per_sec IS NULL",
+        rusqlite::params![UNRANKED_SPEED],
+    )
+    .expect("v13: normalize unknown speed ranks");
+    conn.execute(
+        "INSERT OR IGNORE INTO settings (key, value) VALUES ('ranking_semantics_v13', '1')",
+        [],
+    )
+    .expect("v13: record normalization marker");
+}
 
-    conn.execute("DELETE FROM fallback_config", [])
-        .expect("v13: clear fallback_config");
-    for (i, (id, enabled)) in ordered.iter().enumerate() {
-        conn.execute(
-            "INSERT INTO fallback_config (model_db_id, priority, enabled) VALUES (?1, ?2, ?3)",
-            rusqlite::params![id, i as i64 + 1, enabled],
-        )
-        .expect("v13: insert re-sequenced fallback entry");
+/// Add the canonical identity, benchmark provenance, runtime telemetry, and
+/// routing-strategy tables. All statements are additive and idempotent so old
+/// Bun/TypeScript and Rust databases can be opened in place.
+pub fn migrate_models_v14(conn: &Connection) {
+    conn.execute_batch(
+        "CREATE TABLE IF NOT EXISTS canonical_models (
+           id INTEGER PRIMARY KEY AUTOINCREMENT,
+           canonical_id TEXT NOT NULL UNIQUE,
+           display_name TEXT,
+           publisher TEXT,
+           parameter_count_b REAL,
+           parameter_count_label TEXT,
+           created_at TEXT NOT NULL DEFAULT (datetime('now')),
+           updated_at TEXT NOT NULL DEFAULT (datetime('now'))
+         );
+         CREATE TABLE IF NOT EXISTS model_aliases (
+           id INTEGER PRIMARY KEY AUTOINCREMENT,
+           canonical_model_id INTEGER NOT NULL REFERENCES canonical_models(id),
+           source TEXT NOT NULL,
+           source_model_id TEXT NOT NULL,
+           confidence REAL NOT NULL DEFAULT 1.0,
+           verified INTEGER NOT NULL DEFAULT 0,
+           created_at TEXT NOT NULL DEFAULT (datetime('now')),
+           UNIQUE(source, source_model_id)
+         );
+         CREATE TABLE IF NOT EXISTS model_benchmarks (
+           id INTEGER PRIMARY KEY AUTOINCREMENT,
+           canonical_model_id INTEGER NOT NULL REFERENCES canonical_models(id),
+           source TEXT NOT NULL,
+           source_model_id TEXT NOT NULL,
+           source_model_slug TEXT,
+           intelligence_score REAL,
+           speed_tokens_per_sec REAL,
+           confidence REAL NOT NULL DEFAULT 1.0,
+           fetched_at TEXT NOT NULL,
+           raw_updated_at TEXT,
+           UNIQUE(canonical_model_id, source)
+         );
+         CREATE TABLE IF NOT EXISTS ranking_unmatched (
+           id INTEGER PRIMARY KEY AUTOINCREMENT,
+           source TEXT NOT NULL,
+           source_model_id TEXT NOT NULL,
+           local_candidate TEXT,
+           seen_at TEXT NOT NULL,
+           resolved INTEGER NOT NULL DEFAULT 0
+         );
+         CREATE TABLE IF NOT EXISTS ranking_source_status (
+           source TEXT PRIMARY KEY,
+           enabled INTEGER NOT NULL DEFAULT 0,
+           last_success TEXT,
+           last_failure TEXT,
+           model_count INTEGER,
+           last_error TEXT
+         );
+         CREATE TABLE IF NOT EXISTS model_performance (
+           platform TEXT NOT NULL,
+           model_id TEXT NOT NULL,
+           sample_count INTEGER NOT NULL DEFAULT 0,
+           success_count INTEGER NOT NULL DEFAULT 0,
+           failure_count INTEGER NOT NULL DEFAULT 0,
+           rate_limit_count INTEGER NOT NULL DEFAULT 0,
+           timeout_count INTEGER NOT NULL DEFAULT 0,
+           server_error_count INTEGER NOT NULL DEFAULT 0,
+           ewma_latency_ms REAL,
+           ewma_ttft_ms REAL,
+           ewma_output_tps REAL,
+           ewma_output_tps_confidence REAL,
+           last_success_at TEXT,
+           last_failure_at TEXT,
+           updated_at TEXT NOT NULL DEFAULT (datetime('now')),
+           PRIMARY KEY(platform, model_id)
+         );
+         CREATE INDEX IF NOT EXISTS idx_model_aliases_canonical ON model_aliases(canonical_model_id);
+         CREATE INDEX IF NOT EXISTS idx_model_benchmarks_source ON model_benchmarks(source);
+         CREATE INDEX IF NOT EXISTS idx_ranking_unmatched_source ON ranking_unmatched(source);
+         CREATE INDEX IF NOT EXISTS idx_model_performance_updated_at ON model_performance(updated_at);",
+    )
+    .expect("v14: create ranking tables");
+
+    if !existing_columns(conn, "fallback_config")
+        .iter()
+        .any(|c| c == "manual_priority")
+    {
+        conn.execute_batch("ALTER TABLE fallback_config ADD COLUMN manual_priority INTEGER")
+            .expect("v14: add manual fallback priority");
     }
+    conn.execute(
+        "UPDATE fallback_config SET manual_priority = priority WHERE manual_priority IS NULL",
+        [],
+    )
+    .expect("v14: backfill manual fallback priorities");
+    let manual_order_initialized: bool = conn
+        .query_row(
+            "SELECT 1 FROM settings WHERE key = 'manual_fallback_order_v14' LIMIT 1",
+            [],
+            |_| Ok(true),
+        )
+        .unwrap_or(false);
+    if !manual_order_initialized {
+        let ordered: Vec<i64> = conn
+            .prepare("SELECT id FROM fallback_config ORDER BY priority ASC, id ASC")
+            .expect("v14: prepare fallback order")
+            .query_map([], |row| row.get(0))
+            .expect("v14: query fallback order")
+            .collect::<rusqlite::Result<Vec<_>>>()
+            .expect("v14: collect fallback order");
+        for (index, id) in ordered.iter().enumerate() {
+            let priority = index as i64 + 1;
+            conn.execute(
+                "UPDATE fallback_config SET priority = ?1, manual_priority = ?1 WHERE id = ?2",
+                rusqlite::params![priority, id],
+            )
+            .expect("v14: normalize fallback order");
+        }
+        conn.execute(
+            "INSERT INTO settings (key, value) VALUES ('manual_fallback_order_v14', '1')",
+            [],
+        )
+        .expect("v14: record fallback order marker");
+    }
+    conn.execute(
+        "INSERT OR IGNORE INTO settings (key, value) VALUES ('fallback_strategy', 'manual')",
+        [],
+    )
+    .expect("v14: initialize fallback strategy");
 }
 
 #[cfg(test)]

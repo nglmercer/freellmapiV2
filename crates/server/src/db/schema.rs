@@ -4,6 +4,21 @@
 
 use rusqlite::{types::FromSql, Row};
 
+/// Convert the legacy non-null rank columns to the nullable API contract.
+/// Real ranks require a real score; this prevents stale/sentinel ordinals from
+/// being mistaken for benchmark data.
+pub fn intelligence_rank_value(rank: i64, score: Option<f64>) -> Option<i64> {
+    score
+        .filter(|v| v.is_finite() && *v >= 0.0)
+        .and_then(|_| (rank > 0).then_some(rank))
+}
+
+pub fn speed_rank_value(rank: i64, speed: Option<f64>) -> Option<i64> {
+    speed
+        .filter(|v| v.is_finite() && *v >= 0.0)
+        .and_then(|_| (rank > 0 && rank < 10_000).then_some(rank))
+}
+
 fn opt_text<R: FromSql>(row: &Row<'_>, idx: usize) -> rusqlite::Result<Option<R>> {
     row.get(idx)
 }
@@ -37,6 +52,17 @@ pub struct ModelRow {
     pub speed_tokens_per_sec: Option<f64>,
     pub ranking_source: Option<String>,
     pub last_ranked_at: Option<String>,
+    pub external_speed_tps: Option<f64>,
+    pub observed_speed_tps: Option<f64>,
+    pub quality_source: Option<String>,
+    pub speed_source: Option<String>,
+    pub ranking_confidence: Option<f64>,
+    pub quality_confidence: Option<f64>,
+    pub speed_confidence: Option<f64>,
+    pub quality_updated_at: Option<String>,
+    pub external_speed_updated_at: Option<String>,
+    pub observed_speed_updated_at: Option<String>,
+    pub canonical_model_id: Option<i64>,
 }
 
 pub const MODEL_COLS: &str =
@@ -44,7 +70,9 @@ pub const MODEL_COLS: &str =
      size_label, rpm_limit, rpd_limit, tpm_limit, tpd_limit, monthly_token_budget, context_window, \
      enabled, pricing_prompt, pricing_completion, free_tier, gateway, supported_features, \
      external_url, description, last_synced_at, source, intelligence_score, speed_tokens_per_sec, \
-     ranking_source, last_ranked_at";
+     ranking_source, last_ranked_at, external_speed_tps, observed_speed_tps, quality_source, \
+     speed_source, ranking_confidence, quality_confidence, speed_confidence, quality_updated_at, \
+     external_speed_updated_at, observed_speed_updated_at, canonical_model_id";
 
 impl ModelRow {
     pub fn from_row(row: &Row<'_>) -> rusqlite::Result<Self> {
@@ -76,6 +104,17 @@ impl ModelRow {
             speed_tokens_per_sec: opt_text::<f64>(row, 24)?,
             ranking_source: opt_text::<String>(row, 25)?,
             last_ranked_at: opt_text::<String>(row, 26)?,
+            external_speed_tps: opt_text::<f64>(row, 27)?,
+            observed_speed_tps: opt_text::<f64>(row, 28)?,
+            quality_source: opt_text::<String>(row, 29)?,
+            speed_source: opt_text::<String>(row, 30)?,
+            ranking_confidence: opt_text::<f64>(row, 31)?,
+            quality_confidence: opt_text::<f64>(row, 32)?,
+            speed_confidence: opt_text::<f64>(row, 33)?,
+            quality_updated_at: opt_text::<String>(row, 34)?,
+            external_speed_updated_at: opt_text::<String>(row, 35)?,
+            observed_speed_updated_at: opt_text::<String>(row, 36)?,
+            canonical_model_id: opt_text::<i64>(row, 37)?,
         })
     }
 
@@ -85,8 +124,16 @@ impl ModelRow {
             platform: self.platform.clone(),
             model_id: self.model_id.clone(),
             display_name: self.display_name.clone(),
-            intelligence_rank: self.intelligence_rank,
-            speed_rank: self.speed_rank,
+            intelligence_rank: intelligence_rank_value(
+                self.intelligence_rank,
+                self.intelligence_score,
+            ),
+            speed_rank: speed_rank_value(
+                self.speed_rank,
+                self.observed_speed_tps
+                    .or(self.external_speed_tps)
+                    .or(self.speed_tokens_per_sec),
+            ),
             size_label: self.size_label.clone(),
             rpm_limit: self.rpm_limit,
             rpd_limit: self.rpd_limit,
@@ -182,6 +229,7 @@ pub struct FallbackRow {
     pub id: i64,
     pub model_db_id: i64,
     pub priority: i64,
+    pub manual_priority: Option<i64>,
     pub enabled: i64,
 }
 
@@ -191,7 +239,8 @@ impl FallbackRow {
             id: row.get(0)?,
             model_db_id: row.get(1)?,
             priority: row.get(2)?,
-            enabled: row.get::<_, i64>(3).unwrap_or(1),
+            manual_priority: row.get(3)?,
+            enabled: row.get::<_, i64>(4).unwrap_or(1),
         })
     }
 }

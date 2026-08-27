@@ -1,0 +1,39 @@
+{
+  "pagination": {
+    "page": 1,
+    "total_pages": 1,
+    "has_more": false
+  },
+  "data": [
+    {
+      "id": "36f73aaf-d38a-4b56-a2b3-d04d17186910",
+      "slug": "gpt-4o",
+      "name": "GPT-4o",
+      "evaluations": {
+        "artificial_analysis_intelligence_index": 55.8
+      },
+      "performance": {
+        "median_output_tokens_per_second": 143.2
+      },
+      "updated_at": "2026-08-26T12:00:00Z"
+    },
+    {
+      "id": "quality-only",
+      "slug": "quality-only-model",
+      "evaluations": {
+        "artificial_analysis_intelligence_index": 52.8
+      }
+    },
+    {
+      "id": "speed-only",
+      "slug": "speed-only-model",
+      "performance": {
+        "median_output_tokens_per_second": 210.0
+      }
+    },
+    {
+      "id": "unranked-model",
+      "slug": "unranked-model"
+    }
+  ]
+}

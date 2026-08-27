@@ -14,8 +14,10 @@ interface CustomModel {
   id: number
   modelId: string
   displayName: string
-  intelligenceRank: number
-  speedRank: number
+  intelligenceRank: number | null
+  speedRank: number | null
+  intelligenceScore?: number | null
+  speedTokensPerSec?: number | null
   sizeLabel: string
   rpmLimit: number | null
   rpdLimit: number | null
@@ -29,8 +31,8 @@ interface CustomModel {
 interface ModelFormData {
   modelId: string
   displayName: string
-  intelligenceRank: number
-  speedRank: number
+  intelligenceRank?: number
+  speedRank?: number
   sizeLabel: string
   rpmLimit: number | null
   rpdLimit: number | null
@@ -63,18 +65,24 @@ function ModelForm({
   const [modelId, setModelId] = useState(initial?.modelId ?? '')
   const [displayName, setDisplayName] = useState(initial?.displayName ?? '')
   const [contextWindow, setContextWindow] = useState(initial?.contextWindow ? String(initial.contextWindow) : '')
-  const [intelligenceRank, setIntelligenceRank] = useState(String(initial?.intelligenceRank ?? 99))
-  const [speedRank, setSpeedRank] = useState(String(initial?.speedRank ?? 10))
+  const [intelligenceRank, setIntelligenceRank] = useState(String(initial?.intelligenceRank ?? ''))
+  const [speedRank, setSpeedRank] = useState(String(initial?.speedRank ?? ''))
   const [enabled, setEnabled] = useState(initial?.enabled ?? true)
 
   function handleSubmit(e: React.FormEvent) {
     e.preventDefault()
     if (!modelId || !displayName) return
+    const parsedIntelligenceRank = parseInt(intelligenceRank, 10)
+    const parsedSpeedRank = parseInt(speedRank, 10)
     onSave({
       modelId,
       displayName,
-      intelligenceRank: parseInt(intelligenceRank, 10) || 99,
-      speedRank: parseInt(speedRank, 10) || 10,
+      ...(Number.isFinite(parsedIntelligenceRank) && parsedIntelligenceRank > 0
+        ? { intelligenceRank: parsedIntelligenceRank }
+        : {}),
+      ...(Number.isFinite(parsedSpeedRank) && parsedSpeedRank > 0
+        ? { speedRank: parsedSpeedRank }
+        : {}),
       sizeLabel: '',
       rpmLimit: null,
       rpdLimit: null,
@@ -103,11 +111,11 @@ function ModelForm({
         </div>
         <div className="space-y-1.5 w-[80px]">
           <Label className="text-xs">{t('providerModels.form.intelligenceRank')}</Label>
-          <Input value={intelligenceRank} onChange={e => setIntelligenceRank(e.target.value)} type="number" min="1" max="999" />
+          <Input value={intelligenceRank} onChange={e => setIntelligenceRank(e.target.value)} placeholder="—" type="number" min="1" max="999" />
         </div>
         <div className="space-y-1.5 w-[80px]">
           <Label className="text-xs">{t('providerModels.form.speedRank')}</Label>
-          <Input value={speedRank} onChange={e => setSpeedRank(e.target.value)} type="number" min="1" max="999" />
+          <Input value={speedRank} onChange={e => setSpeedRank(e.target.value)} placeholder="—" type="number" min="1" max="999" />
         </div>
       </div>
 
@@ -243,8 +251,8 @@ export default function ProviderModelsPage() {
                   <code className="text-xs text-muted-foreground font-mono">{m.modelId}</code>
                   <div className="flex items-center gap-3 text-[10px] text-muted-foreground mt-0.5">
                     {m.contextWindow && <span>{t('providerModels.contextTokens', { count: m.contextWindow.toLocaleString() })}</span>}
-                    <span>{t('providerModels.intelligenceRank', { rank: m.intelligenceRank })}</span>
-                    <span>{t('providerModels.speedRank', { rank: m.speedRank })}</span>
+                    <span>{m.intelligenceScore != null ? `${t('providerModels.quality')} ${m.intelligenceScore.toFixed(1)}${m.intelligenceRank == null ? '' : ` · #${m.intelligenceRank}`}` : t('providerModels.qualityUnknown')}</span>
+                    <span>{m.speedTokensPerSec != null ? `${t('providerModels.speed')} ${m.speedTokensPerSec.toFixed(1)} tok/s${m.speedRank == null ? '' : ` · #${m.speedRank}`}` : t('providerModels.speedUnknown')}</span>
                   </div>
                 </div>
                 <div className="flex items-center gap-2 shrink-0">

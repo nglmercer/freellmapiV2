@@ -9,7 +9,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@
 import { ConfirmDialog } from '@/components/confirm-dialog'
 import { apiFetch } from '@/lib/api'
 import type { FallbackEntry, FallbackFilters, SortPreset, TierFilter, StateFilter, RankingFilter } from './fallback-filters'
-import { EMPTY_FILTERS, isRanked } from './fallback-filters'
+import { EMPTY_FILTERS, hasLocalPerformance, hasQuality, hasSpeed } from './fallback-filters'
 
 type BulkActionKey = 'enableAll' | 'disableAll' | 'enableFree' | null
 
@@ -54,7 +54,10 @@ export function ControlsPanel({
       total: entries.length,
       enabled: entries.filter((e) => e.enabled).length,
       free: entries.filter((e) => e.freeTier).length,
-      ranked: entries.filter((e) => isRanked(e)).length,
+      qualityRanked: entries.filter((e) => hasQuality(e)).length,
+      speedRanked: entries.filter((e) => hasSpeed(e)).length,
+      locallyMeasured: entries.filter((e) => hasLocalPerformance(e)).length,
+      unranked: entries.filter((e) => !hasQuality(e) && !hasSpeed(e)).length,
     }
   }, [entries])
 
@@ -204,6 +207,10 @@ export function ControlsPanel({
               <SelectItem value="all">{t('fallback.filters.rankingAll')}</SelectItem>
               <SelectItem value="ranked">{t('fallback.filters.rankingRanked')}</SelectItem>
               <SelectItem value="unranked">{t('fallback.filters.rankingUnranked')}</SelectItem>
+              <SelectItem value="high-confidence">{t('fallback.filters.rankingHighConfidence')}</SelectItem>
+              <SelectItem value="has-quality">{t('fallback.filters.rankingHasQuality')}</SelectItem>
+              <SelectItem value="has-speed">{t('fallback.filters.rankingHasSpeed')}</SelectItem>
+              <SelectItem value="local-performance">{t('fallback.filters.rankingLocalPerformance')}</SelectItem>
             </SelectContent>
           </Select>
         </div>
@@ -223,7 +230,10 @@ export function ControlsPanel({
           </span>
           <span>{t('fallback.summary.enabled', { count: counts.enabled })}</span>
           {hasFreeModels && <span>{t('fallback.summary.free', { count: counts.free })}</span>}
-          <span>{t('fallback.summary.ranked', { count: counts.ranked })}</span>
+          <span>{t('fallback.summary.qualityRanked', { count: counts.qualityRanked })}</span>
+          <span>{t('fallback.summary.speedRanked', { count: counts.speedRanked })}</span>
+          <span>{t('fallback.summary.localMeasured', { count: counts.locallyMeasured })}</span>
+          <span>{t('fallback.summary.unranked', { count: counts.unranked })}</span>
         </div>
 
         <div className="flex flex-wrap items-center gap-2">
@@ -245,7 +255,7 @@ export function ControlsPanel({
                   onClick={() => setSortMenuOpen(false)}
                 />
                 <div className="absolute right-0 mt-1 z-20 min-w-44 rounded-md border bg-popover shadow-md p-1 text-sm">
-                  {(['intelligence', 'speed', 'budget'] as const).map((preset) => (
+                  {(['manual', 'balanced', 'quality', 'fastest', 'reliability', 'budget'] as const).map((preset) => (
                     <button
                       key={preset}
                       className="w-full text-left px-2 py-1.5 rounded hover:bg-accent hover:text-accent-foreground flex items-center justify-between"

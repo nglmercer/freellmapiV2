@@ -8,9 +8,10 @@ use rusqlite::Connection;
 use serde::{Deserialize, Serialize};
 
 use crate::crypto::decrypt;
-use crate::db::schema::ApiKeyRow;
+use crate::db::schema::{ApiKeyRow, ModelRow, MODEL_COLS};
 use crate::error::ApiError;
 use crate::providers::{get_provider_with_conn, Provider};
+use crate::services::rankings::routing::{self, RoutingCandidate, RoutingStrategy};
 use crate::services::ratelimit::{can_make_request, can_use_tokens, is_on_cooldown, Limits};
 
 #[derive(Clone)]
@@ -138,6 +139,77 @@ pub struct PenaltyInfo {
     pub penalty: i64,
 }
 
+/// Return a conservative availability signal for a provider/model pair.
+/// Provider key status and the in-memory model/key cooldowns are intentionally
+/// kept separate from quality and speed benchmarks.
+pub(crate) fn route_availability(conn: &Connection, platform: &str, model_id: &str) -> f64 {
+    let keys: Vec<(i64, String)> = conn
+        .prepare(
+            "SELECT id, status FROM api_keys
+             WHERE platform = ?1 AND enabled = 1",
+        )
+        .ok()
+        .and_then(|mut stmt| {
+            stmt.query_map(rusqlite::params![platform], |row| {
+                Ok((row.get(0)?, row.get::<_, String>(1)?))
+            })
+            .ok()
+            .and_then(|rows| rows.collect::<rusqlite::Result<Vec<_>>>().ok())
+        })
+        .unwrap_or_default();
+    if keys.is_empty() {
+        return 0.0;
+    }
+    let has_usable_key = keys.iter().any(|(key_id, status)| {
+        !matches!(status.as_str(), "invalid" | "rate_limited")
+            && !is_on_cooldown(platform, model_id, *key_id)
+    });
+    let recent_failure = conn
+        .query_row(
+            "SELECT last_failure_at, last_success_at FROM model_performance
+             WHERE platform = ?1 AND model_id = ?2",
+            rusqlite::params![platform, model_id],
+            |row| {
+                Ok((
+                    row.get::<_, Option<String>>(0)?,
+                    row.get::<_, Option<String>>(1)?,
+                ))
+            },
+        )
+        .ok()
+        .and_then(|(failure, success)| {
+            let failure = failure?
+                .parse::<chrono::DateTime<chrono::FixedOffset>>()
+                .ok()?;
+            let success = success.and_then(|timestamp| {
+                timestamp
+                    .parse::<chrono::DateTime<chrono::FixedOffset>>()
+                    .ok()
+            });
+            let failure_is_newer = success.is_none_or(|success| failure > success);
+            let age_ms = chrono::Utc::now()
+                .signed_duration_since(failure.with_timezone(&chrono::Utc))
+                .num_milliseconds();
+            (failure_is_newer && (0..=5 * 60 * 1000).contains(&age_ms)).then_some(true)
+        })
+        .unwrap_or(false);
+    if has_usable_key {
+        if recent_failure {
+            0.5
+        } else {
+            1.0
+        }
+    } else if keys.iter().any(|(_, status)| status != "invalid") {
+        if recent_failure {
+            0.1
+        } else {
+            0.25
+        }
+    } else {
+        0.0
+    }
+}
+
 /// Route a request to the best available model.
 /// Models are sorted by (base_priority + rate_limit_penalty) so frequently
 /// rate-limited models automatically sink below working ones.
@@ -185,7 +257,8 @@ pub fn route_request(
     // Get fallback chain ordered by priority
     let mut stmt = conn
         .prepare(
-            "SELECT id, model_db_id, priority, enabled FROM fallback_config ORDER BY priority ASC",
+            "SELECT id, model_db_id, priority, manual_priority, enabled \
+             FROM fallback_config ORDER BY priority ASC",
         )
         .map_err(|e| ApiError::new(500, e.to_string()))?;
     let fallback_chain: Vec<crate::db::schema::FallbackRow> = stmt
@@ -194,20 +267,107 @@ pub fn route_request(
         .filter_map(|r| r.ok())
         .collect();
 
-    // Apply dynamic penalties: sort by (base priority + penalty)
-    let mut sorted_chain: Vec<(i64, i64, i64, i64)> = {
+    let strategy = conn
+        .query_row(
+            "SELECT value FROM settings WHERE key = 'fallback_strategy'",
+            [],
+            |row| row.get::<_, String>(0),
+        )
+        .ok()
+        .and_then(|value| RoutingStrategy::parse(&value))
+        .unwrap_or(RoutingStrategy::Manual);
+
+    // Manual mode uses the user-maintained order. Automatic modes score the
+    // provider/model pair from quality, local telemetry, reliability, and
+    // current key availability; missing dimensions are handled by the
+    // routing engine and do not become zero-valued fake benchmarks.
+    let mut sorted_chain: Vec<(i64, i64, i64, i64)> = if strategy == RoutingStrategy::Manual {
         let mut s = state().lock().unwrap();
-        fallback_chain
+        let mut chain = fallback_chain
             .iter()
             .map(|entry| {
                 let effective = entry.priority + get_penalty(&mut s, entry.model_db_id);
-                (effective, entry.priority, entry.model_db_id, entry.enabled)
+                (
+                    effective,
+                    entry.manual_priority.unwrap_or(entry.priority),
+                    entry.model_db_id,
+                    entry.enabled,
+                )
             })
-            // Sort by effective priority; the tuple preserves the configured
-            // priority order for equal penalty-adjusted values.
-            .collect::<Vec<(i64, i64, i64, i64)>>()
+            .collect::<Vec<_>>();
+        chain
+            .sort_by_key(|(effective, manual, model_db_id, _)| (*effective, *manual, *model_db_id));
+        chain
+    } else {
+        let mut candidates = Vec::new();
+        let fallback_meta: HashMap<i64, (i64, i64)> = fallback_chain
+            .iter()
+            .map(|entry| {
+                (
+                    entry.model_db_id,
+                    (
+                        entry.manual_priority.unwrap_or(entry.priority),
+                        entry.enabled,
+                    ),
+                )
+            })
+            .collect();
+        for entry in &fallback_chain {
+            if entry.enabled != 1 {
+                continue;
+            }
+            let model = conn
+                .query_row(
+                    &format!("SELECT {MODEL_COLS} FROM models WHERE id = ?1"),
+                    rusqlite::params![entry.model_db_id],
+                    ModelRow::from_row,
+                )
+                .ok();
+            let Some(model) = model else { continue };
+            let provider_available = get_provider_with_conn(conn, &model.platform).is_some();
+            let performance = crate::services::telemetry::load_performance(
+                conn,
+                &model.platform,
+                &model.model_id,
+            )
+            .ok()
+            .flatten();
+            let mut state_guard = state().lock().unwrap();
+            let penalty = get_penalty(&mut state_guard, entry.model_db_id);
+            drop(state_guard);
+            candidates.push(RoutingCandidate {
+                model_db_id: entry.model_db_id,
+                manual_priority: entry.manual_priority.unwrap_or(entry.priority),
+                quality: model.intelligence_score,
+                speed: performance
+                    .as_ref()
+                    .and_then(|performance| performance.ewma_output_tps)
+                    .or(model.observed_speed_tps)
+                    .or(model.external_speed_tps)
+                    .or(model.speed_tokens_per_sec),
+                reliability: performance.as_ref().and_then(|performance| {
+                    routing::reliability_score(performance.success_count, performance.sample_count)
+                }),
+                availability: if provider_available {
+                    route_availability(conn, &model.platform, &model.model_id)
+                } else {
+                    0.0
+                },
+                penalty,
+            });
+        }
+        routing::score_candidates(&candidates, strategy)
+            .into_iter()
+            .enumerate()
+            .filter_map(|(position, scored)| {
+                fallback_meta
+                    .get(&scored.model_db_id)
+                    .map(|(manual, enabled)| {
+                        (position as i64 + 1, *manual, scored.model_db_id, *enabled)
+                    })
+            })
+            .collect()
     };
-    sorted_chain.sort_by_key(|(effective, _, _, _)| *effective);
 
     // Sticky session: move preferred model to front of chain
     if let Some(preferred) = preferred_model_db_id {

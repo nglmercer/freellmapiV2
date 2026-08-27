@@ -17,6 +17,7 @@ use crate::routes::middleware::{
 };
 use crate::services::ratelimit::{record_request, record_tokens, set_cooldown};
 use crate::services::router::{record_rate_limit_hit, record_success, route_request, RouteResult};
+use crate::services::telemetry::{record_observation, ObservationOutcome, RuntimeObservation};
 use crate::types::{ChatMessage, CompletionOptions, MessageContent};
 
 const MAX_RETRIES: i64 = 30;
@@ -161,7 +162,7 @@ async fn handle_completion_standard(
     estimated_input_tokens: i64,
     estimated_total: i64,
     options: CompletionOptions,
-    _start: i64,
+    start: i64,
 ) -> Response {
     let _ = estimated_input_tokens;
     let mut skip_keys: HashSet<String> = HashSet::new();
@@ -216,6 +217,18 @@ async fn handle_completion_standard(
             record_tokens(&route.platform, &route.model_id, route.key_id, total_tokens);
             record_success(route.model_db_id);
             record_request(&route.platform, &route.model_id, route.key_id);
+            let _ = record_observation(
+                &route.platform,
+                &route.model_id,
+                RuntimeObservation {
+                    outcome: ObservationOutcome::Success,
+                    latency_ms: Some(chrono::Utc::now().timestamp_millis() - start),
+                    ttft_ms: None,
+                    output_tokens: Some(total_output_tokens),
+                    generation_duration_ms: None,
+                },
+            )
+            .await;
 
             let choices: Vec<Value> = final_texts
                 .iter()
@@ -269,6 +282,21 @@ async fn handle_completion_standard(
         };
 
         last_error = Some(err.message.clone());
+        let _ = record_observation(
+            &route.platform,
+            &route.model_id,
+            RuntimeObservation {
+                outcome: ObservationOutcome::Failure {
+                    status_code: err.status,
+                    message: err.message.clone(),
+                },
+                latency_ms: Some(chrono::Utc::now().timestamp_millis() - start),
+                ttft_ms: None,
+                output_tokens: None,
+                generation_duration_ms: None,
+            },
+        )
+        .await;
         if is_retryable_error(&err) {
             skip_keys.insert(format!(
                 "{}:{}:{}",
@@ -393,6 +421,21 @@ async fn handle_completion_stream(
             Ok(rx) => rx,
             Err(err) => {
                 last_error = Some(err.message.clone());
+                let _ = record_observation(
+                    &route.platform,
+                    &route.model_id,
+                    RuntimeObservation {
+                        outcome: ObservationOutcome::Failure {
+                            status_code: err.status,
+                            message: err.message.clone(),
+                        },
+                        latency_ms: Some(chrono::Utc::now().timestamp_millis() - start),
+                        ttft_ms: None,
+                        output_tokens: None,
+                        generation_duration_ms: None,
+                    },
+                )
+                .await;
                 if is_retryable_error(&err) {
                     skip_keys.insert(format!(
                         "{}:{}:{}",
@@ -409,7 +452,8 @@ async fn handle_completion_stream(
         };
 
         // Pre-stream handshake: first chunk.
-        let mut first_chunk: Option<(String, String, Option<String>)> = None;
+        let mut first_chunk: Option<(String, String, Option<String>, Option<i64>)> = None;
+        let mut first_chunk_ttft_ms: Option<i64> = None;
         match rx.recv().await {
             Some(Ok(chunk)) => {
                 let content = chunk
@@ -418,10 +462,31 @@ async fn handle_completion_stream(
                     .and_then(|c| c.delta.content.clone())
                     .unwrap_or_default();
                 let finish = chunk.choices.first().and_then(|c| c.finish_reason.clone());
-                first_chunk = Some((chunk.id, content, finish));
+                let usage = chunk
+                    .usage
+                    .as_ref()
+                    .map(|usage| usage.completion_tokens)
+                    .filter(|tokens| *tokens > 0);
+                first_chunk = Some((chunk.id, content, finish, usage));
+                first_chunk_ttft_ms = Some(chrono::Utc::now().timestamp_millis() - start);
             }
             Some(Err(err)) => {
                 last_error = Some(err.message.clone());
+                let _ = record_observation(
+                    &route.platform,
+                    &route.model_id,
+                    RuntimeObservation {
+                        outcome: ObservationOutcome::Failure {
+                            status_code: err.status,
+                            message: err.message.clone(),
+                        },
+                        latency_ms: Some(chrono::Utc::now().timestamp_millis() - start),
+                        ttft_ms: None,
+                        output_tokens: None,
+                        generation_duration_ms: None,
+                    },
+                )
+                .await;
                 if is_retryable_error(&err) {
                     skip_keys.insert(format!(
                         "{}:{}:{}",
@@ -451,9 +516,12 @@ async fn handle_completion_stream(
 
         let body = async_stream::stream! {
             let mut total_output_tokens: i64 = 0;
+            // Keep provider-reported usage separate from the character-based
+            // estimate used only for the legacy response shape.
+            let mut observed_output_tokens = first_chunk.as_ref().and_then(|(_, _, _, usage)| *usage);
             let mut stream_started = false;
 
-            if let Some((ref id, ref content, ref finish)) = first_chunk {
+            if let Some((ref id, ref content, ref finish, _usage)) = first_chunk {
                 stream_started = true;
                 let text = if echo { format!("{prompt}{content}") } else { content.clone() };
                 total_output_tokens += (content.chars().count() as f64 / 4.0).ceil() as i64;
@@ -471,6 +539,14 @@ async fn handle_completion_stream(
             while let Some(item) = rx.recv().await {
                 match item {
                     Ok(chunk) => {
+                        if let Some(tokens) = chunk
+                            .usage
+                            .as_ref()
+                            .map(|usage| usage.completion_tokens)
+                            .filter(|tokens| *tokens > 0)
+                        {
+                            observed_output_tokens = Some(tokens);
+                        }
                         let content = chunk.choices.first()
                             .and_then(|c| c.delta.content.clone())
                             .unwrap_or_default();
@@ -499,6 +575,26 @@ async fn handle_completion_stream(
             if let Some(msg) = mid_stream_error {
                 if stream_started {
                     tracing::error!("[Completions] Mid-stream error from {display_name}: {msg}");
+                    let _ = record_observation(
+                        &platform,
+                        &model_id,
+                        RuntimeObservation {
+                            outcome: ObservationOutcome::Failure {
+                                status_code: None,
+                                message: msg.clone(),
+                            },
+                            latency_ms: Some(chrono::Utc::now().timestamp_millis() - start),
+                            ttft_ms: first_chunk_ttft_ms,
+                            // The compatibility stream estimates response
+                            // usage for the client, but that estimate is not
+                            // valid token telemetry.
+                            output_tokens: observed_output_tokens,
+                            generation_duration_ms: first_chunk_ttft_ms
+                                .map(|ttft| chrono::Utc::now().timestamp_millis() - start - ttft)
+                                .filter(|duration| *duration > 0),
+                        },
+                    )
+                    .await;
                     let payload = json!({ "error": { "message": "stream interrupted", "type": "stream_error" } });
                     yield Ok(Bytes::from(format!("data: {payload}\n\n")));
                     yield Ok(Bytes::from_static(b"data: [DONE]\n\n"));
@@ -507,7 +603,7 @@ async fn handle_completion_stream(
                 return;
             }
 
-            let final_id = first_chunk.as_ref().map(|(id, _, _)| id.clone())
+            let final_id = first_chunk.as_ref().map(|(id, _, _, _)| id.clone())
                 .unwrap_or_else(|| format!("cmpl-{}", chrono::Utc::now().timestamp_millis()));
             let mut final_chunk = json!({
                 "id": final_id,
@@ -529,6 +625,23 @@ async fn handle_completion_stream(
             record_tokens(&platform, &model_id, key_id, estimated_input_tokens + total_output_tokens);
             record_success(model_db_id);
             record_request(&platform, &model_id, key_id);
+            let elapsed_ms = chrono::Utc::now().timestamp_millis() - start;
+            let _ = record_observation(
+                &platform,
+                &model_id,
+                RuntimeObservation {
+                    outcome: ObservationOutcome::Success,
+                    latency_ms: Some(elapsed_ms),
+                    ttft_ms: first_chunk_ttft_ms,
+                    // Do not turn the character-based compatibility estimate
+                    // into TPS when the provider supplied no usage.
+                    output_tokens: observed_output_tokens,
+                    generation_duration_ms: first_chunk_ttft_ms
+                        .map(|ttft| elapsed_ms - ttft)
+                        .filter(|duration| *duration > 0),
+                },
+            )
+            .await;
         };
 
         let mut response = Response::new(Body::from_stream(body));
