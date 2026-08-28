@@ -12,7 +12,7 @@ path = "src/bin/freellmapi_tray.rs"
 required-features = ["desktop-tray"]
 
 [features]
-desktop-tray = ["dep:dirs", "dep:open", "dep:tray-icon", "dep:winit"]
+desktop-tray = ["dep:dirs", "dep:gtk", "dep:open", "dep:tray-icon", "dep:winit"]
 
 [dependencies]
 getmodelsapi = { path = "../getmodelsapi" }
@@ -41,6 +41,9 @@ dirs = { version = "6", optional = true }
 open = { version = "5.4", optional = true }
 tray-icon = { version = "0.24.2", optional = true }
 winit = { version = "0.30", optional = true }
+
+[target.'cfg(target_os = "linux")'.dependencies]
+gtk = { version = "0.18", optional = true }
 
 [dev-dependencies]
 tokio = { version = "1", features = ["macros", "rt-multi-thread"] }

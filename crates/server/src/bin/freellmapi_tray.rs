@@ -169,6 +169,8 @@ fn main() -> Result<(), Box<dyn Error>> {
     fs::create_dir_all(&data_dir)?;
     restrict_directory_permissions(&data_dir)?;
 
+    initialize_tray_backend()?;
+
     let executable = env::current_exe()?;
     let static_dir = static_dir(&executable)?;
     let server_binary = server_binary(&executable)?;
@@ -244,6 +246,17 @@ fn main() -> Result<(), Box<dyn Error>> {
         let _ = &tray_icon;
     });
     run_result?;
+
+    Ok(())
+}
+
+fn initialize_tray_backend() -> Result<(), Box<dyn Error>> {
+    #[cfg(target_os = "linux")]
+    gtk::init().map_err(|error| {
+        format!(
+            "Unable to initialize the Linux tray backend. Start this app inside a graphical session with GTK available: {error}"
+        )
+    })?;
 
     Ok(())
 }

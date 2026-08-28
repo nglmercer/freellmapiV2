@@ -3122,6 +3122,7 @@ dependencies = [
  "dotenvy",
  "futures",
  "getmodelsapi",
+ "gtk",
  "hex",
  "open",
  "rand 0.9.5",
