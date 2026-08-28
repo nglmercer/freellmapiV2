@@ -105,6 +105,12 @@ fn weighted_score(
     let quality = normalize(candidate.quality, quality_range);
     let speed = normalize(candidate.speed, speed_range);
     let reliability = normalize(candidate.reliability, reliability_range);
+    // Availability is a runtime signal, not evidence that a model is good,
+    // fast, or reliable. Do not let it turn a completely unmeasured model into
+    // a perfect Balanced candidate after weight renormalization.
+    if quality.is_none() && speed.is_none() && reliability.is_none() {
+        return None;
+    }
     let availability = Some(availability(candidate));
     let dimensions = [
         (quality, QUALITY_WEIGHT),
@@ -142,7 +148,9 @@ fn focused_score(
 }
 
 /// Calculate and deterministically order a set of route candidates. Missing
-/// dimensions are omitted and the configured weights are renormalized.
+/// substantive dimensions are omitted and the configured weights are
+/// renormalized, but a candidate with no substantive measurement is left
+/// unscored so availability cannot masquerade as model quality.
 pub fn score_candidates(
     candidates: &[RoutingCandidate],
     strategy: RoutingStrategy,
@@ -256,6 +264,23 @@ mod tests {
         ];
         let scored = score_candidates(&candidates, RoutingStrategy::Balanced);
         assert!(scored.iter().all(|candidate| candidate.score.is_some()));
+    }
+
+    #[test]
+    fn balanced_leaves_completely_unmeasured_models_unscored() {
+        let scored = score_candidates(
+            &[
+                candidate(1, Some(50.0), Some(10.0), Some(0.5)),
+                candidate(2, Some(100.0), Some(100.0), Some(1.0)),
+                candidate(3, None, None, None),
+            ],
+            RoutingStrategy::Balanced,
+        );
+
+        assert_eq!(scored[0].model_db_id, 2);
+        assert_eq!(scored[1].model_db_id, 1);
+        assert_eq!(scored[2].model_db_id, 3);
+        assert_eq!(scored[2].score, None);
     }
 
     #[test]

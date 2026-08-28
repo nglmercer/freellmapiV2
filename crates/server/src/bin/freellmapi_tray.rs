@@ -9,8 +9,8 @@
 use std::env;
 use std::error::Error;
 use std::fs;
-use std::io;
-use std::net::{TcpListener, TcpStream};
+use std::io::{self, Read, Write};
+use std::net::{SocketAddr, TcpListener, TcpStream};
 use std::path::{Path, PathBuf};
 use std::process::{Child, Command, Stdio};
 use std::thread;
@@ -24,6 +24,9 @@ use winit::event_loop::{ControlFlow, EventLoop};
 const APP_DATA_DIR: &str = "FreeLLMAPI";
 const ADMIN_KEY_FRAGMENT: &str = "adminKey";
 const STARTUP_TIMEOUT: Duration = Duration::from_secs(20);
+const SHUTDOWN_TIMEOUT: Duration = Duration::from_secs(5);
+const SHUTDOWN_POLL_INTERVAL: Duration = Duration::from_millis(50);
+const SHUTDOWN_CONNECT_TIMEOUT: Duration = Duration::from_millis(500);
 
 enum UserEvent {
     Menu(MenuEvent),
@@ -38,14 +41,71 @@ struct RunningServer {
 impl RunningServer {
     fn stop(&mut self) {
         if self.child.try_wait().ok().flatten().is_none() {
-            let _ = self.child.kill();
+            if self.request_graceful_shutdown() {
+                self.wait_for_exit();
+            }
+            if self.child.try_wait().ok().flatten().is_none() {
+                eprintln!("Server did not stop gracefully; forcing termination");
+                let _ = self.child.kill();
+            }
         }
         let _ = self.child.wait();
+    }
+
+    fn request_graceful_shutdown(&self) -> bool {
+        #[cfg(unix)]
+        if send_sigterm(self.child.id()) {
+            return true;
+        }
+
+        self.request_http_shutdown()
+    }
+
+    fn request_http_shutdown(&self) -> bool {
+        let address = SocketAddr::from(([127, 0, 0, 1], self.port));
+        let Ok(mut stream) = TcpStream::connect_timeout(&address, SHUTDOWN_CONNECT_TIMEOUT) else {
+            return false;
+        };
+        let _ = stream.set_read_timeout(Some(SHUTDOWN_CONNECT_TIMEOUT));
+        let _ = stream.set_write_timeout(Some(SHUTDOWN_CONNECT_TIMEOUT));
+        let request = format!(
+            "POST /api/shutdown HTTP/1.1\r\nHost: 127.0.0.1:{}\r\nAuthorization: Bearer {}\r\nContent-Length: 0\r\nConnection: close\r\n\r\n",
+            self.port, self.admin_key
+        );
+        if stream.write_all(request.as_bytes()).is_err() {
+            return false;
+        }
+
+        let mut response = [0_u8; 256];
+        let Ok(read) = stream.read(&mut response) else {
+            return false;
+        };
+        let response = std::str::from_utf8(&response[..read]).unwrap_or_default();
+        response.starts_with("HTTP/1.1 202 ") || response.starts_with("HTTP/1.1 200 ")
+    }
+
+    fn wait_for_exit(&mut self) {
+        let deadline = Instant::now() + SHUTDOWN_TIMEOUT;
+        while Instant::now() < deadline {
+            match self.child.try_wait() {
+                Ok(Some(_)) => return,
+                Ok(None) => thread::sleep(SHUTDOWN_POLL_INTERVAL),
+                Err(_) => return,
+            }
+        }
     }
 
     fn has_exited(&mut self) -> bool {
         self.child.try_wait().ok().flatten().is_some()
     }
+}
+
+#[cfg(unix)]
+fn send_sigterm(pid: u32) -> bool {
+    // The child PID comes directly from `Command::spawn`; SIGTERM lets the
+    // server run its Tokio graceful-shutdown handler before we fall back to a
+    // forceful kill.
+    unsafe { libc::kill(pid as libc::pid_t, libc::SIGTERM) == 0 }
 }
 
 impl Drop for RunningServer {

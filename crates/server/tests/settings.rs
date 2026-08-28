@@ -19,6 +19,24 @@ async fn settings_reject_missing_admin_authentication() {
     )
     .await;
     common::expect_status(&post_res, StatusCode::UNAUTHORIZED);
+
+    let shutdown_res = common::request(&app.app, "POST", "/api/shutdown", None, None).await;
+    common::expect_status(&shutdown_res, StatusCode::UNAUTHORIZED);
+}
+
+#[tokio::test]
+async fn authenticated_shutdown_requests_graceful_server_stop() {
+    let app = common::setup().await;
+    let res = common::request(
+        &app.app,
+        "POST",
+        "/api/shutdown",
+        Some(&common::admin_key()),
+        None,
+    )
+    .await;
+    common::expect_status(&res, StatusCode::ACCEPTED);
+    assert_eq!(res.body["status"], "shutting_down");
 }
 
 #[tokio::test]

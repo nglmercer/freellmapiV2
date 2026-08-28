@@ -29,6 +29,7 @@ pub fn create_app() -> axum::Router {
         .nest("/health", routes::health::router())
         .nest("/settings", routes::settings::router())
         .nest("/providers", routes::providers::router())
+        .route("/shutdown", post(routes::shutdown::request_shutdown))
         .fallback(|| async { axum::http::StatusCode::NOT_FOUND })
         .layer(middleware::from_fn(routes::middleware::admin_auth));
 

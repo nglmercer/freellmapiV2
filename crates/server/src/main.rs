@@ -61,11 +61,17 @@ async fn shutdown_signal() {
                 }
             }
             _ = sigterm.recv() => {}
+            _ = server::services::shutdown::wait() => {}
         }
     }
 
     #[cfg(not(unix))]
-    if let Err(error) = tokio::signal::ctrl_c().await {
-        eprintln!("failed to listen for Ctrl-C: {error}");
+    tokio::select! {
+        result = tokio::signal::ctrl_c() => {
+            if let Err(error) = result {
+                eprintln!("failed to listen for Ctrl-C: {error}");
+            }
+        }
+        _ = server::services::shutdown::wait() => {}
     }
 }

@@ -11,4 +11,5 @@ pub mod providers;
 pub mod proxy;
 pub(crate) mod ranking_json;
 pub mod settings;
+pub mod shutdown;
 pub mod stream_handler;

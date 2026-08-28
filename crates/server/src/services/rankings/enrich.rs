@@ -454,6 +454,19 @@ struct SourceAliases {
     hints: HashMap<String, HashSet<i64>>,
 }
 
+#[derive(Clone, Copy, Debug, PartialEq)]
+enum SourceMatchKind {
+    Deterministic,
+    Hint,
+}
+
+#[derive(Clone, Copy, Debug)]
+struct SourceMatch {
+    benchmark_index: usize,
+    confidence: f64,
+    kind: SourceMatchKind,
+}
+
 fn source_aliases(conn: &Connection, source: &str) -> rusqlite::Result<SourceAliases> {
     let mut stmt = conn.prepare(
         "SELECT lower(source_model_id), canonical_model_id, source, verified
@@ -502,7 +515,8 @@ fn find_source_match(
     benchmark_index: usize,
     lookup: &SourceLookup,
     aliases: &SourceAliases,
-) -> Option<(usize, f64)> {
+    allow_hint: bool,
+) -> Option<SourceMatch> {
     let source_id = benchmark.source_id.to_ascii_lowercase();
     let source_keys = [Some(source_id), benchmark.source_slug.clone()]
         .into_iter()
@@ -513,7 +527,11 @@ fn find_source_match(
     for source_key in source_keys {
         match aliases.authoritative.get(&source_key) {
             Some(Some(canonical_model_id)) if *canonical_model_id == local.canonical_model_id => {
-                return Some((benchmark_index, 1.0));
+                return Some(SourceMatch {
+                    benchmark_index,
+                    confidence: 1.0,
+                    kind: SourceMatchKind::Deterministic,
+                });
             }
             // A conflicting reviewed alias is explicitly unresolved. Do not
             // fall through to normalized string matching for that key.
@@ -534,9 +552,17 @@ fn find_source_match(
         }
     }
     if let Some((index, confidence)) = lookup.find(local_identity, local.canonical_model_id) {
-        return (index == benchmark_index).then_some((index, confidence));
+        return (index == benchmark_index).then_some(SourceMatch {
+            benchmark_index: index,
+            confidence,
+            kind: SourceMatchKind::Deterministic,
+        });
     }
-    hinted.then_some((benchmark_index, 0.98))
+    (allow_hint && hinted).then_some(SourceMatch {
+        benchmark_index,
+        confidence: 0.98,
+        kind: SourceMatchKind::Hint,
+    })
 }
 
 /// Assign competition ranks (`1, 2, 2, 4`) once for a cohort. The model ID
@@ -603,6 +629,40 @@ fn apply_manual_overrides(
                 model.external_speed_updated_at = Some(fetched_at.clone());
             }
         }
+    }
+    Ok(())
+}
+
+fn persist_alias(
+    tx: &rusqlite::Transaction<'_>,
+    canonical_model_id: i64,
+    source: &str,
+    source_model_id: &str,
+    confidence: f64,
+    kind: SourceMatchKind,
+) -> rusqlite::Result<()> {
+    if kind == SourceMatchKind::Deterministic {
+        // A current deterministic match may replace an old inferred hint, but
+        // a reviewed/manual alias is immutable from the automatic refresh
+        // path. The existing `verified` value is intentionally not included
+        // in the update set.
+        tx.execute(
+            "INSERT INTO model_aliases
+             (canonical_model_id, source, source_model_id, confidence, verified)
+             VALUES (?1, ?2, ?3, ?4, 0)
+             ON CONFLICT(source, source_model_id) DO UPDATE SET
+               canonical_model_id = excluded.canonical_model_id,
+               confidence = excluded.confidence
+             WHERE model_aliases.verified = 0",
+            rusqlite::params![canonical_model_id, source, source_model_id, confidence],
+        )?;
+    } else {
+        tx.execute(
+            "INSERT OR IGNORE INTO model_aliases
+             (canonical_model_id, source, source_model_id, confidence, verified)
+             VALUES (?1, ?2, ?3, ?4, 0)",
+            rusqlite::params![canonical_model_id, source, source_model_id, confidence],
+        )?;
     }
     Ok(())
 }
@@ -700,16 +760,13 @@ fn persist_refresh(
         .into_iter()
         .flatten()
         {
-            tx.execute(
-                "INSERT OR IGNORE INTO model_aliases
-                 (canonical_model_id, source, source_model_id, confidence, verified)
-                 VALUES (?1, ?2, ?3, ?4, 0)",
-                rusqlite::params![
-                    matched.local.canonical_model_id,
-                    matched.source,
-                    alias,
-                    matched.confidence,
-                ],
+            persist_alias(
+                &tx,
+                matched.local.canonical_model_id,
+                &matched.source,
+                &alias,
+                matched.confidence,
+                matched.kind,
             )?;
             tx.execute(
                 "UPDATE ranking_unmatched
@@ -1029,6 +1086,7 @@ struct MatchedBenchmark {
     benchmark: ExternalBenchmark,
     source: String,
     confidence: f64,
+    kind: SourceMatchKind,
 }
 
 fn apply_match(
@@ -1173,11 +1231,14 @@ async fn enrich_rankings_with_force(force: bool) -> EnrichResult {
         for source in &source_results {
             let lookup = SourceLookup::new(&source.benchmarks, &canonical_registry);
             let aliases = source_aliases(&conn, &source.name).unwrap_or_default();
-            let mut matched_local_for_source = HashSet::new();
-            let mut matched_indices = HashSet::new();
+            // Resolve every deterministic identity before considering inferred
+            // aliases. This prevents a stale hint for one canonical model from
+            // consuming a benchmark that now has deterministic evidence for a
+            // different model later in the local-model list.
+            let mut deterministic_matches: HashMap<usize, HashSet<i64>> = HashMap::new();
             for local in &local_models {
                 let local_identity = identity(&local.platform, &local.model_id);
-                let Some((index, confidence)) =
+                if let Some(source_match) =
                     source
                         .benchmarks
                         .iter()
@@ -1190,12 +1251,51 @@ async fn enrich_rankings_with_force(force: bool) -> EnrichResult {
                                 index,
                                 &lookup,
                                 &aliases,
+                                false,
                             )
+                        })
+                {
+                    deterministic_matches
+                        .entry(source_match.benchmark_index)
+                        .or_default()
+                        .insert(local.canonical_model_id);
+                }
+            }
+            let mut matched_local_for_source = HashSet::new();
+            let mut matched_indices = HashSet::new();
+            for local in &local_models {
+                let local_identity = identity(&local.platform, &local.model_id);
+                let Some(source_match) =
+                    source
+                        .benchmarks
+                        .iter()
+                        .enumerate()
+                        .find_map(|(index, benchmark)| {
+                            let source_match = find_source_match(
+                                local,
+                                &local_identity,
+                                benchmark,
+                                index,
+                                &lookup,
+                                &aliases,
+                                true,
+                            )?;
+                            if source_match.kind == SourceMatchKind::Hint
+                                && deterministic_matches
+                                    .get(&source_match.benchmark_index)
+                                    .is_some_and(|canonical_ids| {
+                                        !canonical_ids.contains(&local.canonical_model_id)
+                                    })
+                            {
+                                None
+                            } else {
+                                Some(source_match)
+                            }
                         })
                 else {
                     continue;
                 };
-                let benchmark = source.benchmarks[index].clone();
+                let benchmark = source.benchmarks[source_match.benchmark_index].clone();
                 if let Some(next) = working.get_mut(&local.id) {
                     // Preserve the source snapshot age when a fresh cached
                     // benchmark is reused. This keeps per-model freshness
@@ -1208,18 +1308,19 @@ async fn enrich_rankings_with_force(force: bool) -> EnrichResult {
                         next,
                         &source.name,
                         &benchmark,
-                        confidence,
+                        source_match.confidence,
                         &benchmark_updated_at,
                     );
                 }
                 matched_local_ids.insert(local.id);
                 matched_local_for_source.insert(local.id);
-                matched_indices.insert(index);
+                matched_indices.insert(source_match.benchmark_index);
                 matches.push(MatchedBenchmark {
                     local: local.clone(),
                     benchmark,
                     source: source.name.clone(),
-                    confidence,
+                    confidence: source_match.confidence,
+                    kind: source_match.kind,
                 });
             }
             if !source.from_cache {
@@ -1475,17 +1576,116 @@ mod tests {
             hints: HashMap::from([("gpt-4o".to_string(), HashSet::from([999_i64]))]),
         };
 
-        assert_eq!(
-            find_source_match(
-                &local,
-                &identity(&local.platform, &local.model_id),
-                &benchmark,
-                0,
-                &lookup,
-                &aliases,
-            ),
-            Some((0, 0.92))
-        );
+        let matched = find_source_match(
+            &local,
+            &identity(&local.platform, &local.model_id),
+            &benchmark,
+            0,
+            &lookup,
+            &aliases,
+            true,
+        )
+        .expect("normalized identity should match");
+        assert_eq!(matched.benchmark_index, 0);
+        assert_eq!(matched.confidence, 0.92);
+        assert_eq!(matched.kind, SourceMatchKind::Deterministic);
+    }
+
+    #[test]
+    fn deterministic_alias_replaces_unverified_hint_but_not_verified_alias() {
+        let mut conn = Connection::open_in_memory().unwrap();
+        conn.execute_batch(
+            "CREATE TABLE model_aliases (
+               id INTEGER PRIMARY KEY AUTOINCREMENT,
+               canonical_model_id INTEGER NOT NULL,
+               source TEXT NOT NULL,
+               source_model_id TEXT NOT NULL,
+               confidence REAL NOT NULL,
+               verified INTEGER NOT NULL DEFAULT 0,
+               UNIQUE(source, source_model_id)
+             );",
+        )
+        .unwrap();
+
+        {
+            let tx = conn.transaction().unwrap();
+            persist_alias(
+                &tx,
+                7,
+                "artificial-analysis",
+                "hinted-model",
+                0.98,
+                SourceMatchKind::Hint,
+            )
+            .unwrap();
+            persist_alias(
+                &tx,
+                8,
+                "artificial-analysis",
+                "hinted-model",
+                0.92,
+                SourceMatchKind::Hint,
+            )
+            .unwrap();
+            tx.commit().unwrap();
+        }
+
+        {
+            let tx = conn.transaction().unwrap();
+            persist_alias(
+                &tx,
+                9,
+                "artificial-analysis",
+                "hinted-model",
+                0.92,
+                SourceMatchKind::Deterministic,
+            )
+            .unwrap();
+            tx.commit().unwrap();
+        }
+
+        let replaced: (i64, f64, i64) = conn
+            .query_row(
+                "SELECT canonical_model_id, confidence, verified
+                 FROM model_aliases
+                 WHERE source = 'artificial-analysis' AND source_model_id = 'hinted-model'",
+                [],
+                |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?)),
+            )
+            .unwrap();
+        assert_eq!(replaced, (9, 0.92, 0));
+
+        conn.execute(
+            "INSERT INTO model_aliases
+             (canonical_model_id, source, source_model_id, confidence, verified)
+             VALUES (7, 'artificial-analysis', 'verified-model', 1.0, 1)",
+            [],
+        )
+        .unwrap();
+        {
+            let tx = conn.transaction().unwrap();
+            persist_alias(
+                &tx,
+                10,
+                "artificial-analysis",
+                "verified-model",
+                1.0,
+                SourceMatchKind::Deterministic,
+            )
+            .unwrap();
+            tx.commit().unwrap();
+        }
+
+        let verified: (i64, f64, i64) = conn
+            .query_row(
+                "SELECT canonical_model_id, confidence, verified
+                 FROM model_aliases
+                 WHERE source = 'artificial-analysis' AND source_model_id = 'verified-model'",
+                [],
+                |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?)),
+            )
+            .unwrap();
+        assert_eq!(verified, (7, 1.0, 1));
     }
 
     #[test]

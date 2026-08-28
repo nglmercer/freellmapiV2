@@ -3124,6 +3124,7 @@ dependencies = [
  "getmodelsapi",
  "gtk",
  "hex",
+ "libc",
  "open",
  "rand 0.9.5",
  "regex",

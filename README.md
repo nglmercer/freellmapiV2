@@ -106,7 +106,7 @@ Existing installations are preserved. When `DB_PATH` is not set, the server firs
 
 ## API
 
-`/api/ping` is public. All other administrative routes (`/api/keys`, `/api/models`, `/api/fallback`, `/api/analytics`, `/api/health`, `/api/settings`, and `/api/providers`) require `Authorization: Bearer <ADMIN_API_KEY>`. OpenAI-compatible routes (`/v1/models`, `/v1/chat/completions`, and `/v1/completions`) require `Authorization: Bearer <unified API key>`.
+`/api/ping` is public. All other administrative routes (`/api/keys`, `/api/models`, `/api/fallback`, `/api/analytics`, `/api/health`, `/api/settings`, `/api/providers`, and `/api/shutdown`) require `Authorization: Bearer <ADMIN_API_KEY>`. The shutdown route is intended for the desktop launcher and requests a graceful stop. OpenAI-compatible routes (`/v1/models`, `/v1/chat/completions`, and `/v1/completions`) require `Authorization: Bearer <unified API key>`.
 
 Ranking enrichment uses the Artificial Analysis Free endpoint by default and reuses a successful source snapshot for 24 hours during scheduled model syncs. The administrative ranking-sync endpoint forces a fresh fetch.
 
