@@ -19,7 +19,7 @@
   },
   "adminAuth": {
     "title": "Dashboard authentication",
-    "description": "Enter the ADMIN_API_KEY from the server environment. It is kept only for this browser session.",
+    "description": "The tray launcher supplies this automatically. If you started the server manually, enter ADMIN_API_KEY from its configuration. It is kept only for this browser session.",
     "label": "Admin API key",
     "placeholder": "Paste the admin key",
     "invalid": "That admin key was rejected. Check the server configuration and try again.",

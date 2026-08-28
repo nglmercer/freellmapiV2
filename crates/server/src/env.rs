@@ -2,7 +2,8 @@
 //!
 //! The binary can run from anywhere, so the project root is located by
 //! walking up from the current directory and looking for the client plus the
-//! legacy data directory or a workspace `Cargo.toml`.
+//! legacy data directory or a workspace `Cargo.toml`. The tray launcher sets
+//! `FREELLMAPI_CONFIG_DIR` so generated configuration stays with its app data.
 
 use std::path::{Path, PathBuf};
 use std::sync::OnceLock;
@@ -13,6 +14,11 @@ const ADMIN_API_KEY_PLACEHOLDER: &str = "replace-with-a-long-random-admin-key";
 pub fn project_root() -> PathBuf {
     if let Some(p) = PROJECT_ROOT.get() {
         return p.clone();
+    }
+    if let Some(path) = std::env::var_os("FREELLMAPI_CONFIG_DIR") {
+        let root = PathBuf::from(path);
+        let _ = PROJECT_ROOT.set(root.clone());
+        return root;
     }
     let cwd = std::env::current_dir().unwrap_or_else(|_| PathBuf::from("."));
     let mut candidates: Vec<PathBuf> = Vec::new();

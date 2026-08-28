@@ -50,6 +50,37 @@ cargo build --release -p server
 ./target/release/server
 ```
 
+### Desktop tray launcher
+
+The optional desktop build is a native tray-only launcher. It starts the
+server on `127.0.0.1`, opens the dashboard in the user's existing browser, and
+does not embed a webview or require Tauri. No manually created `.env` file is
+needed: the launcher keeps generated runtime state in the platform's local
+application-data directory.
+
+```bash
+npm run build:desktop
+./target/release/freellmapi-tray
+```
+
+The tray menu provides dashboard, setup, restart, and quit actions. On first
+launch the browser is taken through the normal setup page. The launcher passes
+the local admin credential in a URL fragment; the dashboard consumes it and
+removes it from the address bar before making API requests.
+
+For distribution, place these files in one application directory:
+
+```text
+freellmapi-tray(.exe)
+server(.exe)
+resources/client/dist/index.html and the built assets
+```
+
+The launcher also accepts `FREELLMAPI_SERVER_BIN`, `FREELLMAPI_STATIC_DIR`, and
+`FREELLMAPI_DATA_DIR` when a different layout or data location is required.
+Linux builds need the GTK 3 and AppIndicator development libraries used by the
+native tray integration.
+
 ## Configuration
 
 Supported environment variables are:

@@ -19,7 +19,7 @@
   },
   "adminAuth": {
     "title": "Autenticación del panel",
-    "description": "Introduce el ADMIN_API_KEY del entorno del servidor. Solo se conservará durante esta sesión del navegador.",
+    "description": "El lanzador de la bandeja la proporciona automáticamente. Si iniciaste el servidor manualmente, introduce ADMIN_API_KEY de su configuración. Solo se conservará durante esta sesión del navegador.",
     "label": "Clave API de administrador",
     "placeholder": "Pega la clave de administrador",
     "invalid": "La clave de administrador fue rechazada. Comprueba la configuración del servidor e inténtalo de nuevo.",

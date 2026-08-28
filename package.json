@@ -10,6 +10,7 @@
     "test": "cargo test --workspace",
     "build": "npm run build:server && npm run build:client",
     "build:server": "cargo build --release -p server",
-    "build:client": "npm run build -w client"
+    "build:client": "npm run build -w client",
+    "build:desktop": "npm run build:client && cargo build --release -p server --bin server --bin freellmapi-tray --features desktop-tray"
   }
 }

@@ -6,6 +6,14 @@ license.workspace = true
 description = "FreeLLMAPI — OpenAI-compatible proxy over free-tier providers"
 default-run = "server"
 
+[[bin]]
+name = "freellmapi-tray"
+path = "src/bin/freellmapi_tray.rs"
+required-features = ["desktop-tray"]
+
+[features]
+desktop-tray = ["dep:dirs", "dep:open", "dep:tray-icon", "dep:winit"]
+
 [dependencies]
 getmodelsapi = { path = "../getmodelsapi" }
 tokio = { workspace = true }
@@ -29,6 +37,10 @@ async-trait = "0.1"
 sha1 = "0.10"
 async-stream = "0.3"
 dotenvy = "0.15"
+dirs = { version = "6", optional = true }
+open = { version = "5.4", optional = true }
+tray-icon = { version = "0.24.2", optional = true }
+winit = { version = "0.30", optional = true }
 
 [dev-dependencies]
 tokio = { version = "1", features = ["macros", "rt-multi-thread"] }
