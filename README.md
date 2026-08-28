@@ -78,8 +78,26 @@ resources/client/dist/index.html and the built assets
 
 The launcher also accepts `FREELLMAPI_SERVER_BIN`, `FREELLMAPI_STATIC_DIR`, and
 `FREELLMAPI_DATA_DIR` when a different layout or data location is required.
-Linux builds need the GTK 3 and AppIndicator development libraries used by the
-native tray integration.
+
+### Linux desktop tray
+
+The tray launcher requires a graphical Linux session and GTK 3/AppIndicator
+runtime support. Installing the libraries alone is not sufficient when no
+graphical session is available.
+
+Build dependencies on Debian/Ubuntu:
+
+```bash
+sudo apt install libgtk-3-dev libappindicator3-dev libxdo-dev
+```
+
+The launcher runs its GTK tray event loop separately from the server and opens
+the dashboard in the user's normal system browser. For SSH, headless, or
+server deployments, use the `server` binary instead:
+
+```bash
+cargo run -p server
+```
 
 ## Configuration
 

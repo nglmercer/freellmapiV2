@@ -53,6 +53,13 @@ async fn settings_reject_unified_key_as_admin_authentication() {
     common::expect_status(&res, StatusCode::UNAUTHORIZED);
 }
 
+#[tokio::test]
+async fn shutdown_rejects_unified_key_as_admin_authentication() {
+    let app = common::setup().await;
+    let res = common::request(&app.app, "POST", "/api/shutdown", Some(&app.api_key), None).await;
+    common::expect_status(&res, StatusCode::UNAUTHORIZED);
+}
+
 /// GET /api/settings/api-key returns the unified API key.
 #[tokio::test]
 async fn should_return_the_unified_api_key() {

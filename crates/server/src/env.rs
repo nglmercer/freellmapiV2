@@ -172,10 +172,34 @@ fn ensure_admin_api_key() {
 }
 
 /// Admin credentials must be long enough to be useful as a bearer secret and
-/// must never fall back to the checked-in example placeholder.
+/// must be valid HTTP token characters because the tray sends this value in a
+/// raw `Authorization` header during graceful shutdown.
 pub fn is_valid_admin_api_key(value: &str) -> bool {
-    let value = value.trim();
-    value.len() >= 32 && value != ADMIN_API_KEY_PLACEHOLDER
+    value.len() >= 32 && value != ADMIN_API_KEY_PLACEHOLDER && value.bytes().all(is_http_token_byte)
+}
+
+fn is_http_token_byte(byte: u8) -> bool {
+    matches!(
+        byte,
+        b'0'..=b'9'
+            | b'A'..=b'Z'
+            | b'a'..=b'z'
+            | b'!'
+            | b'#'
+            | b'$'
+            | b'%'
+            | b'&'
+            | b'\''
+            | b'*'
+            | b'+'
+            | b'-'
+            | b'.'
+            | b'^'
+            | b'_'
+            | b'`'
+            | b'|'
+            | b'~'
+    )
 }
 
 fn key_line_re() -> &'static regex::Regex {
@@ -226,4 +250,29 @@ pub fn init() {
         dotenvy::from_path(env_path.clone()).ok();
     }
     validate_encryption_key();
+}
+
+#[cfg(test)]
+mod tests {
+    use super::is_valid_admin_api_key;
+
+    #[test]
+    fn admin_key_accepts_header_safe_values() {
+        assert!(is_valid_admin_api_key(&"a".repeat(64)));
+        assert!(is_valid_admin_api_key(&format!("{}-._~", "a".repeat(28))));
+    }
+
+    #[test]
+    fn admin_key_rejects_header_injection_and_invalid_values() {
+        let key = "a".repeat(64);
+        assert!(!is_valid_admin_api_key(&format!("{key} with-space")));
+        assert!(!is_valid_admin_api_key(&format!(
+            "{key}\r\nX-Injected: yes"
+        )));
+        assert!(!is_valid_admin_api_key(&format!("{key}\t")));
+        assert!(!is_valid_admin_api_key(
+            "replace-with-a-long-random-admin-key"
+        ));
+        assert!(!is_valid_admin_api_key(&"é".repeat(32)));
+    }
 }

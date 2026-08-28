@@ -33,15 +33,23 @@ jobs:
         run: cargo build --release -p server
 
   desktop:
-    name: Linux desktop tray — build
-    runs-on: ubuntu-latest
+    name: Desktop tray — ${{ matrix.os }}
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        os:
+          - ubuntu-latest
+          - windows-latest
+          - macos-latest
     steps:
       - uses: actions/checkout@v4
 
       - name: Install tray native dependencies
+        if: runner.os == 'Linux'
         run: |
           sudo apt-get update
-          sudo apt-get install -y libappindicator3-dev libgtk-3-dev libxdo-dev
+          sudo apt-get install -y libappindicator3-dev libgtk-3-dev libxdo-dev xvfb
 
       - uses: dtolnay/rust-toolchain@stable
         with:
@@ -54,6 +62,15 @@ jobs:
 
       - name: Clippy desktop targets
         run: cargo clippy -p server --all-targets --features desktop-tray -- -D warnings
+
+      - name: Linux tray runtime smoke test
+        if: runner.os == 'Linux'
+        shell: bash
+        run: |
+          set -euo pipefail
+          output="$(FREELLMAPI_TRAY_SMOKE_TEST=1 xvfb-run -a timeout 10s ./target/debug/freellmapi-tray)"
+          echo "$output"
+          grep -Fq "Tray ready" <<< "$output"
 
   client:
     name: Client — build
