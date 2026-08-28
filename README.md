@@ -25,12 +25,12 @@ git clone https://github.com/nglmercer/freellmapiV2
 cd freellmapiV2
 
 npm install
-npm run build -w client
+npm run build:client
 
 cargo run -p server
 ```
 
-The API listens on `127.0.0.1:3001` by default. The dashboard development server can be started with `npm run dev -w client`.
+The API listens on `127.0.0.1:3001` by default. The dashboard development server can be started with `npm run dev:client`.
 
 ## Rust checks
 
@@ -45,7 +45,7 @@ Network-dependent provider smoke tests are intentionally excluded from normal te
 ## Release build
 
 ```bash
-npm run build -w client
+npm run build:client
 cargo build --release -p server
 ./target/release/server
 ```

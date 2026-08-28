@@ -48,4 +48,4 @@ jobs:
         run: npm ci
 
       - name: Build client
-        run: npm run build -w client
+        run: npm run build:client
