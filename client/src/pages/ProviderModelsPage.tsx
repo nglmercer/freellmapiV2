@@ -31,8 +31,6 @@ interface CustomModel {
 interface ModelFormData {
   modelId: string
   displayName: string
-  intelligenceRank?: number
-  speedRank?: number
   sizeLabel: string
   rpmLimit: number | null
   rpdLimit: number | null
@@ -65,24 +63,14 @@ function ModelForm({
   const [modelId, setModelId] = useState(initial?.modelId ?? '')
   const [displayName, setDisplayName] = useState(initial?.displayName ?? '')
   const [contextWindow, setContextWindow] = useState(initial?.contextWindow ? String(initial.contextWindow) : '')
-  const [intelligenceRank, setIntelligenceRank] = useState(String(initial?.intelligenceRank ?? ''))
-  const [speedRank, setSpeedRank] = useState(String(initial?.speedRank ?? ''))
   const [enabled, setEnabled] = useState(initial?.enabled ?? true)
 
   function handleSubmit(e: React.FormEvent) {
     e.preventDefault()
     if (!modelId || !displayName) return
-    const parsedIntelligenceRank = parseInt(intelligenceRank, 10)
-    const parsedSpeedRank = parseInt(speedRank, 10)
     onSave({
       modelId,
       displayName,
-      ...(Number.isFinite(parsedIntelligenceRank) && parsedIntelligenceRank > 0
-        ? { intelligenceRank: parsedIntelligenceRank }
-        : {}),
-      ...(Number.isFinite(parsedSpeedRank) && parsedSpeedRank > 0
-        ? { speedRank: parsedSpeedRank }
-        : {}),
       sizeLabel: '',
       rpmLimit: null,
       rpdLimit: null,
@@ -108,14 +96,6 @@ function ModelForm({
         <div className="space-y-1.5 w-[120px]">
           <Label className="text-xs">{t('providerModels.form.contextWindow')}</Label>
           <Input value={contextWindow} onChange={e => setContextWindow(e.target.value)} placeholder={t('providerModels.form.contextWindowPlaceholder')} type="number" />
-        </div>
-        <div className="space-y-1.5 w-[80px]">
-          <Label className="text-xs">{t('providerModels.form.intelligenceRank')}</Label>
-          <Input value={intelligenceRank} onChange={e => setIntelligenceRank(e.target.value)} placeholder="—" type="number" min="1" max="999" />
-        </div>
-        <div className="space-y-1.5 w-[80px]">
-          <Label className="text-xs">{t('providerModels.form.speedRank')}</Label>
-          <Input value={speedRank} onChange={e => setSpeedRank(e.target.value)} placeholder="—" type="number" min="1" max="999" />
         </div>
       </div>
 

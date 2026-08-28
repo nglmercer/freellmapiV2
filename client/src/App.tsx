@@ -2,7 +2,7 @@ import { lazy, Suspense, useState } from 'react'
 import { BrowserRouter, Routes, Route, Navigate, NavLink, useLocation } from 'react-router-dom'
 import { QueryClient, QueryClientProvider, useQuery } from '@tanstack/react-query'
 import { Button } from '@/components/ui/button'
-import { apiFetch } from '@/lib/api'
+import { apiFetch, getAdminApiKey, setAdminApiKey } from '@/lib/api'
 import { useTranslations } from '@/hooks/useTranslations'
 import { switchLanguage, getCurrentLanguage } from '@/i18n'
 import PageSkeleton from '@/components/PageSkeleton'
@@ -76,16 +76,95 @@ function Brand() {
   )
 }
 
-function SetupGuard({ children }: { children: React.ReactNode }) {
+interface SetupStatus {
+  isSetup: boolean
+}
+
+function SetupGuard({ children, status }: { children: React.ReactNode; status: SetupStatus }) {
   const location = useLocation()
-  const { data, isLoading } = useQuery<{ isSetup: boolean }>({
-    queryKey: ['setup-status'],
+
+  if (!status.isSetup && location.pathname !== '/setup') {
+    return <Navigate to="/setup" replace />
+  }
+
+  if (status.isSetup && location.pathname === '/setup') {
+    return <Navigate to="/playground" replace />
+  }
+
+  return <>{children}</>
+}
+
+function AdminKeyPrompt({ initialKey, onSubmit, hasError }: {
+  initialKey: string
+  onSubmit: (key: string) => void
+  hasError: boolean
+}) {
+  const { t } = useTranslations()
+  const [key, setKey] = useState(initialKey)
+
+  function submit(event: React.FormEvent) {
+    event.preventDefault()
+    const trimmed = key.trim()
+    if (trimmed) onSubmit(trimmed)
+  }
+
+  return (
+    <div className="min-h-screen bg-background flex items-center justify-center px-6">
+      <form onSubmit={submit} className="w-full max-w-md rounded-lg border bg-card p-6 space-y-5">
+        <div>
+          <div className="flex items-center gap-2 mb-3">
+            <span className="inline-block size-2 rounded-full bg-foreground" />
+            <span className="font-semibold tracking-tight text-sm">FreeLLMAPI</span>
+          </div>
+          <h1 className="text-lg font-semibold tracking-tight">{t('adminAuth.title')}</h1>
+          <p className="text-sm text-muted-foreground mt-2">{t('adminAuth.description')}</p>
+        </div>
+        <div className="space-y-1.5">
+          <label htmlFor="admin-api-key" className="text-xs font-medium">{t('adminAuth.label')}</label>
+          <input
+            id="admin-api-key"
+            type="password"
+            value={key}
+            onChange={event => setKey(event.target.value)}
+            placeholder={t('adminAuth.placeholder')}
+            autoComplete="current-password"
+            autoFocus
+            className="flex h-9 w-full rounded-md border border-input bg-background px-3 py-1 text-sm shadow-sm outline-none focus-visible:ring-1 focus-visible:ring-ring"
+          />
+        </div>
+        {hasError && <p className="text-sm text-destructive">{t('adminAuth.invalid')}</p>}
+        <Button type="submit" className="w-full" disabled={!key.trim()}>
+          {t('adminAuth.continue')}
+        </Button>
+      </form>
+    </div>
+  )
+}
+
+function AdminKeyGate({ children }: { children: React.ReactNode }) {
+  const [adminKey, setAdminKey] = useState(() => getAdminApiKey())
+  const setup = useQuery<SetupStatus>({
+    queryKey: ['setup-status', adminKey],
     queryFn: () => apiFetch('/api/settings/setup-status'),
+    enabled: Boolean(adminKey),
     staleTime: 30_000,
-    retry: 1,
+    retry: false,
   })
 
-  if (isLoading) {
+  if (!adminKey || setup.isError) {
+    return (
+      <AdminKeyPrompt
+        initialKey={adminKey}
+        hasError={Boolean(adminKey && setup.isError)}
+        onSubmit={key => {
+          setAdminApiKey(key)
+          setAdminKey(key)
+        }}
+      />
+    )
+  }
+
+  if (setup.isLoading || !setup.data) {
     return (
       <div className="min-h-screen bg-background flex items-center justify-center">
         <div className="text-sm text-muted-foreground">Loading…</div>
@@ -93,15 +172,7 @@ function SetupGuard({ children }: { children: React.ReactNode }) {
     )
   }
 
-  if (data && !data.isSetup && location.pathname !== '/setup') {
-    return <Navigate to="/setup" replace />
-  }
-
-  if (data?.isSetup && location.pathname === '/setup') {
-    return <Navigate to="/playground" replace />
-  }
-
-  return <>{children}</>
+  return <SetupGuard status={setup.data}>{children}</SetupGuard>
 }
 
 function LanguageToggle() {
@@ -171,9 +242,9 @@ function App() {
   return (
     <QueryClientProvider client={queryClient}>
       <BrowserRouter basename={import.meta.env.BASE_URL}>
-        <SetupGuard>
+        <AdminKeyGate>
           <AppLayout />
-        </SetupGuard>
+        </AdminKeyGate>
       </BrowserRouter>
     </QueryClientProvider>
   )

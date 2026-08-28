@@ -461,12 +461,26 @@ pub fn migrate_models_v14(conn: &Connection) {
            raw_updated_at TEXT,
            UNIQUE(canonical_model_id, source)
          );
+         CREATE TABLE IF NOT EXISTS ranking_source_models (
+           id INTEGER PRIMARY KEY AUTOINCREMENT,
+           source TEXT NOT NULL,
+           source_model_id TEXT NOT NULL,
+           source_model_slug TEXT,
+           intelligence_score REAL,
+           speed_tokens_per_sec REAL,
+           fetched_at TEXT NOT NULL,
+           raw_updated_at TEXT,
+           UNIQUE(source, source_model_id)
+         );
          CREATE TABLE IF NOT EXISTS ranking_unmatched (
            id INTEGER PRIMARY KEY AUTOINCREMENT,
            source TEXT NOT NULL,
            source_model_id TEXT NOT NULL,
            local_candidate TEXT,
            seen_at TEXT NOT NULL,
+           first_seen_at TEXT,
+           last_seen_at TEXT,
+           seen_count INTEGER NOT NULL DEFAULT 1,
            resolved INTEGER NOT NULL DEFAULT 0
          );
          CREATE TABLE IF NOT EXISTS ranking_source_status (
@@ -497,6 +511,7 @@ pub fn migrate_models_v14(conn: &Connection) {
          );
          CREATE INDEX IF NOT EXISTS idx_model_aliases_canonical ON model_aliases(canonical_model_id);
          CREATE INDEX IF NOT EXISTS idx_model_benchmarks_source ON model_benchmarks(source);
+         CREATE INDEX IF NOT EXISTS idx_ranking_source_models_source ON ranking_source_models(source);
          CREATE INDEX IF NOT EXISTS idx_ranking_unmatched_source ON ranking_unmatched(source);
          CREATE INDEX IF NOT EXISTS idx_model_performance_updated_at ON model_performance(updated_at);",
     )

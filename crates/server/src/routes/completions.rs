@@ -3,6 +3,7 @@
 //! classic text-completion interface.
 
 use std::collections::HashSet;
+use std::time::Instant;
 
 use axum::body::{Body, Bytes};
 use axum::http::{HeaderMap, StatusCode};
@@ -147,7 +148,6 @@ async fn handle_completion(data: crate::types::CompletionRequest) -> Response {
             estimated_input_tokens,
             estimated_total,
             base_options,
-            start,
         )
         .await
     }
@@ -162,7 +162,6 @@ async fn handle_completion_standard(
     estimated_input_tokens: i64,
     estimated_total: i64,
     options: CompletionOptions,
-    start: i64,
 ) -> Response {
     let _ = estimated_input_tokens;
     let mut skip_keys: HashSet<String> = HashSet::new();
@@ -190,13 +189,68 @@ async fn handle_completion_standard(
         };
 
         let call = async {
-            let results: Vec<SingleResult> =
-                join_all(prompts.iter().take(n as usize).map(|prompt| {
-                    run_single_completion(&route, prompt, suffix.as_deref(), &options)
-                }))
-                .await
-                .into_iter()
-                .collect::<Result<Vec<_>, ProviderError>>()?;
+            let timed_results = join_all(prompts.iter().take(n as usize).map(|prompt| async {
+                let started = Instant::now();
+                let result =
+                    run_single_completion(&route, prompt, suffix.as_deref(), &options).await;
+                (
+                    result,
+                    started.elapsed().as_millis().min(i64::MAX as u128) as i64,
+                )
+            }))
+            .await;
+            let mut results: Vec<SingleResult> = Vec::with_capacity(timed_results.len());
+            let mut first_error: Option<ProviderError> = None;
+            for (result, latency_ms) in timed_results {
+                match result {
+                    Ok(result) => {
+                        record_tokens(
+                            &route.platform,
+                            &route.model_id,
+                            route.key_id,
+                            result.usage.total_tokens,
+                        );
+                        record_success(route.model_db_id);
+                        record_request(&route.platform, &route.model_id, route.key_id);
+                        let _ = record_observation(
+                            &route.platform,
+                            &route.model_id,
+                            RuntimeObservation {
+                                outcome: ObservationOutcome::Success,
+                                latency_ms: Some(latency_ms),
+                                ttft_ms: None,
+                                output_tokens: Some(result.usage.completion_tokens),
+                                generation_duration_ms: None,
+                            },
+                        )
+                        .await;
+                        results.push(result);
+                    }
+                    Err(error) => {
+                        let _ = record_observation(
+                            &route.platform,
+                            &route.model_id,
+                            RuntimeObservation {
+                                outcome: ObservationOutcome::Failure {
+                                    status_code: error.status,
+                                    message: error.message.clone(),
+                                },
+                                latency_ms: Some(latency_ms),
+                                ttft_ms: None,
+                                output_tokens: None,
+                                generation_duration_ms: None,
+                            },
+                        )
+                        .await;
+                        if first_error.is_none() {
+                            first_error = Some(error);
+                        }
+                    }
+                }
+            }
+            if let Some(error) = first_error {
+                return Err(error);
+            }
 
             let mut final_texts: Vec<String> = Vec::new();
             let mut total_input_tokens = 0i64;
@@ -213,22 +267,6 @@ async fn handle_completion_standard(
                 total_output_tokens += r.usage.completion_tokens;
                 total_tokens += r.usage.total_tokens;
             }
-
-            record_tokens(&route.platform, &route.model_id, route.key_id, total_tokens);
-            record_success(route.model_db_id);
-            record_request(&route.platform, &route.model_id, route.key_id);
-            let _ = record_observation(
-                &route.platform,
-                &route.model_id,
-                RuntimeObservation {
-                    outcome: ObservationOutcome::Success,
-                    latency_ms: Some(chrono::Utc::now().timestamp_millis() - start),
-                    ttft_ms: None,
-                    output_tokens: Some(total_output_tokens),
-                    generation_duration_ms: None,
-                },
-            )
-            .await;
 
             let choices: Vec<Value> = final_texts
                 .iter()
@@ -282,21 +320,6 @@ async fn handle_completion_standard(
         };
 
         last_error = Some(err.message.clone());
-        let _ = record_observation(
-            &route.platform,
-            &route.model_id,
-            RuntimeObservation {
-                outcome: ObservationOutcome::Failure {
-                    status_code: err.status,
-                    message: err.message.clone(),
-                },
-                latency_ms: Some(chrono::Utc::now().timestamp_millis() - start),
-                ttft_ms: None,
-                output_tokens: None,
-                generation_duration_ms: None,
-            },
-        )
-        .await;
         if is_retryable_error(&err) {
             skip_keys.insert(format!(
                 "{}:{}:{}",

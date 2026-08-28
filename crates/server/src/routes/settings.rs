@@ -16,23 +16,38 @@ async fn setup_status() -> Response {
             .unwrap_or(0)
     };
     let unified_key = get_unified_api_key().await;
-    Json(json!({
+    let mut response = Json(json!({
         "isSetup": key_count > 0,
         "keyCount": key_count,
         "unifiedKey": unified_key,
     }))
-    .into_response()
+    .into_response();
+    response.headers_mut().insert(
+        axum::http::header::CACHE_CONTROL,
+        axum::http::HeaderValue::from_static("no-store"),
+    );
+    response
 }
 
 /// `GET /api-key`
 async fn api_key() -> Response {
-    Json(json!({ "apiKey": get_unified_api_key().await })).into_response()
+    let mut response = Json(json!({ "apiKey": get_unified_api_key().await })).into_response();
+    response.headers_mut().insert(
+        axum::http::header::CACHE_CONTROL,
+        axum::http::HeaderValue::from_static("no-store"),
+    );
+    response
 }
 
 /// `POST /api-key/regenerate`
 async fn regenerate_api_key() -> Response {
     let new_key = regenerate_unified_key().await;
-    Json(json!({ "apiKey": new_key })).into_response()
+    let mut response = Json(json!({ "apiKey": new_key })).into_response();
+    response.headers_mut().insert(
+        axum::http::header::CACHE_CONTROL,
+        axum::http::HeaderValue::from_static("no-store"),
+    );
+    response
 }
 
 pub fn router() -> axum::Router {

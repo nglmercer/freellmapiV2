@@ -1,6 +1,7 @@
 //! OpenAI-compatible proxy endpoints with resilient fallback retries.
 
 use std::collections::HashSet;
+use std::time::Instant;
 
 use axum::body::Bytes;
 use axum::http::{HeaderMap, StatusCode};
@@ -130,6 +131,7 @@ fn log_request(
     latency_ms: i64,
     error: Option<String>,
     status_code: Option<u16>,
+    record_telemetry: bool,
 ) {
     tokio::spawn(async move {
         {
@@ -141,21 +143,23 @@ fn log_request(
             )
             .ok();
         }
-        let _ = record_observation(
-            &platform,
-            &model_id,
-            RuntimeObservation {
-                outcome: ObservationOutcome::Failure {
-                    status_code,
-                    message: error.unwrap_or_default(),
+        if record_telemetry {
+            let _ = record_observation(
+                &platform,
+                &model_id,
+                RuntimeObservation {
+                    outcome: ObservationOutcome::Failure {
+                        status_code,
+                        message: error.unwrap_or_default(),
+                    },
+                    latency_ms: Some(latency_ms),
+                    ttft_ms: None,
+                    output_tokens: Some(output_tokens),
+                    generation_duration_ms: None,
                 },
-                latency_ms: Some(latency_ms),
-                ttft_ms: None,
-                output_tokens: Some(output_tokens),
-                generation_duration_ms: None,
-            },
-        )
-        .await;
+            )
+            .await;
+        }
     });
 }
 
@@ -268,15 +272,7 @@ pub async fn chat_completions(headers: HeaderMap, body: Bytes) -> Response {
                 record_request(&route.platform, &route.model_id, route.key_id);
             })
         } else if n > 1 {
-            handle_parallel(
-                route.clone(),
-                messages.clone(),
-                options.clone(),
-                n,
-                attempt,
-                start,
-            )
-            .await
+            handle_parallel(route.clone(), messages.clone(), options.clone(), n, attempt).await
         } else {
             handle_standard_completion(&route, messages.clone(), options.clone(), attempt, start)
                 .await
@@ -304,6 +300,7 @@ pub async fn chat_completions(headers: HeaderMap, body: Bytes) -> Response {
             chrono::Utc::now().timestamp_millis() - start,
             Some(error_message.clone()),
             err.status,
+            !(!stream && n > 1),
         );
 
         if is_retryable_error(&err) {
@@ -388,25 +385,79 @@ fn provider_error_response(route: &RouteResult, error_message: &str) -> Response
 }
 
 /// The `n > 1` parallel branch: fire `n` requests at the same provider and
-/// return merged choices. Usage bookkeeping intentionally remains unchanged on
-/// this path.
+/// return merged choices. Each provider attempt gets its own telemetry sample
+/// so aggregate wall-clock time cannot inflate output throughput.
 async fn handle_parallel(
     route: RouteResult,
     messages: Vec<ChatMessage>,
     options: CompletionOptions,
     n: i64,
     attempt: i64,
-    start: i64,
 ) -> Result<Response, ProviderError> {
-    let calls = (0..n).map(|_| {
-        route
+    let calls = (0..n).map(|_| async {
+        let started = Instant::now();
+        let result = route
             .provider
             .chat_completion(&route.api_key, &messages, &route.model_id, &options)
+            .await;
+        (
+            result,
+            started.elapsed().as_millis().min(i64::MAX as u128) as i64,
+        )
     });
-    let results: Vec<ChatCompletionResponse> = join_all(calls)
-        .await
-        .into_iter()
-        .collect::<Result<Vec<_>, ProviderError>>()?;
+    let timed_results = join_all(calls).await;
+    let mut results: Vec<ChatCompletionResponse> = Vec::with_capacity(timed_results.len());
+    let mut first_error: Option<ProviderError> = None;
+    for (result, latency_ms) in timed_results {
+        match result {
+            Ok(response) => {
+                record_request(&route.platform, &route.model_id, route.key_id);
+                record_tokens(
+                    &route.platform,
+                    &route.model_id,
+                    route.key_id,
+                    response.usage.total_tokens,
+                );
+                record_success(route.model_db_id);
+                let _ = record_observation(
+                    &route.platform,
+                    &route.model_id,
+                    RuntimeObservation {
+                        outcome: ObservationOutcome::Success,
+                        latency_ms: Some(latency_ms),
+                        ttft_ms: None,
+                        output_tokens: Some(response.usage.completion_tokens),
+                        generation_duration_ms: None,
+                    },
+                )
+                .await;
+                results.push(response);
+            }
+            Err(error) => {
+                let _ = record_observation(
+                    &route.platform,
+                    &route.model_id,
+                    RuntimeObservation {
+                        outcome: ObservationOutcome::Failure {
+                            status_code: error.status,
+                            message: error.message.clone(),
+                        },
+                        latency_ms: Some(latency_ms),
+                        ttft_ms: None,
+                        output_tokens: None,
+                        generation_duration_ms: None,
+                    },
+                )
+                .await;
+                if first_error.is_none() {
+                    first_error = Some(error);
+                }
+            }
+        }
+    }
+    if let Some(error) = first_error {
+        return Err(error);
+    }
 
     let mut merged_choices: Vec<Value> = Vec::new();
     let mut total_usage = json!({
@@ -433,22 +484,7 @@ async fn handle_parallel(
         }
     }
 
-    let total_tokens = total_usage["total_tokens"].as_i64().unwrap_or(0);
-    record_tokens(&route.platform, &route.model_id, route.key_id, total_tokens);
-    record_success(route.model_db_id);
     set_sticky_model(&messages, route.model_db_id);
-    let _ = record_observation(
-        &route.platform,
-        &route.model_id,
-        RuntimeObservation {
-            outcome: ObservationOutcome::Success,
-            latency_ms: Some(chrono::Utc::now().timestamp_millis() - start),
-            ttft_ms: None,
-            output_tokens: Some(total_usage["completion_tokens"].as_i64().unwrap_or(0)),
-            generation_duration_ms: None,
-        },
-    )
-    .await;
 
     let mut response = (
         StatusCode::OK,

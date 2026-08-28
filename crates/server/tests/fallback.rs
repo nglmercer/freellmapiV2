@@ -100,6 +100,7 @@ async fn effective_priority_equals_priority_initially() {
 #[tokio::test]
 async fn should_update_fallback_chain_successfully() {
     let app = common::setup().await;
+    let admin_key = common::admin_key();
     let body = json!([
         { "modelDbId": 1, "priority": 2, "enabled": true },
         { "modelDbId": 2, "priority": 1, "enabled": true },
@@ -108,7 +109,7 @@ async fn should_update_fallback_chain_successfully() {
         &app.app,
         "PUT",
         "/api/fallback",
-        Some(&app.api_key),
+        Some(&admin_key),
         Some(body),
     )
     .await;
@@ -120,6 +121,7 @@ async fn should_update_fallback_chain_successfully() {
 #[tokio::test]
 async fn should_persist_updated_priorities_in_subsequent_get() {
     let app = common::setup().await;
+    let admin_key = common::admin_key();
     let body = json!([
         { "modelDbId": 1, "priority": 10, "enabled": true },
         { "modelDbId": 2, "priority": 5, "enabled": true },
@@ -128,7 +130,7 @@ async fn should_persist_updated_priorities_in_subsequent_get() {
         &app.app,
         "PUT",
         "/api/fallback",
-        Some(&app.api_key),
+        Some(&admin_key),
         Some(body),
     )
     .await;
@@ -148,11 +150,12 @@ async fn should_persist_updated_priorities_in_subsequent_get() {
 #[tokio::test]
 async fn should_return_400_for_invalid_body() {
     let app = common::setup().await;
+    let admin_key = common::admin_key();
     let res = common::request(
         &app.app,
         "PUT",
         "/api/fallback",
-        Some(&app.api_key),
+        Some(&admin_key),
         Some(json!("not an array")),
     )
     .await;
@@ -168,12 +171,13 @@ async fn should_return_400_for_invalid_body() {
 #[tokio::test]
 async fn should_return_400_when_model_db_id_not_a_number() {
     let app = common::setup().await;
+    let admin_key = common::admin_key();
     let body = json!([{ "modelDbId": "abc", "priority": 1, "enabled": true }]);
     let res = common::request(
         &app.app,
         "PUT",
         "/api/fallback",
-        Some(&app.api_key),
+        Some(&admin_key),
         Some(body),
     )
     .await;
@@ -185,12 +189,13 @@ async fn should_return_400_when_model_db_id_not_a_number() {
 #[tokio::test]
 async fn should_return_400_when_enabled_not_a_boolean() {
     let app = common::setup().await;
+    let admin_key = common::admin_key();
     let body = json!([{ "modelDbId": 1, "priority": 1, "enabled": "yes" }]);
     let res = common::request(
         &app.app,
         "PUT",
         "/api/fallback",
-        Some(&app.api_key),
+        Some(&admin_key),
         Some(body),
     )
     .await;
@@ -198,13 +203,13 @@ async fn should_return_400_when_enabled_not_a_boolean() {
     assert!(res.body.get("error").is_some());
 }
 
-/// The fallback routes are NOT protected — PUT works without an auth header.
+/// The fallback routes require the admin credential.
 #[tokio::test]
 async fn put_works_without_auth_header() {
     let app = common::setup().await;
     let body = json!([{ "modelDbId": 1, "priority": 1, "enabled": true }]);
     let res = common::request(&app.app, "PUT", "/api/fallback", None, Some(body)).await;
-    common::expect_status(&res, StatusCode::OK);
+    common::expect_status(&res, StatusCode::UNAUTHORIZED);
 }
 
 // ─────────────────────────────────────────────────────────────────────
@@ -214,11 +219,12 @@ async fn put_works_without_auth_header() {
 #[tokio::test]
 async fn sort_by_intelligence_preset() {
     let app = common::setup().await;
+    let admin_key = common::admin_key();
     let res = common::request(
         &app.app,
         "POST",
         "/api/fallback/sort/intelligence",
-        Some(&app.api_key),
+        Some(&admin_key),
         None,
     )
     .await;
@@ -230,11 +236,12 @@ async fn sort_by_intelligence_preset() {
 #[tokio::test]
 async fn sort_by_speed_preset() {
     let app = common::setup().await;
+    let admin_key = common::admin_key();
     let res = common::request(
         &app.app,
         "POST",
         "/api/fallback/sort/speed",
-        Some(&app.api_key),
+        Some(&admin_key),
         None,
     )
     .await;
@@ -246,11 +253,12 @@ async fn sort_by_speed_preset() {
 #[tokio::test]
 async fn sort_by_budget_preset() {
     let app = common::setup().await;
+    let admin_key = common::admin_key();
     let res = common::request(
         &app.app,
         "POST",
         "/api/fallback/sort/budget",
-        Some(&app.api_key),
+        Some(&admin_key),
         None,
     )
     .await;
@@ -263,11 +271,12 @@ async fn sort_by_budget_preset() {
 #[tokio::test]
 async fn sort_unknown_preset_returns_400() {
     let app = common::setup().await;
+    let admin_key = common::admin_key();
     let res = common::request(
         &app.app,
         "POST",
         "/api/fallback/sort/doesnotexist",
-        Some(&app.api_key),
+        Some(&admin_key),
         Some(json!({})),
     )
     .await;
@@ -283,7 +292,7 @@ async fn sort_unknown_preset_returns_400() {
     );
 }
 
-/// The sort route is not protected either.
+/// The sort route requires the admin credential.
 #[tokio::test]
 async fn sort_works_without_auth_header() {
     let app = common::setup().await;
@@ -295,7 +304,7 @@ async fn sort_works_without_auth_header() {
         None,
     )
     .await;
-    common::expect_status(&res, StatusCode::OK);
+    common::expect_status(&res, StatusCode::UNAUTHORIZED);
 }
 
 // ─────────────────────────────────────────────────────────────────────

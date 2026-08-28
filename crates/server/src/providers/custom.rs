@@ -25,7 +25,26 @@ pub fn has_custom_provider(platform: &str) -> bool {
     platform.starts_with(CUSTOM_PREFIX)
 }
 
-fn build_provider(row: &CustomProviderRow, platform: &str) -> Arc<dyn Provider> {
+fn valid_base_url(value: &str) -> bool {
+    let Ok(url) = reqwest::Url::parse(value) else {
+        return false;
+    };
+    matches!(url.scheme(), "http" | "https")
+        && url.host_str().is_some()
+        && url.username().is_empty()
+        && url.password().is_none()
+        && url.fragment().is_none()
+}
+
+fn build_provider(row: &CustomProviderRow, platform: &str) -> Option<Arc<dyn Provider>> {
+    if !valid_base_url(&row.base_url) {
+        tracing::warn!(
+            provider = %row.name,
+            "Ignoring custom provider with invalid HTTP(S) base URL"
+        );
+        return None;
+    }
+
     let mut extra_headers: Vec<(String, String)> = Vec::new();
     if let Some(raw) = &row.extra_headers {
         if let Ok(parsed) = serde_json::from_str::<serde_json::Map<String, serde_json::Value>>(raw)
@@ -38,14 +57,14 @@ fn build_provider(row: &CustomProviderRow, platform: &str) -> Arc<dyn Provider> 
         }
     }
 
-    Arc::new(OpenAICompatProvider::new(OpenAICompatOptions {
+    Some(Arc::new(OpenAICompatProvider::new(OpenAICompatOptions {
         platform: platform.to_string(),
         name: row.name.clone(),
         base_url: row.base_url.clone(),
         extra_headers,
         validate_url: None,
         timeout_ms: row.timeout_ms.unwrap_or(15000) as u64,
-    }))
+    })))
 }
 
 pub fn load_custom_provider(conn: &Connection, platform: &str) -> Option<Arc<dyn Provider>> {
@@ -60,7 +79,7 @@ pub fn load_custom_provider(conn: &Connection, platform: &str) -> Option<Arc<dyn
             CustomProviderRow::from_row,
         )
         .ok()?;
-    Some(build_provider(&row, platform))
+    build_provider(&row, platform)
 }
 
 pub fn load_all_custom_providers(conn: &Connection) -> HashMap<String, Arc<dyn Provider>> {
@@ -75,7 +94,9 @@ pub fn load_all_custom_providers(conn: &Connection) -> HashMap<String, Arc<dyn P
         .unwrap_or_default();
     for row in rows {
         let platform = provider_id_to_platform(row.id);
-        map.insert(platform.clone(), build_provider(&row, &platform));
+        if let Some(provider) = build_provider(&row, &platform) {
+            map.insert(platform.clone(), provider);
+        }
     }
     map
 }

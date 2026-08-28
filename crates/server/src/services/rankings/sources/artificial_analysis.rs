@@ -13,7 +13,7 @@ use crate::services::rankings::types::{
     ExternalBenchmark, RankingError, RankingSource, RankingSourceProvider,
 };
 
-const DEFAULT_URL: &str = "https://artificialanalysis.ai/api/v2/language/models";
+const DEFAULT_URL: &str = "https://artificialanalysis.ai/api/v2/language/models/free";
 const TIMEOUT_MS: u64 = 15_000;
 const MAX_PAGES: usize = 100;
 
@@ -39,7 +39,7 @@ struct AAModel {
     evaluations: Option<AAEvaluations>,
     performance: Option<AAPerformance>,
     // `/api/v2/data/llms/models` is a documented compatible shape. It is
-    // accepted as a fallback while the default remains `/language/models`.
+    // accepted as a fallback for compatible deployments.
     median_output_tokens_per_second: Option<f64>,
 }
 
@@ -311,5 +311,19 @@ mod tests {
         )
         .unwrap();
         assert!(has_more);
+    }
+
+    #[test]
+    fn free_endpoint_is_the_default_but_can_be_overridden() {
+        assert_eq!(
+            endpoint_url(None),
+            "https://artificialanalysis.ai/api/v2/language/models/free"
+        );
+        assert_eq!(
+            endpoint_url(Some(
+                "https://artificialanalysis.ai/api/v2/language/models".to_string()
+            )),
+            "https://artificialanalysis.ai/api/v2/language/models"
+        );
     }
 }

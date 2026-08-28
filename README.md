@@ -30,7 +30,7 @@ npm run build -w client
 cargo run -p server
 ```
 
-The API listens on port `3001` by default. The dashboard development server can be started with `npm run dev -w client`.
+The API listens on `127.0.0.1:3001` by default. The dashboard development server can be started with `npm run dev -w client`.
 
 ## Rust checks
 
@@ -55,12 +55,19 @@ cargo build --release -p server
 Supported environment variables are:
 
 - `ENCRYPTION_KEY` — 64 hexadecimal characters (32 bytes) used for AES-256-GCM provider-key encryption.
+- `ADMIN_API_KEY` — separate credential required for every administrative `/api/*` route except `/api/ping`. If omitted from a local `.env`, startup generates one.
 - `PORT` — HTTP port; defaults to `3001`.
+- `BIND_ADDRESS` — listen address; defaults to `127.0.0.1`. Set `0.0.0.0` only when the deployment intentionally exposes the service.
+- `DASHBOARD_ORIGINS` — optional comma-separated browser-origin allowlist for cross-origin dashboard requests. CORS is denied by default.
+- `ARTIFICIAL_ANALYSIS_API_KEY` — optional Artificial Analysis Data API key. The default endpoint is the Free integration at `/api/v2/language/models/free`.
+- `ARTIFICIAL_ANALYSIS_URL` — optional endpoint override for Pro/commercial or compatible deployments.
 - `DB_PATH` — explicit SQLite database path.
 - `STATIC_DIR` — directory containing the built client assets.
 - `RUST_LOG` — tracing filter, for example `info,tower_http=debug`.
 
-Copy `.env.example` to `.env` and set `ENCRYPTION_KEY` for a deployment that already has encrypted provider keys. Never commit real keys.
+Copy `.env.example` to `.env` and set `ENCRYPTION_KEY` and `ADMIN_API_KEY` for a deployment that already has encrypted provider keys. Never commit real keys.
+
+The dashboard prompts for `ADMIN_API_KEY` when the server is not built with a `VITE_ADMIN_API_KEY`; the entered credential is kept only in the browser session. For local Vite development, set `DASHBOARD_ORIGINS=http://localhost:5173,http://127.0.0.1:5173` and optionally set `VITE_ADMIN_API_KEY` to avoid the prompt. Do not publish the admin credential in a broadly accessible production bundle. The OpenAI-compatible `/v1/*` routes use the separate unified API key returned by the protected Settings endpoints.
 
 ### Database compatibility
 
@@ -68,7 +75,9 @@ Existing installations are preserved. When `DB_PATH` is not set, the server firs
 
 ## API
 
-Administrative routes include `/api/ping`, `/api/keys`, `/api/models`, `/api/fallback`, `/api/analytics`, `/api/health`, `/api/settings`, and `/api/providers`. OpenAI-compatible routes are `/v1/models`, `/v1/chat/completions`, and `/v1/completions`.
+`/api/ping` is public. All other administrative routes (`/api/keys`, `/api/models`, `/api/fallback`, `/api/analytics`, `/api/health`, `/api/settings`, and `/api/providers`) require `Authorization: Bearer <ADMIN_API_KEY>`. OpenAI-compatible routes (`/v1/models`, `/v1/chat/completions`, and `/v1/completions`) require `Authorization: Bearer <unified API key>`.
+
+Ranking enrichment uses the Artificial Analysis Free endpoint by default and reuses a successful source snapshot for 24 hours during scheduled model syncs. The administrative ranking-sync endpoint forces a fresh fetch.
 
 The server supports streaming and non-streaming responses, tool calls, multimodal messages, parallel non-streaming choices, fallback routing, sticky sessions, rate limiting, and request analytics.
 

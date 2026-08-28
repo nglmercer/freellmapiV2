@@ -7,7 +7,7 @@
 use std::collections::{BTreeMap, HashMap, HashSet};
 use std::hash::Hash;
 
-use rusqlite::Connection;
+use rusqlite::{Connection, OptionalExtension};
 use serde::{Deserialize, Serialize};
 
 use crate::db::connection::db;
@@ -61,6 +61,27 @@ pub struct EnrichResult {
 
 fn now_iso() -> String {
     chrono::Utc::now().to_rfc3339_opts(chrono::SecondsFormat::Millis, true)
+}
+
+fn parse_timestamp(value: &str) -> Option<chrono::DateTime<chrono::Utc>> {
+    chrono::DateTime::parse_from_rfc3339(value)
+        .map(|date| date.with_timezone(&chrono::Utc))
+        .or_else(|_| {
+            chrono::NaiveDateTime::parse_from_str(value, "%Y-%m-%d %H:%M:%S").map(|date| {
+                chrono::DateTime::<chrono::Utc>::from_naive_utc_and_offset(date, chrono::Utc)
+            })
+        })
+        .ok()
+}
+
+fn cache_is_fresh(timestamp: &str) -> bool {
+    let Some(updated) = parse_timestamp(timestamp) else {
+        return false;
+    };
+    chrono::Utc::now()
+        .signed_duration_since(updated)
+        .num_milliseconds()
+        <= STALE_AFTER_MS
 }
 
 fn source_priority(source: Option<&str>) -> i32 {
@@ -423,15 +444,23 @@ fn load_canonical_registry(conn: &Connection) -> rusqlite::Result<HashMap<String
     Ok(registry)
 }
 
-fn source_aliases(
-    conn: &Connection,
-    source: &str,
-) -> rusqlite::Result<HashMap<String, Option<i64>>> {
+#[derive(Default)]
+struct SourceAliases {
+    /// Curated/manual aliases are authoritative and may intentionally block
+    /// an otherwise tempting normalized match.
+    authoritative: HashMap<String, Option<i64>>,
+    /// Automatically inferred aliases are only hints. A stale or over-broad
+    /// hint must never make a safe deterministic match impossible.
+    hints: HashMap<String, HashSet<i64>>,
+}
+
+fn source_aliases(conn: &Connection, source: &str) -> rusqlite::Result<SourceAliases> {
     let mut stmt = conn.prepare(
-        "SELECT lower(source_model_id), canonical_model_id, source
+        "SELECT lower(source_model_id), canonical_model_id, source, verified
          FROM model_aliases
          WHERE source = ?1 OR source = 'manual'
-         ORDER BY CASE WHEN source = 'manual' THEN 0 ELSE 1 END, id ASC",
+         ORDER BY CASE WHEN source = 'manual' THEN 0 ELSE 1 END,
+                  CASE WHEN verified != 0 THEN 0 ELSE 1 END, id ASC",
     )?;
     let rows = stmt
         .query_map(rusqlite::params![source], |row| {
@@ -439,29 +468,31 @@ fn source_aliases(
                 row.get::<_, String>(0)?,
                 row.get::<_, i64>(1)?,
                 row.get::<_, String>(2)?,
+                row.get::<_, i64>(3)?,
             ))
         })?
-        .collect::<rusqlite::Result<Vec<(String, i64, String)>>>()?;
-    let mut source_aliases: HashMap<String, Option<i64>> = HashMap::new();
-    let mut manual_aliases: HashMap<String, Option<i64>> = HashMap::new();
-    for (source_model_id, canonical_model_id, alias_source) in rows {
-        let aliases = if alias_source == "manual" {
-            &mut manual_aliases
-        } else {
-            &mut source_aliases
-        };
-        match aliases.get_mut(&source_model_id) {
-            None => {
-                aliases.insert(source_model_id, Some(canonical_model_id));
+        .collect::<rusqlite::Result<Vec<(String, i64, String, i64)>>>()?;
+    let mut aliases = SourceAliases::default();
+    for (source_model_id, canonical_model_id, alias_source, verified) in rows {
+        if alias_source == "manual" || verified != 0 {
+            match aliases.authoritative.get_mut(&source_model_id) {
+                None => {
+                    aliases
+                        .authoritative
+                        .insert(source_model_id, Some(canonical_model_id));
+                }
+                Some(existing) if *existing == Some(canonical_model_id) => {}
+                Some(existing) => *existing = None,
             }
-            Some(existing) if *existing == Some(canonical_model_id) => {}
-            Some(existing) => *existing = None,
+        } else {
+            aliases
+                .hints
+                .entry(source_model_id)
+                .or_default()
+                .insert(canonical_model_id);
         }
     }
-    for (source_model_id, canonical_model_id) in manual_aliases {
-        source_aliases.insert(source_model_id, canonical_model_id);
-    }
-    Ok(source_aliases)
+    Ok(aliases)
 }
 
 fn find_source_match(
@@ -470,7 +501,7 @@ fn find_source_match(
     benchmark: &ExternalBenchmark,
     benchmark_index: usize,
     lookup: &SourceLookup,
-    aliases: &HashMap<String, Option<i64>>,
+    aliases: &SourceAliases,
 ) -> Option<(usize, f64)> {
     let source_id = benchmark.source_id.to_ascii_lowercase();
     let source_keys = [Some(source_id), benchmark.source_slug.clone()]
@@ -478,8 +509,9 @@ fn find_source_match(
         .flatten()
         .map(|key| key.to_ascii_lowercase())
         .collect::<Vec<_>>();
+    let mut hinted = false;
     for source_key in source_keys {
-        match aliases.get(&source_key) {
+        match aliases.authoritative.get(&source_key) {
             Some(Some(canonical_model_id)) if *canonical_model_id == local.canonical_model_id => {
                 return Some((benchmark_index, 1.0));
             }
@@ -493,9 +525,18 @@ fn find_source_match(
             Some(Some(_)) => return None,
             None => {}
         }
+        if aliases
+            .hints
+            .get(&source_key)
+            .is_some_and(|canonical_ids| canonical_ids.contains(&local.canonical_model_id))
+        {
+            hinted = true;
+        }
     }
-    let (index, confidence) = lookup.find(local_identity, local.canonical_model_id)?;
-    (index == benchmark_index).then_some((index, confidence))
+    if let Some((index, confidence)) = lookup.find(local_identity, local.canonical_model_id) {
+        return (index == benchmark_index).then_some((index, confidence));
+    }
+    hinted.then_some((benchmark_index, 0.98))
 }
 
 /// Assign competition ranks (`1, 2, 2, 4`) once for a cohort. The model ID
@@ -577,6 +618,46 @@ fn persist_refresh(
 ) -> rusqlite::Result<(i64, i64, i64)> {
     let tx = conn.transaction()?;
 
+    // Keep the complete source response separately from canonical matches.
+    // `model_benchmarks` intentionally stores only matched canonical models,
+    // but a full snapshot lets newly discovered local models benefit from a
+    // fresh cache without another network request.
+    for source in source_results
+        .iter()
+        .filter(|source| source.error.is_none() && !source.from_cache)
+    {
+        tx.execute(
+            "DELETE FROM ranking_source_models WHERE source = ?1",
+            rusqlite::params![source.name],
+        )?;
+        for benchmark in &source.benchmarks {
+            let fetched_at = benchmark
+                .fetched_at
+                .to_rfc3339_opts(chrono::SecondsFormat::Millis, true);
+            tx.execute(
+                "INSERT INTO ranking_source_models
+                 (source, source_model_id, source_model_slug, intelligence_score,
+                  speed_tokens_per_sec, fetched_at, raw_updated_at)
+                 VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7)
+                 ON CONFLICT(source, source_model_id) DO UPDATE SET
+                   source_model_slug = excluded.source_model_slug,
+                   intelligence_score = excluded.intelligence_score,
+                   speed_tokens_per_sec = excluded.speed_tokens_per_sec,
+                   fetched_at = excluded.fetched_at,
+                   raw_updated_at = excluded.raw_updated_at",
+                rusqlite::params![
+                    source.name,
+                    benchmark.source_id,
+                    benchmark.source_slug,
+                    benchmark.intelligence_score,
+                    benchmark.speed_tokens_per_sec,
+                    fetched_at,
+                    benchmark.raw_updated_at,
+                ],
+            )?;
+        }
+    }
+
     let mut seen_benchmarks: HashSet<(i64, String)> = HashSet::new();
     for matched in matches {
         let key = (matched.local.canonical_model_id, matched.source.clone());
@@ -630,14 +711,26 @@ fn persist_refresh(
                     matched.confidence,
                 ],
             )?;
+            tx.execute(
+                "UPDATE ranking_unmatched
+                 SET resolved = 1
+                 WHERE source = ?1 AND source_model_id = ?2",
+                rusqlite::params![matched.source, alias],
+            )?;
         }
     }
 
     for (source, source_model_id) in unmatched_source_ids {
         tx.execute(
             "INSERT INTO ranking_unmatched
-             (source, source_model_id, local_candidate, seen_at, resolved)
-             VALUES (?1, ?2, NULL, ?3, 0)",
+             (source, source_model_id, local_candidate, seen_at,
+              first_seen_at, last_seen_at, seen_count, resolved)
+             VALUES (?1, ?2, NULL, ?3, ?3, ?3, 1, 0)
+             ON CONFLICT(source, source_model_id) DO UPDATE SET
+               seen_at = excluded.seen_at,
+               last_seen_at = excluded.last_seen_at,
+               seen_count = ranking_unmatched.seen_count + 1,
+               resolved = 0",
             rusqlite::params![source, source_model_id, now],
         )?;
     }
@@ -645,6 +738,24 @@ fn persist_refresh(
     for source in source_results {
         match &source.error {
             None => {
+                if source.from_cache {
+                    tx.execute(
+                        "INSERT INTO ranking_source_status
+                         (source, enabled, last_success, last_failure, model_count, last_error)
+                         VALUES (?1, ?2, ?3, NULL, ?4, NULL)
+                         ON CONFLICT(source) DO UPDATE SET
+                           enabled = excluded.enabled, last_success = excluded.last_success,
+                           last_failure = NULL, model_count = excluded.model_count,
+                           last_error = NULL",
+                        rusqlite::params![
+                            source.name,
+                            i64::from(source.configured),
+                            source.cached_last_success.as_deref().unwrap_or(now),
+                            source.benchmarks.len() as i64,
+                        ],
+                    )?;
+                    continue;
+                }
                 tx.execute(
                     "INSERT INTO ranking_source_status
                      (source, enabled, last_success, last_failure, model_count, last_error)
@@ -813,11 +924,104 @@ fn persist_refresh(
     Ok((changed, quality_updated, speed_updated))
 }
 
+/// Load a successful source snapshot when it is younger than the freshness
+/// cutoff. A malformed timestamp is intentionally treated as unusable so a
+/// normal sync repairs it with a real fetch.
+fn load_fresh_cached_source(
+    conn: &Connection,
+    source: &str,
+) -> rusqlite::Result<Option<(Vec<ExternalBenchmark>, String)>> {
+    let source_status: Option<(Option<String>, Option<i64>)> = conn
+        .query_row(
+            "SELECT last_success, model_count
+             FROM ranking_source_status WHERE source = ?1",
+            rusqlite::params![source],
+            |row| Ok((row.get(0)?, row.get(1)?)),
+        )
+        .optional()?;
+    let status_timestamp = source_status.as_ref().and_then(|status| status.0.clone());
+    let timestamp = status_timestamp
+        .or_else(|| {
+            conn.query_row(
+                "SELECT MAX(fetched_at) FROM ranking_source_models WHERE source = ?1",
+                rusqlite::params![source],
+                |row| row.get(0),
+            )
+            .ok()
+            .flatten()
+        })
+        .or_else(|| {
+            conn.query_row(
+                "SELECT MAX(fetched_at) FROM model_benchmarks WHERE source = ?1",
+                rusqlite::params![source],
+                |row| row.get(0),
+            )
+            .ok()
+            .flatten()
+        });
+    let Some(timestamp) = timestamp else {
+        return Ok(None);
+    };
+    if !cache_is_fresh(&timestamp) {
+        return Ok(None);
+    }
+
+    let load_rows = |table: &str| -> rusqlite::Result<Vec<ExternalBenchmark>> {
+        let mut stmt = conn.prepare(&format!(
+            "SELECT source_model_id, source_model_slug, intelligence_score,
+                    speed_tokens_per_sec, fetched_at, raw_updated_at
+             FROM {table} WHERE source = ?1 ORDER BY id"
+        ))?;
+        let mut benchmarks = Vec::new();
+        for row in stmt.query_map(rusqlite::params![source], |row| {
+            Ok((
+                row.get::<_, String>(0)?,
+                row.get::<_, Option<String>>(1)?,
+                row.get::<_, Option<f64>>(2)?,
+                row.get::<_, Option<f64>>(3)?,
+                row.get::<_, String>(4)?,
+                row.get::<_, Option<String>>(5)?,
+            ))
+        })? {
+            let (source_id, source_slug, quality, speed, fetched_at, raw_updated_at) = row?;
+            let Some(fetched_at) = parse_timestamp(&fetched_at) else {
+                continue;
+            };
+            benchmarks.push(ExternalBenchmark {
+                source_id,
+                source_slug,
+                intelligence_score: quality,
+                speed_tokens_per_sec: speed,
+                fetched_at,
+                raw_updated_at,
+            });
+        }
+        Ok(benchmarks)
+    };
+
+    let benchmarks = load_rows("ranking_source_models").unwrap_or_default();
+
+    if benchmarks.is_empty() {
+        // An empty successful response is still a valid cache entry. A
+        // non-zero model count with no full snapshot rows indicates an older
+        // database, whose matched-only rows must not be treated as complete.
+        if source_status.as_ref().and_then(|status| status.1) == Some(0) {
+            Ok(Some((benchmarks, timestamp)))
+        } else {
+            Ok(None)
+        }
+    } else {
+        Ok(Some((benchmarks, timestamp)))
+    }
+}
+
 struct FetchedSource {
     name: String,
     benchmarks: Vec<ExternalBenchmark>,
     error: Option<String>,
     configured: bool,
+    from_cache: bool,
+    cached_last_success: Option<String>,
 }
 
 struct MatchedBenchmark {
@@ -863,6 +1067,17 @@ fn apply_match(
 /// Refresh all configured ranking sources. Missing credentials are reported
 /// as a source failure and do not change known-good model values.
 pub async fn enrich_rankings() -> EnrichResult {
+    enrich_rankings_with_force(true).await
+}
+
+/// Refresh rankings for a scheduled/model sync. A successful source snapshot
+/// younger than the cutoff is reused; administrative refreshes call
+/// enrich_rankings and always fetch.
+pub async fn enrich_rankings_if_stale() -> EnrichResult {
+    enrich_rankings_with_force(false).await
+}
+
+async fn enrich_rankings_with_force(force: bool) -> EnrichResult {
     let started_at = now_iso();
     let started_ms = chrono::Utc::now().timestamp_millis();
 
@@ -895,18 +1110,47 @@ pub async fn enrich_rankings() -> EnrichResult {
         let configured = name != "artificial-analysis"
             || crate::env::env_string("ARTIFICIAL_ANALYSIS_API_KEY")
                 .is_some_and(|key| !key.trim().is_empty());
+
+        if !force {
+            let cached = {
+                let conn = db().lock().await;
+                load_fresh_cached_source(&conn, &name)
+            };
+            match cached {
+                Ok(Some((benchmarks, last_success))) => {
+                    source_results.push(FetchedSource {
+                        name,
+                        benchmarks,
+                        error: None,
+                        configured,
+                        from_cache: true,
+                        cached_last_success: Some(last_success),
+                    });
+                    continue;
+                }
+                Ok(None) => {}
+                Err(error) => {
+                    tracing::warn!(source = %name, %error, "Unable to read ranking cache");
+                }
+            }
+        }
+
         match provider.fetch().await {
             Ok(benchmarks) => source_results.push(FetchedSource {
                 name,
                 benchmarks,
                 error: None,
                 configured,
+                from_cache: false,
+                cached_last_success: None,
             }),
             Err(error) => source_results.push(FetchedSource {
                 name,
                 benchmarks: Vec::new(),
                 error: Some(error.to_string()),
                 configured,
+                from_cache: false,
+                cached_last_success: None,
             }),
         }
     }
@@ -953,7 +1197,20 @@ pub async fn enrich_rankings() -> EnrichResult {
                 };
                 let benchmark = source.benchmarks[index].clone();
                 if let Some(next) = working.get_mut(&local.id) {
-                    apply_match(next, &source.name, &benchmark, confidence, &now);
+                    // Preserve the source snapshot age when a fresh cached
+                    // benchmark is reused. This keeps per-model freshness
+                    // honest instead of making a 23-hour-old result look
+                    // newly fetched on every scheduled sync.
+                    let benchmark_updated_at = benchmark
+                        .fetched_at
+                        .to_rfc3339_opts(chrono::SecondsFormat::Millis, true);
+                    apply_match(
+                        next,
+                        &source.name,
+                        &benchmark,
+                        confidence,
+                        &benchmark_updated_at,
+                    );
                 }
                 matched_local_ids.insert(local.id);
                 matched_local_for_source.insert(local.id);
@@ -965,14 +1222,17 @@ pub async fn enrich_rankings() -> EnrichResult {
                     confidence,
                 });
             }
-            for (index, benchmark) in source.benchmarks.iter().enumerate() {
-                if !matched_indices.contains(&index) {
-                    unmatched_source_ids.push((source.name.clone(), benchmark.source_id.clone()));
-                    tracing::debug!(
-                        source = %source.name,
-                        source_model_id = %benchmark.source_id,
-                        "unmatched ranking source model"
-                    );
+            if !source.from_cache {
+                for (index, benchmark) in source.benchmarks.iter().enumerate() {
+                    if !matched_indices.contains(&index) {
+                        unmatched_source_ids
+                            .push((source.name.clone(), benchmark.source_id.clone()));
+                        tracing::debug!(
+                            source = %source.name,
+                            source_model_id = %benchmark.source_id,
+                            "unmatched ranking source model"
+                        );
+                    }
                 }
             }
             let unmatched_local = local_models
@@ -1011,7 +1271,10 @@ pub async fn enrich_rankings() -> EnrichResult {
                     unmatched_local: unmatched_local as i64,
                     quality_updated,
                     speed_updated,
-                    last_success: source.error.is_none().then(|| now.clone()),
+                    last_success: source
+                        .cached_last_success
+                        .clone()
+                        .or_else(|| source.error.is_none().then(|| now.clone())),
                     last_failure: source.error.as_ref().map(|_| now.clone()),
                     error: source.error.clone(),
                 },
@@ -1175,8 +1438,138 @@ mod tests {
     }
 
     #[test]
+    fn unverified_alias_is_a_hint_and_does_not_veto_normalized_matching() {
+        let local = LocalModel {
+            id: 1,
+            platform: "openrouter".to_string(),
+            model_id: "openai/gpt-4o".to_string(),
+            canonical_model_id: 8,
+            intelligence_score: None,
+            intelligence_rank: UNRANKED_INTELLIGENCE,
+            external_speed_tps: None,
+            observed_speed_tps: None,
+            speed_tokens_per_sec: None,
+            speed_rank: UNRANKED_SPEED,
+            quality_source: None,
+            speed_source: None,
+            ranking_confidence: None,
+            quality_confidence: None,
+            speed_confidence: None,
+            quality_updated_at: None,
+            external_speed_updated_at: None,
+            observed_speed_updated_at: None,
+            last_ranked_at: None,
+            performance: None,
+        };
+        let benchmark = ExternalBenchmark {
+            source_id: "gpt-4o".to_string(),
+            source_slug: None,
+            intelligence_score: Some(55.0),
+            speed_tokens_per_sec: None,
+            fetched_at: chrono::Utc::now(),
+            raw_updated_at: None,
+        };
+        let lookup = SourceLookup::new(std::slice::from_ref(&benchmark), &HashMap::new());
+        let aliases = SourceAliases {
+            authoritative: HashMap::new(),
+            hints: HashMap::from([("gpt-4o".to_string(), HashSet::from([999_i64]))]),
+        };
+
+        assert_eq!(
+            find_source_match(
+                &local,
+                &identity(&local.platform, &local.model_id),
+                &benchmark,
+                0,
+                &lookup,
+                &aliases,
+            ),
+            Some((0, 0.92))
+        );
+    }
+
+    #[test]
     fn stale_cutoff_is_one_day() {
         assert_eq!(STALE_AFTER_MS, 86_400_000);
+    }
+
+    #[test]
+    fn fresh_source_cache_is_reused_but_stale_cache_is_not() {
+        let conn = Connection::open_in_memory().unwrap();
+        conn.execute_batch(
+            "CREATE TABLE ranking_source_status (
+               source TEXT PRIMARY KEY,
+               last_success TEXT,
+               model_count INTEGER
+             );
+             CREATE TABLE ranking_source_models (
+               id INTEGER PRIMARY KEY,
+               source TEXT NOT NULL,
+               source_model_id TEXT NOT NULL,
+               source_model_slug TEXT,
+               intelligence_score REAL,
+               speed_tokens_per_sec REAL,
+               fetched_at TEXT NOT NULL,
+               raw_updated_at TEXT
+             );
+             CREATE TABLE model_benchmarks (
+               id INTEGER PRIMARY KEY,
+               source TEXT NOT NULL,
+               source_model_id TEXT NOT NULL,
+               source_model_slug TEXT,
+               intelligence_score REAL,
+               speed_tokens_per_sec REAL,
+               fetched_at TEXT NOT NULL,
+               raw_updated_at TEXT
+             );",
+        )
+        .unwrap();
+        let fresh = now_iso();
+        conn.execute(
+            "INSERT INTO ranking_source_status (source, last_success, model_count)
+             VALUES ('artificial-analysis', ?1, 2)",
+            rusqlite::params![fresh],
+        )
+        .unwrap();
+        conn.execute(
+            "INSERT INTO ranking_source_models
+             (source, source_model_id, source_model_slug, intelligence_score,
+              speed_tokens_per_sec, fetched_at)
+             VALUES ('artificial-analysis', 'id-1', 'model-1', 55.0, 100.0, ?1)",
+            rusqlite::params![fresh],
+        )
+        .unwrap();
+        conn.execute(
+            "INSERT INTO ranking_source_models
+             (source, source_model_id, source_model_slug, fetched_at)
+             VALUES ('artificial-analysis', 'id-unmatched', 'new-model', ?1)",
+            rusqlite::params![fresh],
+        )
+        .unwrap();
+        conn.execute(
+            "INSERT INTO model_benchmarks
+             (source, source_model_id, source_model_slug, intelligence_score,
+              speed_tokens_per_sec, fetched_at)
+             VALUES ('artificial-analysis', 'id-1', 'model-1', 55.0, 100.0, ?1)",
+            rusqlite::params![now_iso()],
+        )
+        .unwrap();
+
+        let cached = load_fresh_cached_source(&conn, "artificial-analysis")
+            .unwrap()
+            .expect("fresh cache");
+        assert_eq!(cached.0.len(), 2);
+
+        let stale = (chrono::Utc::now() - chrono::Duration::days(2)).to_rfc3339();
+        conn.execute(
+            "UPDATE ranking_source_status SET last_success = ?1
+             WHERE source = 'artificial-analysis'",
+            rusqlite::params![stale],
+        )
+        .unwrap();
+        assert!(load_fresh_cached_source(&conn, "artificial-analysis")
+            .unwrap()
+            .is_none());
     }
 
     #[test]

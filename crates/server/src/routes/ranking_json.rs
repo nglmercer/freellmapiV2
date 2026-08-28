@@ -14,19 +14,23 @@ fn finite(value: Option<f64>) -> Option<f64> {
     value.filter(|value| value.is_finite() && *value >= 0.0)
 }
 
-pub fn is_stale(timestamp: Option<&str>) -> bool {
-    let Some(timestamp) = timestamp else {
-        return false;
-    };
-    let updated = chrono::DateTime::parse_from_rfc3339(timestamp)
+fn parse_timestamp(timestamp: &str) -> Option<chrono::DateTime<chrono::Utc>> {
+    chrono::DateTime::parse_from_rfc3339(timestamp)
         .map(|date| date.with_timezone(&chrono::Utc))
         .or_else(|_| {
             chrono::NaiveDateTime::parse_from_str(timestamp, "%Y-%m-%d %H:%M:%S").map(|date| {
                 chrono::DateTime::<chrono::Utc>::from_naive_utc_and_offset(date, chrono::Utc)
             })
-        });
-    let Ok(updated) = updated else {
+        })
+        .ok()
+}
+
+pub fn is_stale(timestamp: Option<&str>) -> bool {
+    let Some(timestamp) = timestamp else {
         return false;
+    };
+    let Some(updated) = parse_timestamp(timestamp) else {
+        return true;
     };
     chrono::Utc::now()
         .signed_duration_since(updated)
@@ -37,6 +41,7 @@ pub fn is_stale(timestamp: Option<&str>) -> bool {
 fn freshness(timestamp: Option<&str>) -> &'static str {
     match timestamp {
         None => "unknown",
+        Some(timestamp) if parse_timestamp(timestamp).is_none() => "unknown",
         Some(timestamp) if is_stale(Some(timestamp)) => "stale",
         Some(_) => "fresh",
     }
@@ -194,5 +199,18 @@ mod tests {
     #[test]
     fn unknown_metrics_have_zero_overall_confidence() {
         assert_eq!(overall_confidence(None, None, Some(0.98)), 0.0);
+    }
+
+    #[test]
+    fn invalid_timestamp_is_unknown_and_requires_refresh() {
+        assert!(is_stale(Some("not-a-timestamp")));
+        let value = quality(
+            Some(55.0),
+            1,
+            Some("test"),
+            Some(1.0),
+            Some("not-a-timestamp"),
+        );
+        assert_eq!(value["status"], json!("unknown"));
     }
 }

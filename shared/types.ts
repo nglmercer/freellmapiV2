@@ -67,6 +67,8 @@ export interface Model {
   speed?: SpeedMetric;
   reliability?: ReliabilityMetric;
   rankingConfidence?: number;
+  canonicalModelId: number | null;
+  ranked?: boolean;
   routing?: { balancedScore: number | null };
 }
 
@@ -92,18 +94,31 @@ export interface ApiKeyCreate {
 // ---- Fallback Config ----
 
 export interface FallbackEntry {
-  modelId: number;
-  platform: Platform;
+  modelDbId: number;
+  priority: number;
+  effectivePriority: number;
+  penalty: number;
+  rateLimitHits: number;
+  enabled: boolean;
+  freeTier: boolean;
+  platform: string;
+  modelId: string;
   displayName: string;
   intelligenceRank: number | null;
   speedRank: number | null;
-  priority: number;
-  enabled: boolean;
+  intelligenceScore: number | null;
+  speedTokensPerSec: number | null;
+  rankingSource: string | null;
+  lastRankedAt: string | null;
+  sizeLabel: string;
+  rpmLimit: number | null;
+  rpdLimit: number | null;
+  monthlyTokenBudget: string;
+  keyCount: number;
+  locallyMeasured?: boolean;
+  qualityRanked?: boolean;
+  speedRanked?: boolean;
   manualPriority?: number | null;
-  intelligenceScore?: number | null;
-  speedTokensPerSec?: number | null;
-  rankingSource?: string | null;
-  lastRankedAt?: string | null;
   quality?: RankingMetric;
   speed?: SpeedMetric;
   reliability?: ReliabilityMetric;

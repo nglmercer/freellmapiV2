@@ -264,12 +264,27 @@ fn create_tables(sqlite: &Connection) -> rusqlite::Result<()> {
       UNIQUE(canonical_model_id, source)
     );
 
+    CREATE TABLE IF NOT EXISTS ranking_source_models (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      source TEXT NOT NULL,
+      source_model_id TEXT NOT NULL,
+      source_model_slug TEXT,
+      intelligence_score REAL,
+      speed_tokens_per_sec REAL,
+      fetched_at TEXT NOT NULL,
+      raw_updated_at TEXT,
+      UNIQUE(source, source_model_id)
+    );
+
     CREATE TABLE IF NOT EXISTS ranking_unmatched (
       id INTEGER PRIMARY KEY AUTOINCREMENT,
       source TEXT NOT NULL,
       source_model_id TEXT NOT NULL,
       local_candidate TEXT,
       seen_at TEXT NOT NULL,
+      first_seen_at TEXT,
+      last_seen_at TEXT,
+      seen_count INTEGER NOT NULL DEFAULT 1,
       resolved INTEGER NOT NULL DEFAULT 0
     );
 
@@ -360,13 +375,88 @@ fn create_tables(sqlite: &Connection) -> rusqlite::Result<()> {
             "UPDATE fallback_config SET manual_priority = priority WHERE manual_priority IS NULL",
         )?;
     }
+    migrate_ranking_unmatched(sqlite)?;
     sqlite.execute_batch(
         "CREATE INDEX IF NOT EXISTS idx_model_aliases_canonical ON model_aliases(canonical_model_id);
          CREATE INDEX IF NOT EXISTS idx_model_benchmarks_source ON model_benchmarks(source);
+         CREATE INDEX IF NOT EXISTS idx_ranking_source_models_source ON ranking_source_models(source);
          CREATE INDEX IF NOT EXISTS idx_ranking_unmatched_source ON ranking_unmatched(source);
          CREATE INDEX IF NOT EXISTS idx_model_performance_updated_at ON model_performance(updated_at);",
     )?;
     Ok(())
+}
+
+/// Add the idempotent unmatched-source history columns to old databases,
+/// collapse rows created by the previous insert-only implementation, and
+/// install the natural uniqueness constraint used by the upsert path.
+fn migrate_ranking_unmatched(sqlite: &Connection) -> rusqlite::Result<()> {
+    let existing = existing_columns(sqlite, "ranking_unmatched")?;
+    for (name, definition) in [
+        ("first_seen_at", "TEXT"),
+        ("last_seen_at", "TEXT"),
+        ("seen_count", "INTEGER NOT NULL DEFAULT 1"),
+    ] {
+        if !existing.iter().any(|column| column == name) {
+            sqlite.execute_batch(&format!(
+                "ALTER TABLE ranking_unmatched ADD COLUMN {name} {definition}"
+            ))?;
+        }
+    }
+
+    sqlite.execute_batch(
+        "UPDATE ranking_unmatched
+         SET first_seen_at = COALESCE(first_seen_at, seen_at),
+             last_seen_at = COALESCE(last_seen_at, seen_at),
+             seen_count = COALESCE(seen_count, 1);
+
+         UPDATE ranking_unmatched AS kept
+         SET first_seen_at = (
+                 SELECT MIN(COALESCE(duplicate.first_seen_at, duplicate.seen_at))
+                 FROM ranking_unmatched AS duplicate
+                 WHERE duplicate.source = kept.source
+                   AND duplicate.source_model_id = kept.source_model_id
+             ),
+             last_seen_at = (
+                 SELECT MAX(COALESCE(duplicate.last_seen_at, duplicate.seen_at))
+                 FROM ranking_unmatched AS duplicate
+                 WHERE duplicate.source = kept.source
+                 AND duplicate.source_model_id = kept.source_model_id
+             ),
+             seen_at = (
+                 SELECT MAX(COALESCE(duplicate.last_seen_at, duplicate.seen_at))
+                 FROM ranking_unmatched AS duplicate
+                 WHERE duplicate.source = kept.source
+                   AND duplicate.source_model_id = kept.source_model_id
+             ),
+             seen_count = (
+                 SELECT SUM(COALESCE(duplicate.seen_count, 1))
+                 FROM ranking_unmatched AS duplicate
+                 WHERE duplicate.source = kept.source
+                   AND duplicate.source_model_id = kept.source_model_id
+             ),
+             resolved = (
+                 SELECT MAX(duplicate.resolved)
+                 FROM ranking_unmatched AS duplicate
+                 WHERE duplicate.source = kept.source
+                   AND duplicate.source_model_id = kept.source_model_id
+             )
+         WHERE kept.id IN (
+             SELECT MIN(first.id)
+             FROM ranking_unmatched AS first
+             GROUP BY first.source, first.source_model_id
+         );
+
+         DELETE FROM ranking_unmatched
+         WHERE id NOT IN (
+             SELECT MIN(first.id)
+             FROM ranking_unmatched AS first
+             GROUP BY first.source, first.source_model_id
+         );
+
+         CREATE UNIQUE INDEX IF NOT EXISTS
+           idx_ranking_unmatched_source_model
+           ON ranking_unmatched(source, source_model_id);",
+    )
 }
 
 fn existing_columns(sqlite: &Connection, table: &str) -> rusqlite::Result<Vec<String>> {
@@ -409,5 +499,82 @@ mod tests {
         assert_eq!(default_db_path(&root), legacy);
 
         std::fs::remove_dir_all(root).unwrap();
+    }
+
+    #[test]
+    fn unmatched_history_migration_deduplicates_and_supports_upserts() {
+        let sqlite = Connection::open_in_memory().unwrap();
+        sqlite
+            .execute_batch(
+                "CREATE TABLE ranking_unmatched (
+                   id INTEGER PRIMARY KEY AUTOINCREMENT,
+                   source TEXT NOT NULL,
+                   source_model_id TEXT NOT NULL,
+                   local_candidate TEXT,
+                   seen_at TEXT NOT NULL,
+                   resolved INTEGER NOT NULL DEFAULT 0
+                 );
+                 INSERT INTO ranking_unmatched
+                   (source, source_model_id, seen_at)
+                 VALUES ('aa', 'model-1', '2026-01-01T00:00:00Z');
+                 INSERT INTO ranking_unmatched
+                   (source, source_model_id, seen_at)
+                 VALUES ('aa', 'model-1', '2026-01-02T00:00:00Z');",
+            )
+            .unwrap();
+
+        create_tables(&sqlite).unwrap();
+        let row: (i64, String, String, String) = sqlite
+            .query_row(
+                "SELECT seen_count, first_seen_at, last_seen_at, seen_at
+                 FROM ranking_unmatched
+                 WHERE source = 'aa' AND source_model_id = 'model-1'",
+                [],
+                |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?, row.get(3)?)),
+            )
+            .unwrap();
+        assert_eq!(
+            row,
+            (
+                2,
+                "2026-01-01T00:00:00Z".to_string(),
+                "2026-01-02T00:00:00Z".to_string(),
+                "2026-01-02T00:00:00Z".to_string(),
+            )
+        );
+
+        sqlite
+            .execute(
+                "INSERT INTO ranking_unmatched
+                 (source, source_model_id, seen_at, first_seen_at, last_seen_at,
+                  seen_count, resolved)
+                 VALUES ('aa', 'model-1', '2026-01-03T00:00:00Z',
+                         '2026-01-03T00:00:00Z', '2026-01-03T00:00:00Z', 1, 0)
+                 ON CONFLICT(source, source_model_id) DO UPDATE SET
+                   seen_at = excluded.seen_at,
+                   last_seen_at = excluded.last_seen_at,
+                   seen_count = ranking_unmatched.seen_count + 1,
+                   resolved = 0",
+                [],
+            )
+            .unwrap();
+        let count: i64 = sqlite
+            .query_row(
+                "SELECT COUNT(*) FROM ranking_unmatched
+                 WHERE source = 'aa' AND source_model_id = 'model-1'",
+                [],
+                |row| row.get(0),
+            )
+            .unwrap();
+        let seen_count: i64 = sqlite
+            .query_row(
+                "SELECT seen_count FROM ranking_unmatched
+                 WHERE source = 'aa' AND source_model_id = 'model-1'",
+                [],
+                |row| row.get(0),
+            )
+            .unwrap();
+        assert_eq!(count, 1);
+        assert_eq!(seen_count, 3);
     }
 }

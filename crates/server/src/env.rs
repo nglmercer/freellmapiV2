@@ -8,6 +8,7 @@ use std::path::{Path, PathBuf};
 use std::sync::OnceLock;
 
 static PROJECT_ROOT: OnceLock<PathBuf> = OnceLock::new();
+const ADMIN_API_KEY_PLACEHOLDER: &str = "replace-with-a-long-random-admin-key";
 
 pub fn project_root() -> PathBuf {
     if let Some(p) = PROJECT_ROOT.get() {
@@ -104,9 +105,81 @@ fn ensure_encryption_key() {
     }
 }
 
+/// Ensures the separate dashboard credential exists in the local .env.
+/// Keeping it out of the unified key makes accidental exposure of a proxy key
+/// insufficient to mutate server configuration.
+fn ensure_admin_api_key() {
+    let root = project_root();
+    let env_path = root.join(".env");
+    let example_path = root.join(".env.example");
+    let random_key = {
+        let mut bytes = [0u8; 32];
+        rand::RngCore::fill_bytes(&mut rand::rng(), &mut bytes);
+        hex::encode(bytes)
+    };
+    let line_re = admin_key_line_re();
+
+    if !env_path.exists() {
+        let content = std::fs::read_to_string(&example_path)
+            .ok()
+            .map(|example| {
+                line_re
+                    .replace_all(&example, format!("ADMIN_API_KEY={random_key}"))
+                    .to_string()
+            })
+            .unwrap_or_default();
+        let content = if content.is_empty() {
+            format!("ADMIN_API_KEY={random_key}\n")
+        } else if line_re.is_match(&content) {
+            content
+        } else {
+            format!("{content}\nADMIN_API_KEY={random_key}\n")
+        };
+        std::fs::write(&env_path, content).ok();
+        tracing::info!("[ENV] Created .env with generated admin API key");
+        return;
+    }
+
+    let Ok(env_content) = std::fs::read_to_string(&env_path) else {
+        return;
+    };
+    let has_valid = line_re
+        .captures(&env_content)
+        .and_then(|captures| captures.get(1))
+        .map(|value| is_valid_admin_api_key(value.as_str()))
+        .unwrap_or(false);
+    if has_valid {
+        return;
+    }
+
+    let replaced = line_re.replace_all(&env_content, format!("ADMIN_API_KEY={random_key}"));
+    if replaced.as_ref() == env_content.as_str() {
+        std::fs::write(
+            &env_path,
+            format!("{}\nADMIN_API_KEY={random_key}\n", env_content.trim_end()),
+        )
+        .ok();
+    } else {
+        std::fs::write(&env_path, replaced.as_ref()).ok();
+    }
+    tracing::info!("[ENV] Updated .env with generated admin API key");
+}
+
+/// Admin credentials must be long enough to be useful as a bearer secret and
+/// must never fall back to the checked-in example placeholder.
+pub fn is_valid_admin_api_key(value: &str) -> bool {
+    let value = value.trim();
+    value.len() >= 32 && value != ADMIN_API_KEY_PLACEHOLDER
+}
+
 fn key_line_re() -> &'static regex::Regex {
     static RE: OnceLock<regex::Regex> = OnceLock::new();
     RE.get_or_init(|| regex::Regex::new(r"(?m)^ENCRYPTION_KEY=(.*)$").expect("valid regex"))
+}
+
+fn admin_key_line_re() -> &'static regex::Regex {
+    static RE: OnceLock<regex::Regex> = OnceLock::new();
+    RE.get_or_init(|| regex::Regex::new(r"(?m)^ADMIN_API_KEY=(.*)$").expect("valid regex"))
 }
 
 /// `env.validateEncryptionKey()` — panics if missing/invalid.
@@ -126,6 +199,10 @@ pub fn get_port() -> u16 {
         .unwrap_or(3001)
 }
 
+pub fn get_bind_address() -> String {
+    env_string("BIND_ADDRESS").unwrap_or_else(|| "127.0.0.1".to_string())
+}
+
 /// Env lookup: real env var first, then the loaded .env file.
 pub fn env_string(key: &str) -> Option<String> {
     match std::env::var(key) {
@@ -137,6 +214,7 @@ pub fn env_string(key: &str) -> Option<String> {
 /// Ensure an encryption key, load `.env`, and validate the resulting config.
 pub fn init() {
     ensure_encryption_key();
+    ensure_admin_api_key();
     let env_path = project_root().join(".env");
     if env_path.exists() {
         dotenvy::from_path(env_path.clone()).ok();

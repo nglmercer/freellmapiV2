@@ -12,6 +12,7 @@ use crate::db::connection::db;
 use crate::db::schema::{
     query_rows, CustomProviderRow, ModelRow, CUSTOM_PROVIDER_COLS, MODEL_COLS,
 };
+use crate::db::seed::{UNRANKED_INTELLIGENCE, UNRANKED_SPEED};
 use crate::providers::provider_id_to_platform;
 use crate::routes::ranking_json;
 
@@ -49,25 +50,17 @@ struct StringConstraints {
     max: Option<usize>,
 }
 
-/// `z.string().url()` — requires an http/https/ftp scheme, `://`, and a
-/// non-empty host portion before any path/query/fragment/port terminator.
+/// Custom upstreams are limited to HTTP(S) URLs with a host. Credentials and
+/// fragments are rejected so secrets cannot be smuggled through a URL.
 fn valid_url(s: &str) -> bool {
-    let lower = s.to_ascii_lowercase();
-    let rest = match lower
-        .strip_prefix("http://")
-        .or_else(|| lower.strip_prefix("https://"))
-        .or_else(|| lower.strip_prefix("ftp://"))
-    {
-        Some(r) => r,
-        None => return false,
+    let Ok(url) = reqwest::Url::parse(s) else {
+        return false;
     };
-    !rest.is_empty()
-        && rest
-            .chars()
-            .next()
-            .map(|c| !matches!(c, '/' | '\\' | '?' | '#' | ':'))
-            .unwrap_or(false)
-        && !rest.chars().any(char::is_whitespace)
+    matches!(url.scheme(), "http" | "https")
+        && url.host_str().is_some()
+        && url.username().is_empty()
+        && url.password().is_none()
+        && url.fragment().is_none()
 }
 
 /// `toProviderJson(row)` — extra headers column is stored JSON (or NULL);
@@ -488,8 +481,6 @@ fn validate_update_provider(body: &Value) -> Result<UpdateProviderInput, String>
 struct CreateModelInput {
     model_id: String,
     display_name: String,
-    intelligence_rank: i64,
-    speed_rank: i64,
     size_label: String,
     rpm_limit: Option<i64>,
     rpd_limit: Option<i64>,
@@ -528,24 +519,6 @@ fn validate_create_model(body: &Value) -> Result<CreateModelInput, String> {
         &mut errors,
     )
     .unwrap_or_default();
-    let intelligence_rank = int_field(
-        body,
-        "intelligenceRank",
-        false,
-        Some(1),
-        Some(999),
-        Some(99),
-        &mut errors,
-    );
-    let speed_rank = int_field(
-        body,
-        "speedRank",
-        false,
-        Some(1),
-        Some(999),
-        Some(10),
-        &mut errors,
-    );
     let size_label = string_field(
         body,
         "sizeLabel",
@@ -585,8 +558,6 @@ fn validate_create_model(body: &Value) -> Result<CreateModelInput, String> {
     Ok(CreateModelInput {
         model_id,
         display_name,
-        intelligence_rank: intelligence_rank.unwrap_or(99),
-        speed_rank: speed_rank.unwrap_or(10),
         size_label,
         rpm_limit,
         rpd_limit,
@@ -601,8 +572,6 @@ fn validate_create_model(body: &Value) -> Result<CreateModelInput, String> {
 #[derive(Debug)]
 struct UpdateModelInput {
     display_name: Option<String>,
-    intelligence_rank: Option<i64>,
-    speed_rank: Option<i64>,
     size_label: Option<String>,
     rpm_limit: Option<Option<i64>>,
     rpd_limit: Option<Option<i64>>,
@@ -616,17 +585,6 @@ struct UpdateModelInput {
 fn validate_update_model(body: &Value) -> Result<UpdateModelInput, String> {
     let mut errors: Vec<String> = Vec::new();
     let display_name = optional_string(body, "displayName", true, None, false, &mut errors);
-    let intelligence_rank = optional_int(
-        body,
-        "intelligenceRank",
-        false,
-        Some(1),
-        Some(999),
-        &mut errors,
-    )
-    .flatten();
-    let speed_rank =
-        optional_int(body, "speedRank", false, Some(1), Some(999), &mut errors).flatten();
     let size_label = optional_string(body, "sizeLabel", false, None, false, &mut errors);
     let rpm_limit = optional_int(body, "rpmLimit", true, None, None, &mut errors);
     let rpd_limit = optional_int(body, "rpdLimit", true, None, None, &mut errors);
@@ -642,8 +600,6 @@ fn validate_update_model(body: &Value) -> Result<UpdateModelInput, String> {
     }
     Ok(UpdateModelInput {
         display_name,
-        intelligence_rank,
-        speed_rank,
         size_label,
         rpm_limit,
         rpd_limit,
@@ -974,8 +930,8 @@ async fn create_provider_model(Path(id): Path<String>, body: Bytes) -> Response 
                 platform,
                 input.model_id,
                 input.display_name,
-                input.intelligence_rank,
-                input.speed_rank,
+                UNRANKED_INTELLIGENCE,
+                UNRANKED_SPEED,
                 input.size_label,
                 input.rpm_limit,
                 input.rpd_limit,
@@ -1046,14 +1002,6 @@ async fn update_provider_model(
     if let Some(v) = &input.display_name {
         cols.push("display_name");
         vals.push(rusqlite::types::Value::from(v.clone()));
-    }
-    if let Some(v) = input.intelligence_rank {
-        cols.push("intelligence_rank");
-        vals.push(rusqlite::types::Value::from(v));
-    }
-    if let Some(v) = input.speed_rank {
-        cols.push("speed_rank");
-        vals.push(rusqlite::types::Value::from(v));
     }
     if let Some(v) = &input.size_label {
         cols.push("size_label");
@@ -1180,15 +1128,17 @@ mod tests {
     use super::*;
 
     #[test]
-    fn valid_url_matches_zod_loose_regex() {
+    fn valid_url_requires_http_or_https_with_a_host() {
         assert!(valid_url("http://localhost:8000/v1"));
         assert!(valid_url("https://api.example.com"));
-        assert!(valid_url("ftp://x.com"));
         assert!(valid_url("HTTP://EXAMPLE.COM"));
+        assert!(!valid_url("ftp://x.com"));
         assert!(!valid_url("foobar"));
         assert!(!valid_url("www.example.com"));
         assert!(!valid_url(""));
         assert!(!valid_url("http://"));
+        assert!(!valid_url("https://user:password@example.com"));
+        assert!(!valid_url("https://example.com/#fragment"));
     }
 
     #[test]
@@ -1246,18 +1196,20 @@ mod tests {
     fn create_model_defaults_match_zod() {
         let body = json!({ "modelId": "m", "displayName": "d" });
         let input = validate_create_model(&body).unwrap();
-        assert_eq!(input.intelligence_rank, 99);
-        assert_eq!(input.speed_rank, 10);
         assert_eq!(input.size_label, "");
         assert_eq!(input.monthly_token_budget, "");
         assert!(input.enabled);
         assert_eq!(input.rpm_limit, None);
         assert_eq!(input.context_window, None);
 
-        let body = json!({ "modelId": "m", "displayName": "d", "intelligenceRank": 5.5 });
-        assert_eq!(
-            validate_create_model(&body).unwrap_err(),
-            "Expected integer, received float"
-        );
+        let body = json!({
+            "modelId": "m",
+            "displayName": "d",
+            "intelligenceRank": 5.5,
+            "speedRank": "legacy ordinal",
+        });
+        assert!(validate_create_model(&body).is_ok());
+        assert_eq!(UNRANKED_INTELLIGENCE, 99);
+        assert_eq!(UNRANKED_SPEED, 10);
     }
 }

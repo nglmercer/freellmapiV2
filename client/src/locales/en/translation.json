@@ -17,6 +17,14 @@
     "loading": "Loading…",
     "close": "Close"
   },
+  "adminAuth": {
+    "title": "Dashboard authentication",
+    "description": "Enter the ADMIN_API_KEY from the server environment. It is kept only for this browser session.",
+    "label": "Admin API key",
+    "placeholder": "Paste the admin key",
+    "invalid": "That admin key was rejected. Check the server configuration and try again.",
+    "continue": "Continue"
+  },
   "setup": {
     "welcome": {
       "title": "Welcome to FreeLLMAPI",
@@ -341,8 +349,6 @@
       "displayNamePlaceholder": "Llama 3.2 3B",
       "contextWindow": "Context window",
       "contextWindowPlaceholder": "8192",
-      "intelligenceRank": "Intel. rank",
-      "speedRank": "Speed rank",
       "enabled": "Enabled (appears in fallback chain)"
     },
     "saving": "Saving…",

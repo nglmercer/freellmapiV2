@@ -5,17 +5,7 @@ import { Button } from '@/components/ui/button'
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
 import { PageHeader } from '@/components/page-header'
 import { useTranslations } from '@/hooks/useTranslations'
-
-interface FallbackEntry {
-  modelDbId: number
-  priority: number
-  enabled: boolean
-  platform: string
-  modelId: string
-  displayName: string
-  sizeLabel: string
-  keyCount: number
-}
+import type { FallbackEntry } from '../../../shared/types'
 
 interface ChatMessage {
   role: 'user' | 'assistant'

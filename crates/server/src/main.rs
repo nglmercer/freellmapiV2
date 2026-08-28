@@ -18,12 +18,13 @@ async fn main() {
     let app = server::app::create_app();
 
     let port = env::get_port();
-    let listener = tokio::net::TcpListener::bind(("0.0.0.0", port))
+    let bind_address = env::get_bind_address();
+    let listener = tokio::net::TcpListener::bind((bind_address.as_str(), port))
         .await
         .expect("failed to bind port");
 
-    println!("Server running on http://0.0.0.0:{port}");
-    println!("Proxy endpoint: http://0.0.0.0:{port}/v1/chat/completions");
+    println!("Server running on http://{bind_address}:{port}");
+    println!("Proxy endpoint: http://{bind_address}:{port}/v1/chat/completions");
 
     server::services::health::start_health_checker();
     server::services::state_persistence::start_periodic_save(30_000);

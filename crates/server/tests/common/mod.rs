@@ -28,6 +28,7 @@ pub async fn setup() -> TestApp {
     let guard = test_lock().lock().await;
 
     std::env::set_var("ENCRYPTION_KEY", "a".repeat(64));
+    std::env::set_var("ADMIN_API_KEY", "b".repeat(64));
     // Silence .env auto-generation writes into the repo root during tests.
     std::env::set_var("PORT", "0");
     let conn_dir = std::env::temp_dir().join(format!("freellmapi-test-{}", std::process::id()));
@@ -224,15 +225,30 @@ pub async fn request(
 }
 
 pub async fn get(app: &Router, path: &str) -> TestResponse {
-    request(app, "GET", path, None, None).await
+    let auth = if path.starts_with("/api/") && path != "/api/ping" {
+        Some(admin_key())
+    } else if path.starts_with("/v1/") {
+        Some(server::db::get_unified_api_key().await)
+    } else {
+        None
+    };
+    request(app, "GET", path, auth.as_deref(), None).await
 }
 
 pub async fn post_json(app: &Router, path: &str, key: &str, body: Value) -> TestResponse {
-    request(app, "POST", path, Some(key), Some(body)).await
+    let admin = path.starts_with("/api/") && path != "/api/ping";
+    let auth = admin.then(admin_key).unwrap_or_else(|| key.to_string());
+    request(app, "POST", path, Some(&auth), Some(body)).await
 }
 
 pub async fn post(app: &Router, path: &str, key: &str) -> TestResponse {
-    request(app, "POST", path, Some(key), None).await
+    let admin = path.starts_with("/api/") && path != "/api/ping";
+    let auth = admin.then(admin_key).unwrap_or_else(|| key.to_string());
+    request(app, "POST", path, Some(&auth), None).await
+}
+
+pub fn admin_key() -> String {
+    std::env::var("ADMIN_API_KEY").expect("test admin key")
 }
 
 pub fn expect_status(resp: &TestResponse, code: StatusCode) {

@@ -17,6 +17,14 @@
     "loading": "Cargando…",
     "close": "Cerrar"
   },
+  "adminAuth": {
+    "title": "Autenticación del panel",
+    "description": "Introduce el ADMIN_API_KEY del entorno del servidor. Solo se conservará durante esta sesión del navegador.",
+    "label": "Clave API de administrador",
+    "placeholder": "Pega la clave de administrador",
+    "invalid": "La clave de administrador fue rechazada. Comprueba la configuración del servidor e inténtalo de nuevo.",
+    "continue": "Continuar"
+  },
   "setup": {
     "welcome": {
       "title": "Bienvenido a FreeLLMAPI",
@@ -341,8 +349,6 @@
       "displayNamePlaceholder": "Llama 3.2 3B",
       "contextWindow": "Ventana de contexto",
       "contextWindowPlaceholder": "8192",
-      "intelligenceRank": "Rango intel.",
-      "speedRank": "Rango velocidad",
       "enabled": "Habilitado (aparece en la cadena de fallback)"
     },
     "saving": "Guardando…",

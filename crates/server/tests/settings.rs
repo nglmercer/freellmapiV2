@@ -4,6 +4,37 @@ mod common;
 
 use axum::http::StatusCode;
 
+#[tokio::test]
+async fn settings_reject_missing_admin_authentication() {
+    let app = common::setup().await;
+    let get_res = common::request(&app.app, "GET", "/api/settings/api-key", None, None).await;
+    common::expect_status(&get_res, StatusCode::UNAUTHORIZED);
+
+    let post_res = common::request(
+        &app.app,
+        "POST",
+        "/api/settings/api-key/regenerate",
+        None,
+        None,
+    )
+    .await;
+    common::expect_status(&post_res, StatusCode::UNAUTHORIZED);
+}
+
+#[tokio::test]
+async fn settings_reject_unified_key_as_admin_authentication() {
+    let app = common::setup().await;
+    let res = common::request(
+        &app.app,
+        "GET",
+        "/api/settings/api-key",
+        Some(&app.api_key),
+        None,
+    )
+    .await;
+    common::expect_status(&res, StatusCode::UNAUTHORIZED);
+}
+
 /// GET /api/settings/api-key returns the unified API key.
 #[tokio::test]
 async fn should_return_the_unified_api_key() {

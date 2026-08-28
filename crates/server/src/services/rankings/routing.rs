@@ -129,15 +129,16 @@ fn weighted_score(
     }
 }
 
-fn focused_score(value: Option<f64>, bounds: Option<Range>, candidate: &RoutingCandidate) -> f64 {
-    // A focused strategy still has a live availability dimension. If its
-    // primary metric is absent, availability is the only available input and
-    // therefore receives the full weight instead of being treated as zero.
+fn focused_score(
+    value: Option<f64>,
+    bounds: Option<Range>,
+    candidate: &RoutingCandidate,
+) -> Option<f64> {
+    // Availability can refine a focused metric, but it cannot substitute for
+    // that metric. Otherwise an unmeasured model would outrank a measured
+    // model with a poor (but real) score.
     let availability = availability(candidate);
-    match normalize(value, bounds) {
-        Some(value) => value * 0.90 + availability * 0.10,
-        None => availability,
-    }
+    normalize(value, bounds).map(|value| value * 0.90 + availability * 0.10)
 }
 
 /// Calculate and deterministically order a set of route candidates. Missing
@@ -165,16 +166,12 @@ pub fn score_candidates(
                     weighted_score(candidate, quality_range, speed_range, reliability_range)
                 }
                 RoutingStrategy::Quality => {
-                    Some(focused_score(candidate.quality, quality_range, candidate))
+                    focused_score(candidate.quality, quality_range, candidate)
                 }
-                RoutingStrategy::Fastest => {
-                    Some(focused_score(candidate.speed, speed_range, candidate))
+                RoutingStrategy::Fastest => focused_score(candidate.speed, speed_range, candidate),
+                RoutingStrategy::MostReliable => {
+                    focused_score(candidate.reliability, reliability_range, candidate)
                 }
-                RoutingStrategy::MostReliable => Some(focused_score(
-                    candidate.reliability,
-                    reliability_range,
-                    candidate,
-                )),
             };
             ScoredCandidate {
                 model_db_id: candidate.model_db_id,
@@ -262,17 +259,43 @@ mod tests {
     }
 
     #[test]
-    fn focused_strategies_do_not_turn_missing_metrics_into_zero() {
-        let mut missing_quality = candidate(1, None, None, None);
-        missing_quality.availability = 1.0;
-        let mut unavailable_quality = candidate(2, None, None, None);
-        unavailable_quality.availability = 0.0;
-        let scored = score_candidates(
-            &[missing_quality, unavailable_quality],
+    fn focused_strategies_prioritize_real_metrics_over_missing_metrics() {
+        let quality = score_candidates(
+            &[
+                candidate(1, Some(50.0), None, None),
+                candidate(2, Some(100.0), None, None),
+                candidate(3, None, None, None),
+            ],
             RoutingStrategy::Quality,
         );
-        assert_eq!(scored[0].model_db_id, 1);
-        assert_eq!(scored[0].score, Some(1.0));
+        assert_eq!(quality[0].model_db_id, 2);
+        assert_eq!(quality[1].model_db_id, 1);
+        assert_eq!(quality[2].model_db_id, 3);
+        assert_eq!(quality[2].score, None);
+
+        let fastest = score_candidates(
+            &[
+                candidate(1, None, Some(50.0), None),
+                candidate(2, None, Some(100.0), None),
+                candidate(3, None, None, None),
+            ],
+            RoutingStrategy::Fastest,
+        );
+        assert_eq!(fastest[1].model_db_id, 1);
+        assert_eq!(fastest[2].model_db_id, 3);
+        assert_eq!(fastest[2].score, None);
+
+        let reliable = score_candidates(
+            &[
+                candidate(1, None, None, Some(0.5)),
+                candidate(2, None, None, Some(1.0)),
+                candidate(3, None, None, None),
+            ],
+            RoutingStrategy::MostReliable,
+        );
+        assert_eq!(reliable[1].model_db_id, 1);
+        assert_eq!(reliable[2].model_db_id, 3);
+        assert_eq!(reliable[2].score, None);
     }
 
     #[test]

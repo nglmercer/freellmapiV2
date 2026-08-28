@@ -1,7 +1,9 @@
 //! Request validation, unified-key authentication, message normalization, and
 //! token estimation.
 
+use axum::extract::Request;
 use axum::http::HeaderMap;
+use axum::middleware::Next;
 use axum::response::{IntoResponse, Response};
 use serde_json::Value;
 
@@ -586,6 +588,65 @@ pub async fn api_key_auth(headers: &HeaderMap) -> Result<(), Response> {
             .into_response());
     }
     Ok(())
+}
+
+/// Authentication middleware for dashboard/admin routes. This credential is
+/// deliberately separate from the unified proxy key because it grants access
+/// to provider credentials, configuration, and key regeneration.
+pub async fn admin_auth(request: Request, next: Next) -> Response {
+    if let Err(response) = admin_api_key_auth(request.headers()).await {
+        return response;
+    }
+    next.run(request).await
+}
+
+/// Returns Ok(()) or a generic 401/503 response without disclosing the admin
+/// credential or whether a supplied token was close to valid.
+pub async fn admin_api_key_auth(headers: &HeaderMap) -> Result<(), Response> {
+    let Some(expected) = crate::env::env_string("ADMIN_API_KEY")
+        .filter(|key| crate::env::is_valid_admin_api_key(key))
+    else {
+        tracing::error!("ADMIN_API_KEY is not configured");
+        return Err((
+            axum::http::StatusCode::SERVICE_UNAVAILABLE,
+            axum::Json(serde_json::json!({
+                "error": {
+                    "message": "Admin API authentication is not configured",
+                    "type": "configuration_error"
+                }
+            })),
+        )
+            .into_response());
+    };
+
+    let Some(token) = bearer_token(headers) else {
+        return Err(admin_authentication_error());
+    };
+    if !timing_safe_string_equal(&token, expected.trim()) {
+        tracing::info!("[AdminAuth] Invalid admin credential provided");
+        return Err(admin_authentication_error());
+    }
+    Ok(())
+}
+
+pub async fn unified_api_auth(request: Request, next: Next) -> Response {
+    if let Err(response) = api_key_auth(request.headers()).await {
+        return response;
+    }
+    next.run(request).await
+}
+
+fn admin_authentication_error() -> Response {
+    (
+        axum::http::StatusCode::UNAUTHORIZED,
+        axum::Json(serde_json::json!({
+            "error": {
+                "message": "Invalid or missing admin Authorization header",
+                "type": "authentication_error"
+            }
+        })),
+    )
+        .into_response()
 }
 
 // ---- normalizeContent / normalizeMessages ----

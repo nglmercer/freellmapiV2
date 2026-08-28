@@ -82,10 +82,10 @@ async fn models_include_required_openai_fields() {
 }
 
 #[tokio::test]
-async fn models_require_no_authorization() {
+async fn models_require_unified_authorization() {
     let app = common::setup().await;
-    let res = common::get(&app.app, "/v1/models").await;
-    common::expect_status(&res, StatusCode::OK);
+    let res = common::request(&app.app, "GET", "/v1/models", None, None).await;
+    common::expect_status(&res, StatusCode::UNAUTHORIZED);
 }
 
 #[tokio::test]

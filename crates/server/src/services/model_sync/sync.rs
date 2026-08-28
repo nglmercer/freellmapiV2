@@ -8,7 +8,7 @@ use serde::Serialize;
 use crate::db::connection::db;
 use crate::db::schema::{ModelRow, MODEL_COLS};
 use crate::services::model_sync::mappings::{get_platform_by_provider, CURATION_DEFAULTS};
-use crate::services::rankings::enrich::enrich_rankings;
+use crate::services::rankings::enrich::enrich_rankings_if_stale;
 
 #[derive(Serialize, Clone, Debug)]
 #[serde(rename_all = "camelCase")]
@@ -396,7 +396,7 @@ async fn sync_models_inner(started_at: &str, log_id: i64) -> Result<SyncResult, 
     // Refresh intelligence/speed rankings from real benchmark sources.
     // Failures are non-fatal — sync succeeded, enrichment is best-effort and
     // can be re-triggered via POST /api/models/enrich-rankings.
-    let enrich_result = enrich_rankings().await;
+    let enrich_result = enrich_rankings_if_stale().await;
     tracing::info!(
         "[ModelSync] Enrichment done: {}/{} ranked from {} in {}ms",
         enrich_result.updated,

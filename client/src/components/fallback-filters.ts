@@ -1,53 +1,6 @@
-export interface FallbackEntry {
-  modelDbId: number
-  priority: number
-  effectivePriority: number
-  penalty: number
-  rateLimitHits: number
-  enabled: boolean
-  freeTier: boolean
-  platform: string
-  modelId: string
-  displayName: string
-  intelligenceRank: number | null
-  speedRank: number | null
-  intelligenceScore: number | null
-  speedTokensPerSec: number | null
-  rankingSource: string | null
-  lastRankedAt: string | null
-  manualPriority?: number | null
-  quality?: {
-    score: number | null
-    rank: number | null
-    source: string | null
-    confidence: number
-    updatedAt: string | null
-    status: 'fresh' | 'stale' | 'unknown'
-    ranked: boolean
-  }
-  speed?: {
-    tokensPerSecond: number | null
-    rank: number | null
-    source: string | null
-    sampleCount: number
-    confidence: number
-    updatedAt: string | null
-    status: 'fresh' | 'stale' | 'unknown'
-    ranked: boolean
-  }
-  reliability?: {
-    successRate: number | null
-    sampleCount: number
-    rateLimitRate: number | null
-  }
-  rankingConfidence?: number
-  routing?: { balancedScore?: number | null }
-  sizeLabel: string
-  rpmLimit: number | null
-  rpdLimit: number | null
-  monthlyTokenBudget: string
-  keyCount: number
-}
+import type { FallbackEntry } from '../../../shared/types'
+
+export type { FallbackEntry }
 
 export type SortPreset = 'manual' | 'intelligence' | 'quality' | 'speed' | 'fastest' | 'reliability' | 'balanced' | 'budget'
 

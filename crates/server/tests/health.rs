@@ -130,7 +130,15 @@ async fn lists_all_keys_in_keys_array() {
 #[tokio::test]
 async fn check_invalid_key_id_returns_400() {
     let app = common::setup().await;
-    let res = common::request(&app.app, "POST", "/api/health/check/notanumber", None, None).await;
+    let admin_key = common::admin_key();
+    let res = common::request(
+        &app.app,
+        "POST",
+        "/api/health/check/notanumber",
+        Some(&admin_key),
+        None,
+    )
+    .await;
     common::expect_status(&res, StatusCode::BAD_REQUEST);
     assert_eq!(res.body["error"]["message"], "Invalid key ID");
 }
@@ -139,7 +147,15 @@ async fn check_invalid_key_id_returns_400() {
 #[tokio::test]
 async fn check_negative_key_id_is_accepted_numeric_id() {
     let app = common::setup().await;
-    let res = common::request(&app.app, "POST", "/api/health/check/-1", None, None).await;
+    let admin_key = common::admin_key();
+    let res = common::request(
+        &app.app,
+        "POST",
+        "/api/health/check/-1",
+        Some(&admin_key),
+        None,
+    )
+    .await;
     common::expect_status(&res, StatusCode::OK);
     assert_eq!(res.body["keyId"], json!(-1));
     assert_eq!(res.body["status"], "error");
@@ -149,7 +165,15 @@ async fn check_negative_key_id_is_accepted_numeric_id() {
 #[tokio::test]
 async fn check_nonexistent_key_returns_error_status() {
     let app = common::setup().await;
-    let res = common::request(&app.app, "POST", "/api/health/check/99999", None, None).await;
+    let admin_key = common::admin_key();
+    let res = common::request(
+        &app.app,
+        "POST",
+        "/api/health/check/99999",
+        Some(&admin_key),
+        None,
+    )
+    .await;
     common::expect_status(&res, StatusCode::OK);
     assert_eq!(res.body["keyId"], json!(99999));
     assert_eq!(res.body["status"], "error");
@@ -159,7 +183,15 @@ async fn check_nonexistent_key_returns_error_status() {
 #[tokio::test]
 async fn check_all_with_no_keys_returns_success() {
     let app = common::setup().await;
-    let res = common::request(&app.app, "POST", "/api/health/check-all", None, None).await;
+    let admin_key = common::admin_key();
+    let res = common::request(
+        &app.app,
+        "POST",
+        "/api/health/check-all",
+        Some(&admin_key),
+        None,
+    )
+    .await;
     common::expect_status(&res, StatusCode::OK);
     assert_eq!(res.body["success"], json!(true));
 }
@@ -170,7 +202,15 @@ async fn check_all_with_keys_returns_success() {
     let app = common::setup().await;
     insert_key("google", "check-all", "unknown", 1).await;
 
-    let res = common::request(&app.app, "POST", "/api/health/check-all", None, None).await;
+    let admin_key = common::admin_key();
+    let res = common::request(
+        &app.app,
+        "POST",
+        "/api/health/check-all",
+        Some(&admin_key),
+        None,
+    )
+    .await;
     common::expect_status(&res, StatusCode::OK);
     assert_eq!(res.body["success"], json!(true));
 }
