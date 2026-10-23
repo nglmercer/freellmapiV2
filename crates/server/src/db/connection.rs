@@ -64,6 +64,7 @@ pub fn init_db(path: Option<&str>) -> rusqlite::Result<()> {
     sqlite.execute_batch("PRAGMA foreign_keys = ON")?;
 
     create_tables(&sqlite)?;
+    crate::services::model_metadata::persistence::migrate(&sqlite)?;
     crate::crypto::init_encryption_key(&sqlite);
 
     // OnceLock::set is once-only; tests re-run init_db, so swap the inner

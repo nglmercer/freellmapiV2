@@ -227,6 +227,25 @@ pub fn route_request(
     skip_keys: Option<&HashSet<String>>,
     preferred_model_db_id: Option<i64>,
 ) -> Result<RouteResult, ApiError> {
+    route_request_with_policy(
+        conn,
+        estimated_tokens,
+        skip_keys,
+        preferred_model_db_id,
+        &crate::services::model_metadata::routing::RoutingPolicy {
+            input_tokens: estimated_tokens.max(0),
+            ..Default::default()
+        },
+    )
+}
+
+pub fn route_request_with_policy(
+    conn: &Connection,
+    estimated_tokens: i64,
+    skip_keys: Option<&HashSet<String>>,
+    preferred_model_db_id: Option<i64>,
+    policy: &crate::services::model_metadata::routing::RoutingPolicy,
+) -> Result<RouteResult, ApiError> {
     let total_key_count: i64 = conn
         .query_row("SELECT count(*) FROM api_keys WHERE enabled = 1", [], |r| {
             r.get(0)
@@ -369,6 +388,36 @@ pub fn route_request(
             .collect()
     };
 
+    let policy = crate::services::model_metadata::routing::configured_policy(conn, policy);
+    // Hard policy eligibility is applied before sticky preferences and actual key selection.
+    // Legacy callers with no request constraints retain their context behavior.
+    let mut decisions = HashMap::new();
+    for (_, _, id, _) in &sorted_chain {
+        if let Ok(d) = crate::services::model_metadata::routing::evaluate(conn, *id, &policy) {
+            decisions.insert(*id, d);
+        }
+    }
+    sorted_chain.retain(|(_, _, id, _)| decisions.get(id).is_some_and(|d| d.eligible));
+    let extended = policy
+        .strategy
+        .as_deref()
+        .or_else(|| decisions.values().next().map(|d| d.strategy.as_str()));
+    if extended.is_some_and(|s| s != "manual") {
+        sorted_chain.sort_by(|a, b| {
+            decisions
+                .get(&b.2)
+                .and_then(|d| d.score)
+                .unwrap_or(f64::NEG_INFINITY)
+                .total_cmp(
+                    &decisions
+                        .get(&a.2)
+                        .and_then(|d| d.score)
+                        .unwrap_or(f64::NEG_INFINITY),
+                )
+                .then(a.1.cmp(&b.1))
+                .then(a.2.cmp(&b.2))
+        });
+    }
     // Sticky session: move preferred model to front of chain
     if let Some(preferred) = preferred_model_db_id {
         if let Some(idx) = sorted_chain

@@ -7,7 +7,7 @@
 use chrono::{DateTime, Utc};
 use serde::Deserialize;
 
-use crate::providers::base::{http_client, send_request};
+use crate::providers::base::send_request;
 use crate::services::rankings::match_ids::{build_rank_index, RankLookup};
 use crate::services::rankings::types::{
     ExternalBenchmark, RankingError, RankingSource, RankingSourceProvider,
@@ -175,11 +175,16 @@ impl RankingSourceProvider for ArtificialAnalysisProvider {
             ));
         };
 
+        if !crate::services::model_metadata::sources::safe_url("artificial-analysis", &self.url) {
+            return Err(RankingError::InvalidResponse(
+                "Artificial Analysis URL must be an official HTTPS model endpoint".into(),
+            ));
+        }
         let fetched_at = Utc::now();
         let mut page = 1;
         let mut all = Vec::new();
         loop {
-            let req = http_client()
+            let req = crate::services::model_metadata::sources::client()
                 .get(page_url(&self.url, page))
                 .header("Accept", "application/json")
                 .header("x-api-key", api_key);
@@ -194,13 +199,18 @@ impl RankingSourceProvider for ArtificialAnalysisProvider {
                     status.canonical_reason().unwrap_or("")
                 )));
             }
-            let body = response
-                .text()
+            let body = crate::services::model_metadata::sources::read_document(response)
                 .await
-                .map_err(|error| RankingError::Http(error.to_string()))?;
+                .map_err(|error| RankingError::InvalidResponse(error.to_string()))?
+                .to_string();
             let (mut benchmarks, has_more) = parse_page(&body, fetched_at)?;
             all.append(&mut benchmarks);
-            if !has_more || page >= MAX_PAGES {
+            if has_more && page >= MAX_PAGES {
+                return Err(RankingError::InvalidResponse(
+                    "Artificial Analysis pagination limit reached".into(),
+                ));
+            }
+            if !has_more {
                 break;
             }
             page += 1;

@@ -413,6 +413,13 @@ async fn sync_models_inner(started_at: &str, log_id: i64) -> Result<SyncResult, 
         errors: enrich_result.errors,
     });
 
+    {
+        let mut conn = db().lock().await;
+        if let Err(error) = crate::services::model_metadata::persistence::rematch(&mut conn) {
+            tracing::warn!(%error,"Metadata rematch failed after model discovery");
+        }
+    }
+    let _ = crate::services::model_metadata::refresh::refresh(false).await;
     Ok(result)
 }
 

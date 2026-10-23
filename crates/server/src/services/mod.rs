@@ -1,6 +1,7 @@
 //! Background services used by the server.
 
 pub mod health;
+pub mod model_metadata;
 pub mod model_sync;
 pub mod pricing;
 pub mod rankings;

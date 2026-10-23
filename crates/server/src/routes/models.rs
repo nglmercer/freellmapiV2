@@ -22,6 +22,10 @@ pub fn router() -> axum::Router {
     axum::Router::new()
         .route("/", get(list_models))
         .route("/search", get(search_models))
+        .route("/compare", get(crate::routes::metadata::compare))
+        .route("/{id}/metadata", get(crate::routes::metadata::detail))
+        .route("/{id}/metrics", get(crate::routes::metadata::detail))
+        .route("/{id}/history", get(crate::routes::metadata::history))
         .route("/pricing", get(get_pricing))
         .route("/pricing/calculate", post(calculate_pricing))
         .route("/sync", post(sync_models_api))
@@ -325,7 +329,11 @@ fn build_search_conditions(query: &HashMap<String, String>) -> (String, Vec<SqlV
     if query.get("free").map(|s| s == "true").unwrap_or(false) {
         conditions.push("free_tier = 1".to_string());
     }
-    if let Some(search) = query.get("search").filter(|s| !s.is_empty()) {
+    if let Some(search) = query
+        .get("query")
+        .or_else(|| query.get("search"))
+        .filter(|s| !s.is_empty())
+    {
         conditions
             .push("(display_name LIKE ? OR model_id LIKE ? OR description LIKE ?)".to_string());
         let q = SqlValue::Text(format!("%{search}%"));
@@ -333,17 +341,24 @@ fn build_search_conditions(query: &HashMap<String, String>) -> (String, Vec<SqlV
         values.push(q.clone());
         values.push(q);
     }
+    if let Some(cap) = query.get("capability").filter(|v| !v.is_empty()) {
+        conditions.push("EXISTS(SELECT 1 FROM model_metadata_effective e JOIN model_metadata_observations o ON o.id=e.observation_id WHERE e.target_key='d:'||models.id AND e.metric=? AND json_extract(o.value_json,'$.value')=1)".into());
+        values.push(format!("capability.{cap}").into());
+    }
+    if let Some(min) = query.get("minContext").and_then(|v| v.parse::<i64>().ok()) {
+        conditions.push("COALESCE((SELECT json_extract(o.value_json,'$.value') FROM model_metadata_effective e JOIN model_metadata_observations o ON o.id=e.observation_id WHERE e.target_key='d:'||models.id AND e.metric='context.total'),context_window)>=?".into());
+        values.push(min.max(0).into());
+    }
     (conditions.join(" AND "), values)
 }
 
 fn search_limit(query: &HashMap<String, String>) -> i64 {
-    // `Math.min(parseInt(limit ?? '50'), 200)` — negative passes through
-    // (SQLite treats LIMIT < 0 as unlimited, matching drizzle).
+    // Bound both ends: negative SQLite LIMIT means unlimited.
     query
         .get("limit")
         .and_then(|s| s.trim().parse::<i64>().ok())
         .unwrap_or(50)
-        .min(200)
+        .clamp(1, 200)
 }
 
 fn search_offset(query: &HashMap<String, String>) -> i64 {
@@ -351,6 +366,7 @@ fn search_offset(query: &HashMap<String, String>) -> i64 {
         .get("offset")
         .and_then(|s| s.trim().parse::<i64>().ok())
         .unwrap_or(0)
+        .clamp(0, 1_000_000)
 }
 
 struct SearchRow {
@@ -949,6 +965,12 @@ async fn upsert_ranking_alias(bytes: Bytes) -> Response {
         Ok(canonical_model_id)
     })
     .await;
+    if result.is_ok() {
+        let mut conn = db().lock().await;
+        if let Err(error) = crate::services::model_metadata::persistence::rematch(&mut conn) {
+            tracing::warn!(%error,"Metadata rematch after reviewed alias failed");
+        }
+    }
     match result {
         Ok(canonical_model_id) => Json(json!({
             "success": true,

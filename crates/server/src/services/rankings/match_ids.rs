@@ -64,16 +64,9 @@ fn strip_publisher(id: &str) -> String {
 /// counts are intentionally preserved.
 pub fn canonicalize(id: &str) -> String {
     static FREE: LazyLock<Regex> = LazyLock::new(|| re(r"(?i)[:-]free$"));
-    static DATE: LazyLock<Regex> = LazyLock::new(|| re(r"-\d{4}-\d{2}-\d{2}$"));
-    static PREVIEW: LazyLock<Regex> =
-        LazyLock::new(|| re(r"(?i)-(preview|alpha|beta|exp)(\.\d+)?$"));
     static PROVIDER: LazyLock<Regex> = LazyLock::new(|| re(r"(?i):nitro$|:exacto$|:floor$"));
-    static SHA: LazyLock<Regex> = LazyLock::new(|| re(r"(?i)@[a-f0-9]{6,40}$"));
 
     let s = FREE.replace(id, "");
-    let s = DATE.replace(&s, "");
-    let s = PREVIEW.replace(&s, "");
-    let s = SHA.replace(&s, "");
     let s = PROVIDER.replace(&s, "");
     s.to_string()
 }
@@ -199,10 +192,19 @@ mod tests {
 
     #[test]
     fn canonicalization_preserves_model_variants() {
-        assert_eq!(canonicalize("gpt-4.1-mini-2024-04-14"), "gpt-4.1-mini");
-        assert_eq!(canonicalize("gemini-2.5-pro-preview"), "gemini-2.5-pro");
-        assert_eq!(canonicalize("gemini-2.5-pro-preview.2"), "gemini-2.5-pro");
-        assert_eq!(canonicalize("model@abc123def"), "model");
+        assert_eq!(
+            canonicalize("gpt-4.1-mini-2024-04-14"),
+            "gpt-4.1-mini-2024-04-14"
+        );
+        assert_eq!(
+            canonicalize("gemini-2.5-pro-preview"),
+            "gemini-2.5-pro-preview"
+        );
+        assert_eq!(
+            canonicalize("gemini-2.5-pro-preview.2"),
+            "gemini-2.5-pro-preview.2"
+        );
+        assert_eq!(canonicalize("model@abc123def"), "model@abc123def");
         assert_eq!(canonicalize("model:nitro"), "model");
         assert_eq!(canonicalize("llama-3.3:free"), "llama-3.3");
         assert_ne!(

@@ -13,6 +13,7 @@ const FallbackPage = lazy(() => import('./pages/FallbackPage'))
 const AnalyticsPage = lazy(() => import('./pages/AnalyticsPage'))
 const ProvidersPage = lazy(() => import('./pages/ProvidersPage'))
 const ProviderModelsPage = lazy(() => import('./pages/ProviderModelsPage'))
+const ModelExplorerPage = lazy(() => import('./pages/ModelExplorerPage'))
 const SetupPage = lazy(() => import('./pages/SetupPage'))
 
 const queryClient = new QueryClient()
@@ -205,12 +206,13 @@ function AppLayout() {
   return (
     <div className="min-h-screen bg-background">
       <header className="sticky top-0 z-40 bg-background/80 backdrop-blur border-b">
-        <div className="max-w-6xl mx-auto px-6 flex items-center">
+        <div className="max-w-6xl mx-auto px-4 flex flex-wrap items-center">
           <Brand />
-          <nav className="flex items-center gap-6 ml-10">
+          <nav className="flex items-center gap-4 ml-4 overflow-x-auto max-w-full order-3 sm:order-none">
             <NavItem to="/playground">{t('app.nav.playground')}</NavItem>
             <NavItem to="/keys">{t('app.nav.keys')}</NavItem>
             <NavItem to="/fallback">{t('app.nav.fallback')}</NavItem>
+            <NavItem to="/models">{t('metadata.explorer')}</NavItem>
             <NavItem to="/analytics">{t('app.nav.analytics')}</NavItem>
           </nav>
           <div className="ml-auto py-2 flex items-center gap-2">
@@ -228,6 +230,7 @@ function AppLayout() {
             <Route path="/playground" element={<PlaygroundPage />} />
             <Route path="/keys" element={<KeysPage />} />
             <Route path="/fallback" element={<FallbackPage />} />
+            <Route path="/models" element={<ModelExplorerPage />} />
             <Route path="/analytics" element={<AnalyticsPage />} />
             <Route path="/test" element={<Navigate to="/playground" replace />} />
             <Route path="/health" element={<Navigate to="/keys" replace />} />

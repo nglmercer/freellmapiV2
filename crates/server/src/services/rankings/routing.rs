@@ -16,6 +16,12 @@ pub enum RoutingStrategy {
     Quality,
     Fastest,
     MostReliable,
+    LowestLatency,
+    Cheapest,
+    BestCoding,
+    BestReasoning,
+    FreeOnly,
+    Weighted,
 }
 
 impl RoutingStrategy {
@@ -26,6 +32,12 @@ impl RoutingStrategy {
             "quality" | "intelligence" | "best-quality" => Some(Self::Quality),
             "fastest" | "speed" => Some(Self::Fastest),
             "reliability" | "most-reliable" => Some(Self::MostReliable),
+            "lowest-latency" => Some(Self::LowestLatency),
+            "cheapest" => Some(Self::Cheapest),
+            "best-coding" => Some(Self::BestCoding),
+            "best-reasoning" => Some(Self::BestReasoning),
+            "free-only" => Some(Self::FreeOnly),
+            "weighted" => Some(Self::Weighted),
             _ => None,
         }
     }
@@ -37,6 +49,12 @@ impl RoutingStrategy {
             Self::Quality => "quality",
             Self::Fastest => "fastest",
             Self::MostReliable => "reliability",
+            Self::LowestLatency => "lowest-latency",
+            Self::Cheapest => "cheapest",
+            Self::BestCoding => "best-coding",
+            Self::BestReasoning => "best-reasoning",
+            Self::FreeOnly => "free-only",
+            Self::Weighted => "weighted",
         }
     }
 }
@@ -65,28 +83,11 @@ struct Range {
     max: f64,
 }
 
-fn range(values: impl Iterator<Item = Option<f64>>) -> Option<Range> {
-    let mut range: Option<Range> = None;
-    for value in values.flatten().filter(|value| value.is_finite()) {
-        range = Some(match range {
-            Some(current) => Range {
-                min: current.min.min(value),
-                max: current.max.max(value),
-            },
-            None => Range {
-                min: value,
-                max: value,
-            },
-        });
-    }
-    range
-}
-
 fn normalize(value: Option<f64>, bounds: Option<Range>) -> Option<f64> {
-    let value = value?;
+    let value = value.filter(|v| v.is_finite() && *v >= 0.0)?;
     let bounds = bounds?;
     if (bounds.max - bounds.min).abs() < f64::EPSILON {
-        Some(1.0)
+        Some(0.5)
     } else {
         Some(((value - bounds.min) / (bounds.max - bounds.min)).clamp(0.0, 1.0))
     }
@@ -130,7 +131,8 @@ fn weighted_score(
                 .iter()
                 .filter_map(|(value, weight)| value.map(|value| value * weight))
                 .sum::<f64>()
-                / total_weight,
+                // Missing evidence lowers coverage instead of inflating sparse candidates.
+                / (QUALITY_WEIGHT + RELIABILITY_WEIGHT + SPEED_WEIGHT + AVAILABILITY_WEIGHT),
         )
     }
 }
@@ -158,9 +160,15 @@ pub fn score_candidates(
     // Build each cohort range exactly once. This keeps routing-score
     // calculation linear after the input scan instead of rebuilding/sorting a
     // dimension for every candidate.
-    let quality_range = range(candidates.iter().map(|candidate| candidate.quality));
-    let speed_range = range(candidates.iter().map(|candidate| candidate.speed));
-    let reliability_range = range(candidates.iter().map(|candidate| candidate.reliability));
+    let quality_range = Some(Range {
+        min: 0.0,
+        max: 100.0,
+    });
+    let speed_range = Some(Range {
+        min: 0.0,
+        max: 500.0,
+    });
+    let reliability_range = Some(Range { min: 0.0, max: 1.0 });
     let manual_priorities: HashMap<i64, i64> = candidates
         .iter()
         .map(|candidate| (candidate.model_db_id, candidate.manual_priority))
@@ -169,7 +177,13 @@ pub fn score_candidates(
         .iter()
         .map(|candidate| {
             let score = match strategy {
-                RoutingStrategy::Manual => None,
+                RoutingStrategy::Manual
+                | RoutingStrategy::LowestLatency
+                | RoutingStrategy::Cheapest
+                | RoutingStrategy::BestCoding
+                | RoutingStrategy::BestReasoning
+                | RoutingStrategy::FreeOnly
+                | RoutingStrategy::Weighted => None,
                 RoutingStrategy::Balanced => {
                     weighted_score(candidate, quality_range, speed_range, reliability_range)
                 }

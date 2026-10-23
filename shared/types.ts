@@ -382,3 +382,31 @@ export interface RateLimitStatus {
   available: boolean;
   nextResetAt: string | null;
 }
+
+
+// Model intelligence evidence is additive; legacy model/ranking DTOs are unchanged.
+export interface MetadataMetric {
+  id: number
+  metric: string
+  value: { type: 'number' | 'boolean' | 'text' | 'json'; value: number | boolean | string | string[] }
+  unit: string
+  source: string
+  scope: 'canonicalModel' | 'providerDeployment' | 'localObservation'
+  confidence: number
+  fetchedAt: string
+  observedAt: string | null
+  benchmarkVersion: string
+  verified: boolean
+  freshness: 'fresh' | 'stale'
+  conflict: boolean
+  selectionReason: string
+}
+export interface MetadataDeployment {
+  id: number; provider: string; modelId: string; enabled: boolean; freeTier: boolean; metrics: MetadataMetric[]
+}
+export interface MetadataModel { key: string; name: string; deployments: MetadataDeployment[] }
+export interface MetadataSource {
+  id: string; enabled: boolean; configured: boolean; ttlSeconds: number; status: string
+  lastSuccess: string | null; lastFailure: string | null; error: string | null
+  attribution: string; license: string; domains: string[]; nextAttempt: number
+}

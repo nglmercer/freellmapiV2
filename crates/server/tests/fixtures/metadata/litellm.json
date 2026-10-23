@@ -1,0 +1,1 @@
+{"google/gemini-2.5-pro":{"litellm_provider":"google","input_cost_per_token":0.000003,"output_cost_per_token":0.00001,"max_input_tokens":1000000,"supports_function_calling":false,"supports_reasoning":null}}
