@@ -49,6 +49,43 @@ export function ControlsPanel({
     return [...set].sort()
   }, [entries])
 
+  // Base UI labels a trigger from `items`; without it the raw value (e.g. "__all__") shows until the menu opens.
+  const platformItems = useMemo(
+    () => [
+      { value: '__all__', label: t('fallback.filters.platformAll') },
+      ...platforms.map((p) => ({ value: p, label: p })),
+    ],
+    [platforms, t],
+  )
+  const tierItems = useMemo(
+    () => [
+      { value: 'all', label: t('fallback.filters.tierAll') },
+      { value: 'free', label: t('fallback.filters.tierFree') },
+      { value: 'paid', label: t('fallback.filters.tierPaid') },
+    ],
+    [t],
+  )
+  const stateItems = useMemo(
+    () => [
+      { value: 'all', label: t('fallback.filters.stateAll') },
+      { value: 'enabled', label: t('fallback.filters.stateEnabled') },
+      { value: 'disabled', label: t('fallback.filters.stateDisabled') },
+    ],
+    [t],
+  )
+  const rankingItems = useMemo(
+    () => [
+      { value: 'all', label: t('fallback.filters.rankingAll') },
+      { value: 'ranked', label: t('fallback.filters.rankingRanked') },
+      { value: 'unranked', label: t('fallback.filters.rankingUnranked') },
+      { value: 'high-confidence', label: t('fallback.filters.rankingHighConfidence') },
+      { value: 'has-quality', label: t('fallback.filters.rankingHasQuality') },
+      { value: 'has-speed', label: t('fallback.filters.rankingHasSpeed') },
+      { value: 'local-performance', label: t('fallback.filters.rankingLocalPerformance') },
+    ],
+    [t],
+  )
+
   const counts = useMemo(() => {
     return {
       total: entries.length,
@@ -143,6 +180,7 @@ export function ControlsPanel({
         <div className="space-y-1.5 min-w-40">
           <Label className="text-xs text-muted-foreground">{t('fallback.filters.platform')}</Label>
           <Select
+            items={platformItems}
             value={filters.platform || '__all__'}
             onValueChange={(v) => patch({ platform: v && v !== '__all__' ? v : '' })}
           >
@@ -163,6 +201,7 @@ export function ControlsPanel({
         <div className="space-y-1.5 min-w-32">
           <Label className="text-xs text-muted-foreground">{t('fallback.filters.tier')}</Label>
           <Select
+            items={tierItems}
             value={filters.tier}
             onValueChange={(v) => patch({ tier: v as TierFilter })}
           >
@@ -180,6 +219,7 @@ export function ControlsPanel({
         <div className="space-y-1.5 min-w-32">
           <Label className="text-xs text-muted-foreground">{t('fallback.filters.state')}</Label>
           <Select
+            items={stateItems}
             value={filters.state}
             onValueChange={(v) => patch({ state: v as StateFilter })}
           >
@@ -197,6 +237,7 @@ export function ControlsPanel({
         <div className="space-y-1.5 min-w-32">
           <Label className="text-xs text-muted-foreground">{t('fallback.filters.ranking')}</Label>
           <Select
+            items={rankingItems}
             value={filters.ranking}
             onValueChange={(v) => patch({ ranking: v as RankingFilter })}
           >
