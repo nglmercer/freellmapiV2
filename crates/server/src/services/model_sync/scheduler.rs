@@ -27,6 +27,7 @@ pub async fn run_initial_sync() {
 }
 
 pub fn start_sync_scheduler() {
+    crate::services::model_metadata::refresh::start_scheduler();
     static STARTED: AtomicBool = AtomicBool::new(false);
     if STARTED.swap(true, Ordering::SeqCst) {
         return;

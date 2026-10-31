@@ -122,11 +122,17 @@ pub async fn record_observation(
     let success = i64::from(matches!(observation.outcome, ObservationOutcome::Success));
     let failure = i64::from(success == 0);
     let (rate_limit, timeout, server_error) = classify_failure(&observation.outcome);
-    let (output_tps, tps_confidence) = output_tokens_per_second(
-        observation.output_tokens,
-        observation.generation_duration_ms,
-        observation.latency_ms,
-    );
+    let generation_ms = observation.generation_duration_ms.or_else(|| {
+        observation
+            .latency_ms
+            .zip(observation.ttft_ms)
+            .and_then(|(total, first)| (total > first && first >= 0).then_some(total - first))
+    });
+    let (output_tps, tps_confidence) = if success == 1 {
+        output_tokens_per_second(observation.output_tokens, generation_ms, None)
+    } else {
+        (None, 0.0)
+    };
     let now = chrono::Utc::now().to_rfc3339_opts(chrono::SecondsFormat::Millis, true);
 
     let conn = db().lock().await;
@@ -214,6 +220,8 @@ pub async fn record_observation(
             success,
         ],
     )?;
+    conn.execute("INSERT INTO model_performance_samples(platform,model_id,success,latency_ms,ttft_ms,output_tps,output_tokens,created_at) VALUES(?1,?2,?3,?4,?5,?6,?7,?8)",rusqlite::params![platform,model_id,success,latency,ttft,output_tps,observation.output_tokens,now])?;
+    conn.execute_batch("DELETE FROM model_performance_samples WHERE created_at<strftime('%Y-%m-%dT%H:%M:%fZ','now','-1 day'); DELETE FROM model_performance_samples WHERE id IN (SELECT id FROM model_performance_samples ORDER BY id DESC LIMIT -1 OFFSET 100000);")?;
     if let Some(output_tps) = output_tps {
         // A new provider-local observation supersedes the previous speed
         // cohort rank. Keep the legacy sentinel in storage until the next
@@ -275,6 +283,44 @@ pub fn load_performance(
 
 pub fn reliability(successes: i64, samples: i64) -> Option<f64> {
     crate::services::rankings::routing::reliability_score(successes, samples)
+}
+
+/// Bounded rolling windows; percentiles need at least five valid timings.
+pub fn rolling_summaries(
+    conn: &Connection,
+    platform: &str,
+    model: &str,
+) -> rusqlite::Result<serde_json::Value> {
+    let mut windows = Vec::new();
+    for minutes in [15, 60, 1440] {
+        let since = (chrono::Utc::now() - chrono::Duration::minutes(minutes)).to_rfc3339();
+        let mut stmt=conn.prepare("SELECT success,latency_ms,ttft_ms,output_tps FROM model_performance_samples WHERE platform=?1 AND model_id=?2 AND created_at>=?3 ORDER BY id DESC LIMIT 5000")?;
+        let rows = stmt
+            .query_map(rusqlite::params![platform, model, since], |r| {
+                Ok((
+                    r.get::<_, i64>(0)?,
+                    r.get::<_, Option<f64>>(1)?,
+                    r.get::<_, Option<f64>>(2)?,
+                    r.get::<_, Option<f64>>(3)?,
+                ))
+            })?
+            .collect::<rusqlite::Result<Vec<_>>>()?;
+        let mut latency: Vec<f64> = rows.iter().filter_map(|r| r.1).collect();
+        latency.sort_by(f64::total_cmp);
+        let percentile = |p: f64| {
+            if latency.len() >= 5 {
+                latency
+                    .get(((latency.len() - 1) as f64 * p).ceil() as usize)
+                    .copied()
+            } else {
+                None
+            }
+        };
+        let successes = rows.iter().map(|r| r.0).sum::<i64>();
+        let tps: Vec<f64> = rows.iter().filter_map(|r| r.3).collect();
+        windows.push(serde_json::json!({"minutes":minutes,"sampleCount":rows.len(),"reliability":if rows.len()>=5{reliability(successes,rows.len()as i64)}else{None},"latencySampleCount":latency.len(),"p50LatencyMs":percentile(0.5),"p95LatencyMs":percentile(0.95),"tpsSampleCount":tps.len(),"meanOutputTps":if tps.len()>=5{Some(tps.iter().sum::<f64>()/tps.len()as f64)}else{None}}));
+    }
+    Ok(serde_json::json!(windows))
 }
 
 #[cfg(test)]

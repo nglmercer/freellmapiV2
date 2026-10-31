@@ -147,3 +147,11 @@ GETMODELS_NETWORK_TESTS=1 cargo test -p getmodelsapi --test getmodels -- --nocap
 ## License
 
 [MIT](./LICENSE)
+
+## Model intelligence
+
+Open **Models** for the canonical model explorer, deployment evidence, source controls,
+comparison, match review, and routing simulation/policy settings. Artificial Analysis
+and Models.dev are the default sources; OpenRouter, LiteLLM, and targeted public Hugging
+Face metadata are opt-in. See [model intelligence](docs/model-intelligence.md) for
+migration compatibility, API contracts, source attribution, metric units, and validation.

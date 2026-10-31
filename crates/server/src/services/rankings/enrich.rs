@@ -97,7 +97,7 @@ fn source_priority(source: Option<&str>) -> i32 {
 }
 
 #[derive(Clone, Debug)]
-struct LocalModel {
+pub(crate) struct LocalModel {
     id: i64,
     platform: String,
     model_id: String,
@@ -245,7 +245,7 @@ fn load_performance(
     .ok()
 }
 
-fn ensure_identity_registry(conn: &mut Connection) -> rusqlite::Result<Vec<LocalModel>> {
+pub(crate) fn ensure_identity_registry(conn: &mut Connection) -> rusqlite::Result<Vec<LocalModel>> {
     let tx = conn.transaction()?;
     let rows: Vec<(i64, String, String, String)> = tx
         .prepare("SELECT id, platform, model_id, display_name FROM models")?
@@ -272,10 +272,15 @@ fn ensure_identity_registry(conn: &mut Connection) -> rusqlite::Result<Vec<Local
             |row| row.get(0),
         )?;
         tx.execute(
-            "UPDATE models SET canonical_model_id = ?1 WHERE id = ?2",
+            "UPDATE models SET canonical_model_id = ?1 WHERE id = ?2 AND canonical_model_id IS NULL",
             rusqlite::params![canonical_db_id, id],
         )?;
 
+        let canonical_db_id: i64 = tx.query_row(
+            "SELECT canonical_model_id FROM models WHERE id=?1",
+            [id],
+            |r| r.get(0),
+        )?;
         let provider_source = format!("provider:{platform}");
         for alias in [model_id.clone(), identity(platform, model_id).bare] {
             tx.execute(

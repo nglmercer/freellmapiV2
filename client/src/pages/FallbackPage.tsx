@@ -112,7 +112,9 @@ function TokenUsageBar({ data }: { data: TokenUsageData }) {
       <div className="flex items-baseline justify-between mb-3">
         <h2 className="text-sm font-medium">{t('fallback.tokenBudget.title')}</h2>
         <span className="text-xs text-muted-foreground tabular-nums">
-          <span className="text-foreground font-medium">{formatTokens(remaining)}</span> {t('fallback.tokenBudget.remaining').replace('{{remaining}}', formatTokens(remaining)).replace('remaining', '')} {remainingPct}% {t('fallback.tokenBudget.of').split('{{remainingPct}}% of {{total}}')[0]} {formatTokens(totalBudget)}
+          <span className="text-foreground font-medium">{t('fallback.tokenBudget.remaining', { remaining: formatTokens(remaining) })}</span>
+          {' · '}
+          {t('fallback.tokenBudget.of', { remainingPct, total: formatTokens(totalBudget) })}
         </span>
       </div>
 
@@ -209,9 +211,11 @@ function SortableModelRow({
               {t('fallback.reliability', { rate: (entry.reliability.successRate * 100).toFixed(1) })}
             </span>
           )}
-          {entry.rpmLimit && <span>{t('fallback.rpm', { count: entry.rpmLimit })}</span>}
-          {entry.rpdLimit && <span>{t('fallback.rpd', { count: entry.rpdLimit })}</span>}
-          <span>{t('fallback.tokensPerMonth', { count: entry.monthlyTokenBudget })}</span>
+          {!!entry.rpmLimit && <span>{t('fallback.rpm', { count: entry.rpmLimit })}</span>}
+          {!!entry.rpdLimit && <span>{t('fallback.rpd', { count: entry.rpdLimit })}</span>}
+          {entry.monthlyTokenBudget && (
+            <span>{t('fallback.tokensPerMonth', { count: entry.monthlyTokenBudget })}</span>
+          )}
         </div>
       </div>
       <Switch

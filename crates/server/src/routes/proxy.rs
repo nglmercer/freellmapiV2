@@ -19,7 +19,9 @@ use crate::routes::stream_handler::{handle_standard_completion, handle_streaming
 use crate::services::ratelimit::{
     get_sticky_model, record_request, record_tokens, set_cooldown, set_sticky_model,
 };
-use crate::services::router::{record_rate_limit_hit, record_success, route_request, RouteResult};
+use crate::services::router::{
+    record_rate_limit_hit, record_success, route_request_with_policy, RouteResult,
+};
 use crate::services::telemetry::{record_observation, ObservationOutcome, RuntimeObservation};
 use crate::types::{ChatCompletionResponse, ChatMessage, CompletionOptions};
 
@@ -219,7 +221,7 @@ pub async fn chat_completions(headers: HeaderMap, body: Bytes) -> Response {
     for attempt in 0..MAX_RETRIES {
         let route = {
             let conn = db().lock().await;
-            route_request(
+            route_request_with_policy(
                 &conn,
                 estimated_total,
                 if !skip_keys.is_empty() {
@@ -228,6 +230,11 @@ pub async fn chat_completions(headers: HeaderMap, body: Bytes) -> Response {
                     None
                 },
                 preferred_model,
+                &crate::services::model_metadata::routing::RoutingPolicy::from_request(
+                    &raw,
+                    estimated_input_tokens,
+                    options.max_tokens.unwrap_or(1000),
+                ),
             )
         };
         let route = match route {

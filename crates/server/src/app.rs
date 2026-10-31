@@ -24,6 +24,12 @@ pub fn create_app() -> axum::Router {
     let admin_routes = axum::Router::new()
         .nest("/keys", routes::keys::router())
         .nest("/models", routes::models::router())
+        .nest("/metadata", routes::metadata::router())
+        .route("/routing/simulate", post(routes::metadata::simulate))
+        .route(
+            "/routing/policy",
+            get(routes::metadata::get_policy).patch(routes::metadata::set_policy),
+        )
         .nest("/fallback", routes::fallback::router())
         .nest("/analytics", routes::analytics::router())
         .nest("/health", routes::health::router())

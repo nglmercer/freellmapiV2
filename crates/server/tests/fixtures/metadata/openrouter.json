@@ -1,0 +1,1 @@
+{"data":[{"id":"meta-llama/llama-3.3-70b-instruct:free","name":"Llama free","context_length":131072,"architecture":{"input_modalities":["text"],"output_modalities":["text"]},"supported_parameters":["tools"],"pricing":{"prompt":"0","completion":"0"},"top_provider":{"max_completion_tokens":8192}}]}
