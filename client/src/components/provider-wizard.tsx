@@ -1,6 +1,23 @@
-import { useMemo, useState, type FormEvent } from 'react'
+import { useMemo, useState, type FormEvent, type ReactNode } from 'react'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
-import { Check, Eye, EyeOff, Trash2 } from 'lucide-react'
+import {
+  BarChart3,
+  Check,
+  ChevronLeft,
+  ChevronRight,
+  CircleAlert,
+  CircleCheck,
+  Eye,
+  EyeOff,
+  KeyRound,
+  Layers,
+  Plus,
+  Power,
+  RefreshCw,
+  Search,
+  Trash2,
+  Zap,
+} from 'lucide-react'
 import { useTranslations } from '@/hooks/useTranslations'
 import { apiFetch, ApiError } from '@/lib/api'
 import { PLATFORMS, platformInfo, type PlatformInfo } from '@/lib/platforms'
@@ -18,10 +35,13 @@ import {
   DialogTitle,
 } from '@/components/ui/dialog'
 import { Button } from '@/components/ui/button'
-import { Badge } from '@/components/ui/badge'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
-import { cn } from '@/lib/utils'
+import { IconButton } from './icon-button'
+import { Stepper, type StepperItem } from './stepper'
+import { StatusIcon } from './status-badge'
+import { Tooltip } from './tooltip'
+import { keyStatusTone } from '@/lib/source-status'
 import type { ApiKey, Platform } from '../../../shared/types'
 
 interface BenchmarkStatus {
@@ -32,6 +52,7 @@ interface BenchmarkStatus {
 }
 
 const STEPS: WizardStep[] = ['providers', 'key', 'benchmarks']
+const STEP_ICONS = { providers: Layers, key: KeyRound, benchmarks: BarChart3 } as const
 
 function errorText(error: unknown, fallback: string): string {
   if (error instanceof ApiError || error instanceof Error) return error.message || fallback
@@ -39,7 +60,7 @@ function errorText(error: unknown, fallback: string): string {
 }
 
 /** Owns the wizard's open state so any page can open it. */
-export function ProviderWizardProvider({ children }: { children: React.ReactNode }) {
+export function ProviderWizardProvider({ children }: { children: ReactNode }) {
   const [start, setStart] = useState<WizardStart | null>(null)
   const api = useMemo(
     () => ({
@@ -65,6 +86,58 @@ export function ProviderWizardProvider({ children }: { children: React.ReactNode
   )
 }
 
+function Field({ label, htmlFor, children }: { label: string; htmlFor: string; children: ReactNode }) {
+  return (
+    <div className="space-y-1.5">
+      <Label htmlFor={htmlFor} className="text-xs text-muted-foreground">
+        {label}
+      </Label>
+      {children}
+    </div>
+  )
+}
+
+/** A key input with an eye toggle inside the field. */
+function SecretInput({
+  id,
+  value,
+  onChange,
+  placeholder,
+  revealLabel,
+  hideLabel,
+}: {
+  id: string
+  value: string
+  onChange: (value: string) => void
+  placeholder: string
+  revealLabel: string
+  hideLabel: string
+}) {
+  const [reveal, setReveal] = useState(false)
+  return (
+    <div className="relative">
+      <Input
+        id={id}
+        type={reveal ? 'text' : 'password'}
+        value={value}
+        onChange={(event) => onChange(event.target.value)}
+        placeholder={placeholder}
+        autoComplete="off"
+        spellCheck={false}
+        className="pr-10 font-mono text-xs"
+      />
+      <div className="absolute right-1 top-1/2 -translate-y-1/2">
+        <IconButton
+          label={reveal ? hideLabel : revealLabel}
+          icon={reveal ? EyeOff : Eye}
+          onClick={() => setReveal((value) => !value)}
+          className="size-7"
+        />
+      </div>
+    </div>
+  )
+}
+
 function ProviderWizard({ start, onClose }: { start: WizardStart; onClose: () => void }) {
   const { t } = useTranslations()
   const queryClient = useQueryClient()
@@ -74,7 +147,6 @@ function ProviderWizard({ start, onClose }: { start: WizardStart; onClose: () =>
   const [key, setKey] = useState('')
   const [label, setLabel] = useState('')
   const [accountId, setAccountId] = useState('')
-  const [reveal, setReveal] = useState(false)
   const [benchmarkKey, setBenchmarkKey] = useState('')
   const [error, setError] = useState<string | null>(null)
   const [notice, setNotice] = useState<string | null>(null)
@@ -105,61 +177,65 @@ function ProviderWizard({ start, onClose }: { start: WizardStart; onClose: () =>
     }
   }
 
+  function flash(message: string) {
+    setError(null)
+    setNotice(message)
+  }
+
+  function fail(err: unknown) {
+    setNotice(null)
+    setError(errorText(err, t('wizard.failed')))
+  }
+
   const addKey = useMutation({
     mutationFn: (body: { platform: Platform; key: string; label: string }) =>
       apiFetch('/api/keys', { method: 'POST', body: JSON.stringify(body) }),
     onSuccess: () => {
       setKey('')
       setAccountId('')
-      setError(null)
-      setNotice(t('wizard.saved'))
+      flash(t('wizard.saved'))
       refreshAll()
     },
-    onError: (err) => setError(errorText(err, t('wizard.failed'))),
+    onError: fail,
   })
 
   const removeKey = useMutation({
     mutationFn: (id: number) => apiFetch(`/api/keys/${id}`, { method: 'DELETE' }),
     onSuccess: () => {
-      setNotice(t('wizard.removed'))
+      flash(t('wizard.removed'))
       refreshAll()
     },
-    onError: (err) => setError(errorText(err, t('wizard.failed'))),
+    onError: fail,
   })
 
   const saveBenchmark = useMutation({
     mutationFn: (value: string) =>
-      apiFetch('/api/integrations/artificial-analysis', {
-        method: 'PUT',
-        body: JSON.stringify({ key: value }),
-      }),
+      apiFetch('/api/integrations/artificial-analysis', { method: 'PUT', body: JSON.stringify({ key: value }) }),
     onSuccess: () => {
       setBenchmarkKey('')
-      setError(null)
-      setNotice(t('wizard.benchmark.saved'))
+      flash(t('wizard.benchmark.saved'))
       refreshAll()
     },
-    onError: (err) => setError(errorText(err, t('wizard.failed'))),
+    onError: fail,
   })
 
   const clearBenchmark = useMutation({
     mutationFn: () => apiFetch('/api/integrations/artificial-analysis', { method: 'DELETE' }),
     onSuccess: () => {
-      setNotice(t('wizard.benchmark.removed'))
+      flash(t('wizard.benchmark.removed'))
       refreshAll()
     },
-    onError: (err) => setError(errorText(err, t('wizard.failed'))),
+    onError: fail,
   })
 
   const refreshSources = useMutation({
     mutationFn: () => apiFetch('/api/metadata/sync', { method: 'POST' }),
     onSuccess: () => {
-      setError(null)
-      setNotice(t('wizard.benchmark.refreshed'))
+      flash(t('wizard.benchmark.refreshed'))
       refreshAll()
       queryClient.invalidateQueries({ queryKey: ['metadata-explorer'] })
     },
-    onError: (err) => setError(errorText(err, t('wizard.failed'))),
+    onError: fail,
   })
 
   function choose(next: PlatformInfo) {
@@ -180,21 +256,21 @@ function ProviderWizard({ start, onClose }: { start: WizardStart; onClose: () =>
     addKey.mutate({ platform, key: secret, label: label.trim() })
   }
 
-  function enableAnonymous() {
-    if (!platform) return
-    addKey.mutate({ platform, key: 'anonymous', label: '' })
-  }
-
-  const filtered = PLATFORMS.filter((p) => {
-    const q = search.trim().toLowerCase()
-    return !q || p.label.toLowerCase().includes(q) || p.value.includes(q)
-  })
+  const query = search.trim().toLowerCase()
+  const filtered = PLATFORMS.filter(
+    (p) => !query || p.label.toLowerCase().includes(query) || p.value.includes(query),
+  )
   const configured = filtered.filter((p) => (keyCounts.get(p.value) ?? 0) > 0)
   const available = filtered.filter((p) => (keyCounts.get(p.value) ?? 0) === 0)
 
   const stepIndex = STEPS.indexOf(step)
-  const canGoBack = stepIndex > 0
-  const forwardLabel = step === 'benchmarks' ? t('wizard.done') : t('wizard.next')
+  const stepItems: StepperItem[] = STEPS.map((name, index) => ({
+    id: name,
+    label: t(`wizard.steps.${name}`),
+    icon: STEP_ICONS[name],
+    state: name === step ? 'active' : index < stepIndex ? 'done' : 'todo',
+    disabled: name === 'key' && !platform,
+  }))
 
   function goForward() {
     if (step === 'benchmarks') onClose()
@@ -204,233 +280,233 @@ function ProviderWizard({ start, onClose }: { start: WizardStart; onClose: () =>
 
   return (
     <Dialog open onOpenChange={(open) => !open && onClose()}>
-      <DialogPopup className="max-w-2xl">
+      <DialogPopup className="w-[min(92vw,38rem)] max-w-none gap-5">
         <DialogHeader>
           <DialogTitle>{t('wizard.title')}</DialogTitle>
           <DialogDescription>{t('wizard.description')}</DialogDescription>
         </DialogHeader>
 
-        <ol className="flex flex-wrap gap-2" aria-label={t('wizard.title')}>
-          {STEPS.map((name, index) => {
-            const active = name === step
-            const done = index < stepIndex
-            const disabled = name === 'key' && !platform
-            return (
-              <li key={name}>
-                <button
-                  type="button"
-                  disabled={disabled}
-                  onClick={() => setStep(name)}
-                  aria-current={active ? 'step' : undefined}
-                  className={cn(
-                    'flex items-center gap-2 rounded-full border px-3 py-1 text-xs transition-colors disabled:opacity-40',
-                    active && 'border-foreground bg-foreground text-background',
-                    !active && done && 'border-emerald-500/50 text-emerald-600 dark:text-emerald-400',
-                    !active && !done && 'text-muted-foreground hover:text-foreground',
-                  )}
-                >
-                  <span className="font-mono">{done ? <Check className="size-3" aria-hidden /> : index + 1}</span>
-                  {t(`wizard.steps.${name}`)}
-                </button>
-              </li>
-            )
-          })}
-        </ol>
+        <Stepper items={stepItems} onSelect={(id) => setStep(id as WizardStep)} label={t('wizard.title')} />
 
-        {error && (
-          <p role="alert" className="rounded-md border border-destructive/40 bg-destructive/5 px-3 py-2 text-sm text-destructive">
-            {error}
-          </p>
-        )}
-        {notice && !error && (
-          <p role="status" className="rounded-md border border-emerald-500/40 bg-emerald-500/5 px-3 py-2 text-sm">
-            {notice}
-          </p>
-        )}
-
-        {step === 'providers' && (
-          <div className="space-y-4">
-            <Input
-              value={search}
-              onChange={(event) => setSearch(event.target.value)}
-              placeholder={t('wizard.search')}
-              aria-label={t('wizard.search')}
-            />
-            <ProviderGroup title={t('wizard.configured')} items={configured} keyCounts={keyCounts} onChoose={choose} t={t} />
-            <ProviderGroup title={t('wizard.available')} items={available} keyCounts={keyCounts} onChoose={choose} t={t} />
-          </div>
-        )}
-
-        {step === 'key' && selected && (
-          <div className="space-y-4">
-            <div className="flex flex-wrap items-center gap-2">
-              <h3 className="text-sm font-medium">{selected.label}</h3>
-              {(keyCounts.get(selected.value) ?? 0) > 0 && (
-                <Badge variant="secondary">{t('wizard.configuredBadge')}</Badge>
-              )}
+        <div className="min-h-[21rem] space-y-4">
+          {error && (
+            <div role="alert" className="flex items-start gap-2 rounded-md border border-destructive/40 bg-destructive/5 px-3 py-2 text-sm text-destructive">
+              <CircleAlert className="mt-0.5 size-4 shrink-0" aria-hidden />
+              <span className="min-w-0 break-words">{error}</span>
             </div>
+          )}
+          {notice && !error && (
+            <div role="status" className="flex items-start gap-2 rounded-md border border-emerald-500/40 bg-emerald-500/5 px-3 py-2 text-sm">
+              <CircleCheck className="mt-0.5 size-4 shrink-0 text-emerald-600 dark:text-emerald-400" aria-hidden />
+              <span className="min-w-0 break-words">{notice}</span>
+            </div>
+          )}
 
-            {selected.anonymous ? (
-              <div className="space-y-3 rounded-md border p-4">
-                <p className="text-sm text-muted-foreground">{t('wizard.anonymousNote')}</p>
-                <Button onClick={enableAnonymous} disabled={addKey.isPending}>
-                  {addKey.isPending ? t('wizard.saving') : t('wizard.enable')}
-                </Button>
+          {step === 'providers' && (
+            <div className="space-y-4">
+              <div className="relative">
+                <Search className="pointer-events-none absolute left-3 top-1/2 size-4 -translate-y-1/2 text-muted-foreground" aria-hidden />
+                <Input
+                  value={search}
+                  onChange={(event) => setSearch(event.target.value)}
+                  placeholder={t('wizard.search')}
+                  aria-label={t('wizard.search')}
+                  className="pl-9"
+                />
               </div>
-            ) : (
-              <form onSubmit={submitKey} className="space-y-4 rounded-md border p-4">
-                {selected.needsAccountId && (
-                  <div className="space-y-1.5">
-                    <Label htmlFor="wizard-account">{t('wizard.accountId')}</Label>
-                    <Input
-                      id="wizard-account"
-                      value={accountId}
-                      onChange={(event) => setAccountId(event.target.value)}
-                      placeholder={t('wizard.accountIdPlaceholder')}
-                      autoComplete="off"
-                    />
-                  </div>
+              {filtered.length === 0 && (
+                <p className="py-6 text-center text-sm text-muted-foreground">{t('wizard.noMatch')}</p>
+              )}
+              <ProviderSection
+                title={t('wizard.configured')}
+                items={configured}
+                keyCounts={keyCounts}
+                onChoose={choose}
+              />
+              <ProviderSection
+                title={t('wizard.available')}
+                items={available}
+                keyCounts={keyCounts}
+                onChoose={choose}
+              />
+            </div>
+          )}
+
+          {step === 'key' && selected && (
+            <div className="space-y-4">
+              <div className="flex items-center gap-2">
+                <h3 className="text-sm font-medium">{selected.label}</h3>
+                {(keyCounts.get(selected.value) ?? 0) > 0 && (
+                  <StatusIcon tone="success" icon={CircleCheck} label={t('wizard.configuredBadge')} />
                 )}
-                <div className="space-y-1.5">
-                  <Label htmlFor="wizard-key">{t('wizard.apiKey')}</Label>
-                  <div className="flex gap-2">
-                    <Input
+              </div>
+
+              {selected.anonymous ? (
+                <div className="flex items-center justify-between gap-4 rounded-lg border p-4">
+                  <p className="text-sm text-muted-foreground">{t('wizard.anonymousNote')}</p>
+                  <Button onClick={() => platform && addKey.mutate({ platform, key: 'anonymous', label: '' })} disabled={addKey.isPending}>
+                    <Power className="size-4" aria-hidden />
+                    {addKey.isPending ? t('wizard.saving') : t('wizard.enable')}
+                  </Button>
+                </div>
+              ) : (
+                <form onSubmit={submitKey} className="space-y-4 rounded-lg border p-4">
+                  {selected.needsAccountId && (
+                    <Field label={t('wizard.accountId')} htmlFor="wizard-account">
+                      <Input
+                        id="wizard-account"
+                        value={accountId}
+                        onChange={(event) => setAccountId(event.target.value)}
+                        placeholder={t('wizard.accountIdPlaceholder')}
+                        autoComplete="off"
+                      />
+                    </Field>
+                  )}
+                  <Field label={t('wizard.apiKey')} htmlFor="wizard-key">
+                    <SecretInput
                       id="wizard-key"
-                      type={reveal ? 'text' : 'password'}
                       value={key}
-                      onChange={(event) => setKey(event.target.value)}
+                      onChange={setKey}
                       placeholder={t('wizard.keyPlaceholder')}
-                      autoComplete="off"
-                      spellCheck={false}
+                      revealLabel={t('wizard.showKey')}
+                      hideLabel={t('wizard.hideKey')}
                     />
+                  </Field>
+                  <Field label={t('wizard.label')} htmlFor="wizard-label">
+                    <Input
+                      id="wizard-label"
+                      value={label}
+                      onChange={(event) => setLabel(event.target.value)}
+                      placeholder={t('wizard.labelPlaceholder')}
+                    />
+                  </Field>
+                  <div className="flex items-center justify-between gap-3">
+                    <span className="text-xs text-muted-foreground">{t('wizard.storedNote')}</span>
                     <Button
-                      type="button"
-                      variant="outline"
-                      size="icon"
-                      onClick={() => setReveal((value) => !value)}
-                      aria-label={reveal ? t('wizard.hideKey') : t('wizard.showKey')}
+                      type="submit"
+                      disabled={addKey.isPending || !key.trim() || (selected.needsAccountId && !accountId.trim())}
                     >
-                      {reveal ? <EyeOff className="size-4" /> : <Eye className="size-4" />}
+                      <KeyRound className="size-4" aria-hidden />
+                      {addKey.isPending ? t('wizard.saving') : t('wizard.save')}
                     </Button>
                   </div>
-                  <p className="text-xs text-muted-foreground">{t('wizard.storedNote')}</p>
-                </div>
-                <div className="space-y-1.5">
-                  <Label htmlFor="wizard-label">{t('wizard.label')}</Label>
-                  <Input
-                    id="wizard-label"
-                    value={label}
-                    onChange={(event) => setLabel(event.target.value)}
-                    placeholder={t('wizard.labelPlaceholder')}
-                  />
-                </div>
-                <Button
-                  type="submit"
-                  disabled={addKey.isPending || !key.trim() || (selected.needsAccountId && !accountId.trim())}
-                >
-                  {addKey.isPending ? t('wizard.saving') : t('wizard.save')}
-                </Button>
-              </form>
-            )}
-
-            <div className="space-y-2">
-              <h4 className="text-xs font-medium uppercase tracking-wide text-muted-foreground">
-                {t('wizard.existingKeys')}
-              </h4>
-              {platformKeys.length === 0 ? (
-                <p className="text-sm text-muted-foreground">{t('wizard.noKeysYet')}</p>
-              ) : (
-                <ul className="divide-y rounded-md border">
-                  {platformKeys.map((row) => (
-                    <li key={row.id} className="flex items-center gap-3 px-3 py-2 text-sm">
-                      <span className="font-mono text-xs">{row.maskedKey}</span>
-                      {row.label && <span className="text-muted-foreground">{row.label}</span>}
-                      <Badge variant="outline" className="ml-auto">{row.status}</Badge>
-                      <Button
-                        variant="ghost"
-                        size="icon"
-                        onClick={() => removeKey.mutate(row.id)}
-                        disabled={removeKey.isPending}
-                        aria-label={t('wizard.remove')}
-                      >
-                        <Trash2 className="size-4" />
-                      </Button>
-                    </li>
-                  ))}
-                </ul>
+                </form>
               )}
-            </div>
-          </div>
-        )}
 
-        {step === 'benchmarks' && (
-          <div className="space-y-4">
-            <div className="space-y-2 rounded-md border p-4">
-              <div className="flex flex-wrap items-center gap-2">
-                <h3 className="text-sm font-medium">{t('wizard.benchmark.title')}</h3>
-                <Badge variant={benchmark.data?.configured ? 'secondary' : 'outline'}>
-                  {benchmark.data?.configured
-                    ? t('wizard.benchmark.configured')
-                    : t('wizard.benchmark.notConfigured')}
-                </Badge>
-              </div>
-              <p className="text-sm text-muted-foreground">{t('wizard.benchmark.description')}</p>
-              {benchmark.data?.maskedKey && (
-                <p className="font-mono text-xs text-muted-foreground">{benchmark.data.maskedKey}</p>
-              )}
-            </div>
-
-            <form
-              onSubmit={(event) => {
-                event.preventDefault()
-                if (benchmarkKey.trim()) saveBenchmark.mutate(benchmarkKey.trim())
-              }}
-              className="space-y-3"
-            >
-              <div className="space-y-1.5">
-                <Label htmlFor="wizard-benchmark">{t('wizard.benchmark.keyLabel')}</Label>
-                <Input
-                  id="wizard-benchmark"
-                  type="password"
-                  value={benchmarkKey}
-                  onChange={(event) => setBenchmarkKey(event.target.value)}
-                  placeholder={t('wizard.benchmark.placeholder')}
-                  autoComplete="off"
-                  spellCheck={false}
-                />
-                <p className="text-xs text-muted-foreground">{t('wizard.storedNote')}</p>
-              </div>
-              <div className="flex flex-wrap gap-2">
-                <Button type="submit" disabled={saveBenchmark.isPending || !benchmarkKey.trim()}>
-                  {saveBenchmark.isPending ? t('wizard.saving') : t('wizard.save')}
-                </Button>
-                {benchmark.data?.source === 'dashboard' && (
-                  <Button type="button" variant="outline" onClick={() => clearBenchmark.mutate()} disabled={clearBenchmark.isPending}>
-                    {t('wizard.remove')}
-                  </Button>
+              <div className="space-y-2">
+                <h4 className="text-[11px] font-medium uppercase tracking-wide text-muted-foreground">
+                  {t('wizard.existingKeys')}
+                </h4>
+                {platformKeys.length === 0 ? (
+                  <p className="text-sm text-muted-foreground">{t('wizard.noKeysYet')}</p>
+                ) : (
+                  <ul className="divide-y rounded-md border">
+                    {platformKeys.map((row) => (
+                      <li key={row.id} className="flex items-center gap-3 px-3 py-2">
+                        <StatusIcon
+                          tone={keyStatusTone(row.status)}
+                          icon={CircleCheck}
+                          label={t(`keys.status.${row.status}`, { defaultValue: row.status })}
+                        />
+                        <code className="min-w-0 truncate font-mono text-xs">{row.maskedKey}</code>
+                        {row.label && <span className="truncate text-xs text-muted-foreground">{row.label}</span>}
+                        <div className="ml-auto">
+                          <IconButton
+                            label={t('wizard.removeKey')}
+                            icon={Trash2}
+                            tone="danger"
+                            busy={removeKey.isPending}
+                            onClick={() => removeKey.mutate(row.id)}
+                          />
+                        </div>
+                      </li>
+                    ))}
+                  </ul>
                 )}
-                <Button
-                  type="button"
-                  variant="outline"
-                  onClick={() => refreshSources.mutate()}
-                  disabled={refreshSources.isPending || !benchmark.data?.configured}
-                >
-                  {refreshSources.isPending ? t('wizard.benchmark.refreshing') : t('wizard.benchmark.refresh')}
-                </Button>
               </div>
-            </form>
-          </div>
-        )}
-
-        <DialogFooter className="mt-2">
-          {canGoBack && (
-            <Button variant="outline" onClick={() => setStep(STEPS[stepIndex - 1])}>
-              {t('wizard.back')}
-            </Button>
+            </div>
           )}
+
+          {step === 'benchmarks' && (
+            <div className="space-y-4">
+              <div className="flex items-start gap-3 rounded-lg border p-4">
+                <BarChart3 className="mt-0.5 size-5 shrink-0 text-muted-foreground" aria-hidden />
+                <div className="min-w-0 flex-1 space-y-1">
+                  <div className="flex items-center gap-2">
+                    <h3 className="text-sm font-medium">{t('wizard.benchmark.title')}</h3>
+                    <StatusIcon
+                      tone={benchmark.data?.configured ? 'success' : 'warning'}
+                      icon={benchmark.data?.configured ? CircleCheck : KeyRound}
+                      label={benchmark.data?.configured ? t('wizard.benchmark.configured') : t('wizard.benchmark.notConfigured')}
+                    />
+                  </div>
+                  <p className="text-xs text-muted-foreground">{t('wizard.benchmark.description')}</p>
+                  {benchmark.data?.maskedKey && (
+                    <p className="font-mono text-xs text-muted-foreground">{benchmark.data.maskedKey}</p>
+                  )}
+                </div>
+              </div>
+
+              <form
+                className="space-y-4"
+                onSubmit={(event) => {
+                  event.preventDefault()
+                  if (benchmarkKey.trim()) saveBenchmark.mutate(benchmarkKey.trim())
+                }}
+              >
+                <Field label={t('wizard.benchmark.keyLabel')} htmlFor="wizard-benchmark">
+                  <SecretInput
+                    id="wizard-benchmark"
+                    value={benchmarkKey}
+                    onChange={setBenchmarkKey}
+                    placeholder={t('wizard.benchmark.placeholder')}
+                    revealLabel={t('wizard.showKey')}
+                    hideLabel={t('wizard.hideKey')}
+                  />
+                </Field>
+                <div className="flex items-center justify-between gap-3">
+                  <div className="flex items-center gap-1">
+                    <IconButton
+                      label={t('wizard.benchmark.refresh')}
+                      icon={RefreshCw}
+                      busy={refreshSources.isPending}
+                      disabled={!benchmark.data?.configured}
+                      onClick={() => refreshSources.mutate()}
+                    />
+                    {benchmark.data?.source === 'dashboard' && (
+                      <IconButton
+                        label={t('wizard.remove')}
+                        icon={Trash2}
+                        tone="danger"
+                        busy={clearBenchmark.isPending}
+                        onClick={() => clearBenchmark.mutate()}
+                      />
+                    )}
+                  </div>
+                  <Button type="submit" disabled={saveBenchmark.isPending || !benchmarkKey.trim()}>
+                    <KeyRound className="size-4" aria-hidden />
+                    {saveBenchmark.isPending ? t('wizard.saving') : t('wizard.save')}
+                  </Button>
+                </div>
+              </form>
+            </div>
+          )}
+        </div>
+
+        <DialogFooter className="items-center justify-between gap-3 sm:justify-between">
+          <div>
+            {stepIndex > 0 && (
+              <Button variant="outline" onClick={() => setStep(STEPS[stepIndex - 1])}>
+                <ChevronLeft className="size-4" aria-hidden />
+                {t('wizard.back')}
+              </Button>
+            )}
+          </div>
           {step !== 'providers' && (
             <Button onClick={goForward} disabled={step === 'key' && !platform}>
-              {forwardLabel}
+              {step === 'benchmarks' ? <Check className="size-4" aria-hidden /> : null}
+              {step === 'benchmarks' ? t('wizard.done') : t('wizard.next')}
+              {step !== 'benchmarks' && <ChevronRight className="size-4" aria-hidden />}
             </Button>
           )}
         </DialogFooter>
@@ -439,25 +515,25 @@ function ProviderWizard({ start, onClose }: { start: WizardStart; onClose: () =>
   )
 }
 
-function ProviderGroup({
+function ProviderSection({
   title,
   items,
   keyCounts,
   onChoose,
-  t,
 }: {
   title: string
   items: PlatformInfo[]
   keyCounts: Map<string, number>
   onChoose: (platform: PlatformInfo) => void
-  t: (key: string, options?: Record<string, unknown>) => string
 }) {
+  const { t } = useTranslations()
   if (items.length === 0) return null
   return (
     <section className="space-y-2">
-      <h3 className="text-xs font-medium uppercase tracking-wide text-muted-foreground">
-        {title} · {items.length}
-      </h3>
+      <div className="flex items-center gap-2 text-[11px] font-medium uppercase tracking-wide text-muted-foreground">
+        <span>{title}</span>
+        <span className="tabular-nums">{items.length}</span>
+      </div>
       <div className="grid gap-2 sm:grid-cols-2">
         {items.map((item) => {
           const count = keyCounts.get(item.value) ?? 0
@@ -466,19 +542,31 @@ function ProviderGroup({
               key={item.value}
               type="button"
               onClick={() => onChoose(item)}
-              className="flex items-center gap-3 rounded-md border bg-background px-3 py-2.5 text-left transition-colors hover:border-foreground/40 hover:bg-muted/40"
+              className="flex h-11 items-center gap-3 rounded-lg border bg-background px-3 text-left transition-colors hover:border-foreground/40 hover:bg-muted/40 focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring"
             >
-              <span className="min-w-0 flex-1">
-                <span className="block truncate text-sm font-medium">{item.label}</span>
-                <span className="block text-xs text-muted-foreground">
-                  {count > 0
-                    ? t('wizard.keyCount', { count })
-                    : item.anonymous
-                      ? t('wizard.anonymousShort')
-                      : t('wizard.noKey')}
-                </span>
-              </span>
-              {count > 0 && <Check className="size-4 shrink-0 text-emerald-600 dark:text-emerald-400" aria-hidden />}
+              <span className="min-w-0 flex-1 truncate text-sm font-medium">{item.label}</span>
+              {count > 0 && (
+                <Tooltip label={t('wizard.keyCount', { count })}>
+                  <span
+                    role="img"
+                    aria-label={t('wizard.keyCount', { count })}
+                    className="inline-flex items-center gap-1 text-xs tabular-nums text-emerald-600 dark:text-emerald-400"
+                  >
+                    <CircleCheck className="size-4" aria-hidden />
+                    {count}
+                  </span>
+                </Tooltip>
+              )}
+              {count === 0 && item.anonymous && (
+                <Tooltip label={t('wizard.anonymousShort')}>
+                  <Zap className="size-4 text-muted-foreground" aria-label={t('wizard.anonymousShort')} />
+                </Tooltip>
+              )}
+              {count === 0 && !item.anonymous && (
+                <Tooltip label={t('wizard.add')}>
+                  <Plus className="size-4 text-muted-foreground" aria-label={t('wizard.add')} />
+                </Tooltip>
+              )}
             </button>
           )
         })}

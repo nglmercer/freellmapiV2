@@ -618,7 +618,7 @@
   },
   "wizard": {
     "title": "Configurar proveedores",
-    "description": "Añade una clave por cada proveedor que uses. Las claves se cifran y guardan en este servidor; no hace falta un archivo .env.",
+    "description": "Las claves se cifran y se guardan en este servidor.",
     "steps": {
       "providers": "Proveedor",
       "key": "Clave",
@@ -658,7 +658,7 @@
       "title": "Artificial Analysis",
       "configured": "Configurado",
       "notConfigured": "Sin configurar",
-      "description": "Aporta puntuaciones de calidad y velocidad para la cadena de fallback y el catálogo. Es opcional, pero sin ella esas columnas quedan vacías.",
+      "description": "Puntuaciones de calidad y velocidad para la cadena y el catálogo. Opcional.",
       "keyLabel": "Clave de API de Artificial Analysis",
       "placeholder": "Pega la clave de API",
       "saved": "Guardada. Actualiza las fuentes de benchmarks para cargar las puntuaciones.",
@@ -666,7 +666,10 @@
       "refresh": "Actualizar fuentes de benchmarks",
       "refreshing": "Actualizando…",
       "refreshed": "Actualización iniciada. Las puntuaciones aparecen cuando la fuente responde."
-    }
+    },
+    "add": "Añadir una clave",
+    "noMatch": "Ningún proveedor coincide.",
+    "removeKey": "Eliminar clave"
   },
   "sources": {
     "description": "De dónde vienen los datos de calidad, velocidad, contexto y precio. Desactiva una fuente para dejar de consultarla.",
@@ -707,6 +710,7 @@
       "fetched": "Obtenidos",
       "matched": "Emparejados",
       "changed": "Cambiados"
-    }
+    },
+    "intervalTitle": "Intervalo de actualización"
   }
 }
