@@ -57,14 +57,18 @@ fn build_provider(row: &CustomProviderRow, platform: &str) -> Option<Arc<dyn Pro
         }
     }
 
-    Some(Arc::new(OpenAICompatProvider::new(OpenAICompatOptions {
-        platform: platform.to_string(),
-        name: row.name.clone(),
-        base_url: row.base_url.clone(),
-        extra_headers,
-        validate_url: None,
-        timeout_ms: row.timeout_ms.unwrap_or(15000) as u64,
-    })))
+    let capabilities = super::CapabilitySet::from_json(row.capabilities.as_deref());
+    Some(Arc::new(
+        OpenAICompatProvider::new(OpenAICompatOptions {
+            platform: platform.to_string(),
+            name: row.name.clone(),
+            base_url: row.base_url.clone(),
+            extra_headers,
+            validate_url: None,
+            timeout_ms: row.timeout_ms.unwrap_or(15000) as u64,
+        })
+        .with_capabilities(capabilities),
+    ))
 }
 
 pub fn load_custom_provider(conn: &Connection, platform: &str) -> Option<Arc<dyn Provider>> {

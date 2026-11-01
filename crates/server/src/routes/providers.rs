@@ -14,6 +14,7 @@ use crate::db::schema::{
 };
 use crate::db::seed::{UNRANKED_INTELLIGENCE, UNRANKED_SPEED};
 use crate::providers::provider_id_to_platform;
+use crate::providers::CapabilitySet;
 use crate::routes::ranking_json;
 
 /// Return the established validation type-name strings.
@@ -79,6 +80,7 @@ fn provider_json(row: &CustomProviderRow) -> Value {
         "enabled": row.enabled != 0,
         "createdAt": row.created_at,
         "updatedAt": row.updated_at,
+        "capabilities": CapabilitySet::from_json(row.capabilities.as_deref()).names(),
     })
 }
 
@@ -386,6 +388,7 @@ struct CreateProviderInput {
     timeout_ms: i64,
     extra_headers: Option<Map<String, Value>>,
     enabled: bool,
+    capabilities: CapabilitySet,
 }
 
 fn validate_create_provider(body: &Value) -> Result<CreateProviderInput, String> {
@@ -427,6 +430,7 @@ fn validate_create_provider(body: &Value) -> Result<CreateProviderInput, String>
     );
     let extra_headers = record_field(body, "extraHeaders", false, &mut errors).flatten();
     let enabled = bool_field(body, "enabled", true, true, &mut errors).unwrap_or(true);
+    let capabilities = capabilities_field(body, &mut errors);
 
     if !errors.is_empty() {
         return Err(errors.join(", "));
@@ -437,6 +441,7 @@ fn validate_create_provider(body: &Value) -> Result<CreateProviderInput, String>
         timeout_ms: timeout_ms.unwrap_or(15000),
         extra_headers,
         enabled,
+        capabilities: capabilities.unwrap_or_else(CapabilitySet::chat_only),
     })
 }
 
@@ -447,6 +452,28 @@ struct UpdateProviderInput {
     timeout_ms: Option<i64>,
     extra_headers: Option<Option<Map<String, Value>>>,
     enabled: Option<bool>,
+    capabilities: Option<CapabilitySet>,
+}
+
+/// Optional `capabilities` array of non-chat capability names.
+fn capabilities_field(body: &Value, errors: &mut Vec<String>) -> Option<CapabilitySet> {
+    match body.get("capabilities") {
+        None | Some(Value::Null) => None,
+        Some(Value::Array(items)) => match CapabilitySet::from_names(items) {
+            Ok(set) => Some(set),
+            Err(e) => {
+                errors.push(e);
+                None
+            }
+        },
+        Some(other) => {
+            errors.push(format!(
+                "capabilities: Expected array, received {}",
+                type_name(other)
+            ));
+            None
+        }
+    }
 }
 
 fn validate_update_provider(body: &Value) -> Result<UpdateProviderInput, String> {
@@ -464,6 +491,7 @@ fn validate_update_provider(body: &Value) -> Result<UpdateProviderInput, String>
     .flatten();
     let extra_headers = record_field(body, "extraHeaders", true, &mut errors);
     let enabled = optional_bool(body, "enabled", &mut errors);
+    let capabilities = capabilities_field(body, &mut errors);
 
     if !errors.is_empty() {
         return Err(errors.join(", "));
@@ -474,6 +502,7 @@ fn validate_update_provider(body: &Value) -> Result<UpdateProviderInput, String>
         timeout_ms,
         extra_headers,
         enabled,
+        capabilities,
     })
 }
 
@@ -677,14 +706,15 @@ async fn create_provider(body: Bytes) -> Response {
     let id: i64 = {
         let conn = db().lock().await;
         match conn.execute(
-            "INSERT INTO custom_providers (name, base_url, timeout_ms, extra_headers, enabled) \
-             VALUES (?1, ?2, ?3, ?4, ?5)",
+            "INSERT INTO custom_providers (name, base_url, timeout_ms, extra_headers, enabled, capabilities) \
+             VALUES (?1, ?2, ?3, ?4, ?5, ?6)",
             rusqlite::params![
                 input.name,
                 input.base_url,
                 input.timeout_ms,
                 extra_headers_json,
-                if input.enabled { 1 } else { 0 }
+                if input.enabled { 1 } else { 0 },
+                serde_json::to_string(&input.capabilities).unwrap_or_else(|_| "[]".to_string()),
             ],
         ) {
             Ok(_) => conn.last_insert_rowid(),
@@ -762,6 +792,12 @@ async fn update_provider(Path(id): Path<String>, body: Bytes) -> Response {
     if let Some(en) = input.enabled {
         cols.push("enabled");
         vals.push(rusqlite::types::Value::from(if en { 1 } else { 0 }));
+    }
+    if let Some(caps) = &input.capabilities {
+        cols.push("capabilities");
+        vals.push(rusqlite::types::Value::from(
+            serde_json::to_string(caps).unwrap_or_else(|_| "[]".to_string()),
+        ));
     }
     // Always update the timestamp, including for an empty patch body.
     cols.push("updated_at");
@@ -1152,12 +1188,14 @@ mod tests {
             enabled: 1,
             created_at: "2026-01-01 00:00:00".to_string(),
             updated_at: "2026-01-01 00:00:00".to_string(),
+            capabilities: Some("[\"chat\",\"speech\"]".to_string()),
         };
         let v = provider_json(&row);
         assert_eq!(v["id"], 3);
         assert_eq!(v["baseUrl"], "https://x.com");
         assert_eq!(v["extraHeaders"]["a"], "b");
         assert_eq!(v["enabled"], true);
+        assert_eq!(v["capabilities"], json!(["chat", "speech"]));
 
         let bad = CustomProviderRow {
             extra_headers: Some("not-json".to_string()),

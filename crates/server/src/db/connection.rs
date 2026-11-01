@@ -239,6 +239,19 @@ fn create_tables(sqlite: &Connection) -> rusqlite::Result<()> {
       updated_at TEXT NOT NULL DEFAULT (datetime('now'))
     );
 
+    -- Explicit, user-declared list of models that serve a non-chat operation.
+    -- Nothing is hardcoded: a row exists only when the user adds it.
+    CREATE TABLE IF NOT EXISTS media_models (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      platform TEXT NOT NULL,
+      model_id TEXT NOT NULL,
+      capability TEXT NOT NULL,
+      priority INTEGER NOT NULL DEFAULT 0,
+      enabled INTEGER NOT NULL DEFAULT 1,
+      created_at TEXT NOT NULL DEFAULT (datetime('now')),
+      UNIQUE(platform, model_id, capability)
+    );
+
     CREATE TABLE IF NOT EXISTS canonical_models (
       id INTEGER PRIMARY KEY AUTOINCREMENT,
       canonical_id TEXT NOT NULL UNIQUE,
@@ -361,6 +374,14 @@ fn create_tables(sqlite: &Connection) -> rusqlite::Result<()> {
         ("observed_speed_updated_at", "TEXT"),
         ("canonical_model_id", "INTEGER"),
     ];
+    if !existing_columns(sqlite, "custom_providers")?
+        .iter()
+        .any(|c| c == "capabilities")
+    {
+        sqlite.execute_batch(
+            "ALTER TABLE custom_providers ADD COLUMN capabilities TEXT NOT NULL DEFAULT '[]'",
+        )?;
+    }
     let existing: Vec<String> = existing_columns(sqlite, "models")?;
     for (name, def) in new_cols {
         if !existing.iter().any(|c| c == name) {

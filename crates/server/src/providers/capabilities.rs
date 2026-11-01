@@ -109,6 +109,31 @@ impl CapabilitySet {
     pub fn names(&self) -> Vec<&'static str> {
         self.0.iter().map(|c| c.as_str()).collect()
     }
+
+    /// Parses a JSON array of capability names. Unknown names are an error;
+    /// `chat` is always implied.
+    pub fn from_names(values: &[serde_json::Value]) -> Result<Self, String> {
+        let mut caps = vec![Capability::Chat];
+        for v in values {
+            let name = v
+                .as_str()
+                .ok_or_else(|| "capabilities: each entry must be a string".to_string())?;
+            let cap = Capability::parse(name)
+                .ok_or_else(|| format!("capabilities: unknown capability '{name}'"))?;
+            caps.push(cap);
+        }
+        Ok(Self::of(&caps))
+    }
+
+    /// Reads a stored JSON array. Missing or malformed storage means chat only.
+    pub fn from_json(raw: Option<&str>) -> Self {
+        let parsed: Vec<serde_json::Value> = raw
+            .and_then(|r| serde_json::from_str(r).ok())
+            .unwrap_or_default();
+        let names: Vec<&str> = parsed.iter().filter_map(|v| v.as_str()).collect();
+        let caps: Vec<Capability> = names.iter().filter_map(|n| Capability::parse(n)).collect();
+        Self::of(&[caps, vec![Capability::Chat]].concat())
+    }
 }
 
 /// A complete binary response (for example transcription text or an image
@@ -240,6 +265,21 @@ mod tests {
             CapabilitySet::chat_only().with(Capability::Chat).names(),
             vec!["chat"]
         );
+    }
+
+    #[test]
+    fn capability_set_json_round_trip_and_validation() {
+        let set = CapabilitySet::from_names(&[serde_json::json!("speech")]).unwrap();
+        assert_eq!(set.names(), vec!["chat", "speech"]);
+        let stored = serde_json::to_string(&set).unwrap();
+        assert_eq!(CapabilitySet::from_json(Some(&stored)), set);
+        assert_eq!(
+            CapabilitySet::from_json(Some("not json")).names(),
+            vec!["chat"]
+        );
+        assert_eq!(CapabilitySet::from_json(None).names(), vec!["chat"]);
+        assert!(CapabilitySet::from_names(&[serde_json::json!("teleport")]).is_err());
+        assert!(CapabilitySet::from_names(&[serde_json::json!(3)]).is_err());
     }
 
     #[test]
