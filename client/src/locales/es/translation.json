@@ -240,7 +240,9 @@
     "tokenBudget": {
       "title": "Presupuesto mensual de tokens",
       "remaining": "{{remaining}} restantes",
-      "of": "{{remainingPct}}% de {{total}}"
+      "of": "{{remainingPct}}% de {{total}}",
+      "segment": "{{name}} ({{platform}}) — {{tokens}} restantes",
+      "usedTitle": "Usado — {{tokens}}"
     },
     "quality": "Calidad",
     "speed": "Velocidad",
@@ -332,13 +334,8 @@
       "enabled": "Activados",
       "qualityScored": "Con calidad",
       "speedMeasured": "Con velocidad medida",
-      "freeCount": "{{count}} gratis"
-    },
-    "preview": {
-      "title": "Siguientes",
-      "hint": "Las peticiones prueban estos en orden",
-      "empty": "No hay modelos activados. Activa al menos uno para enrutar peticiones.",
-      "noScores": "Sin puntuaciones aún"
+      "freeCount": "{{count}} gratis",
+      "addKey": "Añade una clave de benchmarks"
     },
     "metrics": {
       "quality": "Calidad",
@@ -370,7 +367,8 @@
       "updated": "Actualizado",
       "rateLimitHits": "Límites alcanzados",
       "noCapabilities": "Sin datos de capacidades aún",
-      "summary": "Detalles"
+      "summary": "Detalles",
+      "rateLimits": "Límites de uso"
     },
     "tier": {
       "free": "Gratis",
@@ -393,7 +391,33 @@
     "configure": "Configurar {{provider}}",
     "unconfiguredNote": "{{count}} entradas están ocultas porque su proveedor no tiene clave: {{platforms}}.",
     "showUnconfigured": "Mostrar {{count}} sin configurar",
-    "hideUnconfigured": "Ocultar sin configurar"
+    "hideUnconfigured": "Ocultar sin configurar",
+    "short": {
+      "needsKey": "Requiere clave de benchmarks",
+      "awaiting": "Tras la primera petición"
+    },
+    "syncResult": {
+      "added": "+{{count}} añadidos",
+      "updated": "{{count}} actualizados",
+      "removed": "−{{count}} eliminados",
+      "result": "Sincronización completa: {{changes}}",
+      "none": "Los modelos están al día",
+      "error": "La sincronización falló: {{message}}"
+    },
+    "save": {
+      "saving": "Guardando…",
+      "saved": "Todos los cambios guardados",
+      "failed": "No se pudo guardar el orden",
+      "retry": "Reintentar",
+      "error": "No se pudo guardar el orden: {{message}}"
+    },
+    "sort": {
+      "error": "Error al ordenar: {{message}}"
+    },
+    "order": {
+      "title": "Orden de la cadena"
+    },
+    "unconfiguredShown": "Mostrando {{count}} entradas cuyo proveedor no tiene clave."
   },
   "analytics": {
     "title": "Analíticas",
