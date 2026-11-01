@@ -160,7 +160,16 @@
       "revoke": "Revoke",
       "error": "Could not create the key. Try again.",
       "baseUrl": "Base URL",
-      "endpoint": "Endpoint"
+      "endpoint": "Endpoint",
+      "count": "{{count}} active keys",
+      "name": "Name",
+      "prefix": "Key prefix",
+      "created": "Created",
+      "actions": "Actions",
+      "createTitle": "Create an API key",
+      "createDescription": "Name it after the app or device that will use it.",
+      "revokeTitle": "Revoke this API key?",
+      "revokeDescription": "Apps using this key stop working immediately."
     },
     "joinCode": {
       "title": "Fast join",
@@ -174,9 +183,44 @@
       "copy": "Copy",
       "copyLink": "Copy link",
       "copied": "Copied",
-      "dismiss": "Done"
+      "dismiss": "Done",
+      "active": "Join code active",
+      "inactive": "No join code",
+      "regenerateTitle": "Generate a new join code?",
+      "regenerateDescription": "The current code stops working as soon as the new one is created.",
+      "revokeTitle": "Revoke the join code?",
+      "revokeDescription": "Browsers that already joined stay signed in. No one else can join with the old code.",
+      "link": "Join link",
+      "sectionDescription": "Sign in on another device without typing the password."
     },
-    "configureProviders": "Configure providers"
+    "configureProviders": "Configure providers",
+    "addProvider": "Add provider key",
+    "stats": {
+      "providers": "Providers",
+      "keys": "{{count}} keys",
+      "healthy": "Healthy keys",
+      "attention": "Need attention",
+      "attentionDetail": "Invalid, erroring or rate-limited",
+      "apiKeys": "API keys",
+      "apiKeysDetail": "For your apps"
+    },
+    "providerKeysDescription": "Each provider key is encrypted at rest. Check a key to test it now.",
+    "undecryptable": "Stored key unavailable",
+    "lastChecked": "Checked",
+    "neverChecked": "Never checked",
+    "status": {
+      "healthy": "Healthy",
+      "rate_limited": "Rate-limited",
+      "invalid": "Invalid",
+      "error": "Error",
+      "unknown": "Not checked",
+      "undecryptable": "Replace key"
+    },
+    "replace": "Replace",
+    "replaceTitle": "Replace this key",
+    "replaceDescription": "The stored key can no longer be read. Paste the key again to replace it.",
+    "cancel": "Cancel",
+    "save": "Save"
   },
   "fallback": {
     "title": "Fallback chain",
@@ -623,6 +667,47 @@
       "refresh": "Refresh benchmark sources",
       "refreshing": "Refreshing…",
       "refreshed": "Refresh started. Scores appear when the source responds."
+    }
+  },
+  "sources": {
+    "description": "Where quality, speed, context and price data come from. Turn a source off to stop fetching it.",
+    "enable": "Enable source",
+    "status": {
+      "synced": "Synced",
+      "notSynced": "Not synced yet",
+      "needsKey": "Needs a key",
+      "disabled": "Disabled",
+      "waiting": "Waiting to retry",
+      "saveFailed": "Save failed",
+      "duplicates": "Duplicates skipped",
+      "failed": "Failed"
+    },
+    "keyConfigured": "Key set",
+    "keyMissing": "No key",
+    "lastSuccess": "Last success",
+    "lastFailure": "Last failure",
+    "refreshEvery": "Refresh every",
+    "license": "License",
+    "intervalSettings": "Refresh interval",
+    "intervalSeconds": "Seconds",
+    "save": "Save",
+    "intervalRange": "Enter a value from {{min}} to {{max}} seconds.",
+    "error": {
+      "notConfigured": "Add the key in Configure providers to fetch this source.",
+      "persistenceFailed": "The last sync could not save its results. The database was busy; the next sync retries.",
+      "duplicates": "The feed listed some models twice. Duplicates are skipped.",
+      "backoff": "Fetching is paused after repeated failures. It retries automatically."
+    },
+    "noRuns": "No syncs have run yet.",
+    "runs": {
+      "title": "Recent syncs",
+      "description": "Each row is one fetch of one source.",
+      "when": "When",
+      "source": "Source",
+      "status": "Status",
+      "fetched": "Fetched",
+      "matched": "Matched",
+      "changed": "Changed"
     }
   }
 }

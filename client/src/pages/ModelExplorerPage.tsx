@@ -14,6 +14,9 @@ import { PageHeader } from '@/components/page-header'
 import { SimpleLineChart } from '@/components/charts/SimpleLineChart'
 import { SummaryStats } from '@/components/summary-stats'
 import { Disclosure } from '@/components/disclosure'
+import { Section } from '@/components/section'
+import { SourceCard } from '@/components/source-card'
+import { SyncRunsTable, type SyncRun } from '@/components/sync-runs-table'
 import { useProviderWizard } from '@/lib/provider-wizard-context'
 import { ModelCard } from '@/components/model-card'
 import { ModelFilters } from '@/components/model-filters'
@@ -337,20 +340,9 @@ function SourceControls() {
     refetchInterval: 30_000,
   })
   const update = useMutation({
-    mutationFn: ({
-      id,
-      ...patch
-    }: {
-      id: string
-      enabled?: boolean
-      ttlSeconds?: number
-    }) =>
-      apiFetch(`/api/metadata/sources/${id}`, {
-        method: 'PATCH',
-        body: JSON.stringify(patch),
-      }),
-    onSuccess: () =>
-      cache.invalidateQueries({ queryKey: ['metadata-sources'] }),
+    mutationFn: ({ id, ...patch }: { id: string; enabled?: boolean; ttlSeconds?: number }) =>
+      apiFetch(`/api/metadata/sources/${id}`, { method: 'PATCH', body: JSON.stringify(patch) }),
+    onSuccess: () => cache.invalidateQueries({ queryKey: ['metadata-sources'] }),
   })
   const sync = useMutation({
     mutationFn: () => apiFetch('/api/metadata/sync', { method: 'POST' }),
@@ -359,112 +351,52 @@ function SourceControls() {
         predicate: (q) => String(q.queryKey[0]).startsWith('metadata'),
       }),
   })
-  const runs = useQuery<
-    {
-      id: number
-      source: string
-      status: string
-      summary: {
-        fetched: number
-        valid: number
-        matched: number
-        unmatched: number
-        changed: number
-      }
-    }[]
-  >({
+  const runs = useQuery<SyncRun[]>({
     queryKey: ['metadata-runs'],
     queryFn: () => apiFetch('/api/metadata/sync/status'),
   })
+  const failure = query.error ?? update.error ?? sync.error
   return (
-    <section className="space-y-4">
-      <div className="flex items-center justify-between gap-3">
-        <h2 className="font-medium">{t('metadata.sources')}</h2>
-        <Button disabled={sync.isPending} onClick={() => sync.mutate()}>
-          {sync.isPending ? t('metadata.loading') : t('metadata.refresh')}
-        </Button>
-      </div>
-      {(query.error || update.error || sync.error) && (
-        <p role="alert" className="text-destructive">
-          {(query.error || update.error || sync.error)?.message}
-        </p>
-      )}
-      <div className="grid gap-3 sm:grid-cols-2">
-        {query.data?.map((s) => (
-          <div className="border rounded-md p-4 space-y-2" key={s.id}>
-            <label className="flex items-center gap-2 font-medium text-sm">
-              <input
-                type="checkbox"
-                checked={s.enabled}
-                disabled={update.isPending}
-                onChange={(e) =>
-                  update.mutate({ id: s.id, enabled: e.target.checked })
-                }
-              />
-              {s.attribution}
-            </label>
-            <p className="flex flex-wrap items-center gap-2 text-xs">
-              {s.status} ·{' '}
-              {t(
-                s.configured ? 'metadata.configured' : 'metadata.notConfigured',
-              )}
-              {!s.configured && s.id === 'artificial-analysis' && (
-                <Button
-                  variant="outline"
-                  size="sm"
-                  className="h-6 text-xs"
-                  onClick={() => wizard.open({ step: 'benchmarks' })}
-                >
-                  {t('metadata.addBenchmarkKey')}
-                </Button>
-              )}
-            </p>
-            <p className="text-xs text-muted-foreground">
-              {s.domains.join(', ')} · {s.license}
-            </p>
-            <p className="text-xs">
-              {t('metadata.lastSuccess')}:{' '}
-              {s.lastSuccess
-                ? new Date(s.lastSuccess).toLocaleString()
-                : t('metadata.unknown')}
-            </p>
-            {s.error && <p className="text-xs text-destructive">{s.error}</p>}
-            <label className="flex items-center gap-2 text-xs">
-              TTL (s)
-              <input
-                type="number"
-                className="border rounded p-1 w-28 bg-background"
-                min={300}
-                max={604800}
-                defaultValue={s.ttlSeconds}
-                key={`${s.id}-${s.ttlSeconds}`}
-                onBlur={(e) => {
-                  const value = Number(e.target.value)
-                  if (
-                    Number.isInteger(value) &&
-                    value >= 300 &&
-                    value <= 604800 &&
-                    value !== s.ttlSeconds
-                  )
-                    update.mutate({ id: s.id, ttlSeconds: value })
-                }}
-              />
-            </label>
-          </div>
-        ))}
-      </div>
-      <ul className="text-xs space-y-2">
-        {runs.data?.slice(0, 12).map((r) => (
-          <li key={r.id}>
-            {r.source}: {r.status} · {t('metadata.fetched')}:{' '}
-            {r.summary.fetched} · {t('metadata.matched')}: {r.summary.matched} ·{' '}
-            {t('metadata.changed')}: {r.summary.changed}
-          </li>
-        ))}
-      </ul>
-    </section>
+    <div className="space-y-10">
+      <Section
+        title={t('metadata.sources')}
+        description={t('sources.description')}
+        action={
+          <Button disabled={sync.isPending} onClick={() => sync.mutate()}>
+            {sync.isPending ? t('metadata.loading') : t('metadata.refresh')}
+          </Button>
+        }
+      >
+        {failure && (
+          <p role="alert" className="rounded-md border border-destructive/40 bg-destructive/5 px-3 py-2 text-sm text-destructive">
+            {failure.message}
+          </p>
+        )}
+        <div className="grid gap-4 lg:grid-cols-2">
+          {query.data?.map((source) => (
+            <SourceCard
+              key={source.id}
+              source={source}
+              busy={update.isPending}
+              onToggle={(enabled) => update.mutate({ id: source.id, enabled })}
+              onInterval={(ttlSeconds) => update.mutate({ id: source.id, ttlSeconds })}
+              onAddKey={
+                source.id === 'artificial-analysis'
+                  ? () => wizard.open({ step: 'benchmarks' })
+                  : undefined
+              }
+            />
+          ))}
+        </div>
+      </Section>
+
+      <Section title={t('sources.runs.title')} description={t('sources.runs.description')}>
+        <SyncRunsTable runs={runs.data ?? []} />
+      </Section>
+    </div>
   )
 }
+
 function MatchReview() {
   const { t } = useTranslations()
   const cache = useQueryClient()

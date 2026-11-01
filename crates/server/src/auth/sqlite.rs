@@ -19,7 +19,7 @@ use rusqlite::{
     Connection, OptionalExtension, TransactionBehavior,
 };
 use serde_json::{Map, Number, Value};
-use std::{path::Path, sync::Mutex, time::Duration};
+use std::{path::Path, sync::Mutex};
 
 fn json_error(error: serde_json::Error) -> AuthError {
     AuthError::Adapter(format!("SQLite JSON error: {error}"))
@@ -52,7 +52,7 @@ impl SqliteDbAdapter {
         // The main application database is a second connection to the same
         // file, so writes can briefly contend. Wait instead of failing.
         connection
-            .busy_timeout(Duration::from_secs(5))
+            .busy_timeout(crate::db::connection::BUSY_TIMEOUT)
             .map_err(sqlite_error)?;
         connection
             .execute_batch("PRAGMA foreign_keys = ON;")

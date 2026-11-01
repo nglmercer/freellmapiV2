@@ -160,7 +160,16 @@
       "revoke": "Revocar",
       "error": "No se pudo crear la clave. Inténtalo de nuevo.",
       "baseUrl": "URL base",
-      "endpoint": "Endpoint"
+      "endpoint": "Endpoint",
+      "count": "{{count}} claves activas",
+      "name": "Nombre",
+      "prefix": "Prefijo",
+      "created": "Creada",
+      "actions": "Acciones",
+      "createTitle": "Crear una clave de API",
+      "createDescription": "Ponle el nombre de la app o dispositivo que la usará.",
+      "revokeTitle": "¿Revocar esta clave de API?",
+      "revokeDescription": "Las apps que la usan dejan de funcionar al instante."
     },
     "joinCode": {
       "title": "Entrada rápida",
@@ -174,9 +183,44 @@
       "copy": "Copiar",
       "copyLink": "Copiar enlace",
       "copied": "Copiado",
-      "dismiss": "Listo"
+      "dismiss": "Listo",
+      "active": "Código de acceso activo",
+      "inactive": "Sin código de acceso",
+      "regenerateTitle": "¿Generar un código nuevo?",
+      "regenerateDescription": "El código actual deja de funcionar en cuanto se crea el nuevo.",
+      "revokeTitle": "¿Revocar el código de acceso?",
+      "revokeDescription": "Los navegadores que ya entraron siguen dentro. Nadie más podrá entrar con el código anterior.",
+      "link": "Enlace de acceso",
+      "sectionDescription": "Inicia sesión en otro dispositivo sin escribir la contraseña."
     },
-    "configureProviders": "Configurar proveedores"
+    "configureProviders": "Configurar proveedores",
+    "addProvider": "Añadir clave de proveedor",
+    "stats": {
+      "providers": "Proveedores",
+      "keys": "{{count}} claves",
+      "healthy": "Claves sanas",
+      "attention": "Requieren atención",
+      "attentionDetail": "No válidas, con error o limitadas",
+      "apiKeys": "Claves de API",
+      "apiKeysDetail": "Para tus apps"
+    },
+    "providerKeysDescription": "Cada clave de proveedor se guarda cifrada. Comprueba una clave para probarla ahora.",
+    "undecryptable": "Clave guardada no disponible",
+    "lastChecked": "Comprobada",
+    "neverChecked": "Nunca comprobada",
+    "status": {
+      "healthy": "Sana",
+      "rate_limited": "Limitada",
+      "invalid": "No válida",
+      "error": "Error",
+      "unknown": "Sin comprobar",
+      "undecryptable": "Reemplazar clave"
+    },
+    "replace": "Reemplazar",
+    "replaceTitle": "Reemplazar esta clave",
+    "replaceDescription": "La clave guardada ya no se puede leer. Pega la clave de nuevo para reemplazarla.",
+    "cancel": "Cancelar",
+    "save": "Guardar"
   },
   "fallback": {
     "title": "Cadena de fallback",
@@ -622,6 +666,47 @@
       "refresh": "Actualizar fuentes de benchmarks",
       "refreshing": "Actualizando…",
       "refreshed": "Actualización iniciada. Las puntuaciones aparecen cuando la fuente responde."
+    }
+  },
+  "sources": {
+    "description": "De dónde vienen los datos de calidad, velocidad, contexto y precio. Desactiva una fuente para dejar de consultarla.",
+    "enable": "Activar fuente",
+    "status": {
+      "synced": "Sincronizada",
+      "notSynced": "Sin sincronizar",
+      "needsKey": "Requiere clave",
+      "disabled": "Desactivada",
+      "waiting": "Esperando reintento",
+      "saveFailed": "Error al guardar",
+      "duplicates": "Duplicados omitidos",
+      "failed": "Con error"
+    },
+    "keyConfigured": "Clave configurada",
+    "keyMissing": "Sin clave",
+    "lastSuccess": "Último éxito",
+    "lastFailure": "Último fallo",
+    "refreshEvery": "Actualizar cada",
+    "license": "Licencia",
+    "intervalSettings": "Intervalo de actualización",
+    "intervalSeconds": "Segundos",
+    "save": "Guardar",
+    "intervalRange": "Introduce un valor entre {{min}} y {{max}} segundos.",
+    "error": {
+      "notConfigured": "Añade la clave en Configurar proveedores para consultar esta fuente.",
+      "persistenceFailed": "La última sincronización no pudo guardar sus resultados porque la base de datos estaba ocupada. La siguiente lo reintenta.",
+      "duplicates": "El origen listó algunos modelos dos veces. Los duplicados se omiten.",
+      "backoff": "La consulta está en pausa tras fallos repetidos. Reintenta sola."
+    },
+    "noRuns": "Aún no se ha ejecutado ninguna sincronización.",
+    "runs": {
+      "title": "Sincronizaciones recientes",
+      "description": "Cada fila es una consulta de una fuente.",
+      "when": "Cuándo",
+      "source": "Fuente",
+      "status": "Estado",
+      "fetched": "Obtenidos",
+      "matched": "Emparejados",
+      "changed": "Cambiados"
     }
   }
 }
