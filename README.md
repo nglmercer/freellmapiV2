@@ -164,6 +164,11 @@ launcher's per-run token; it requests a graceful stop.
 OpenAI-compatible routes (`/v1/models`, `/v1/chat/completions`, and
 `/v1/completions`) require an API key or a dashboard session.
 
+Multimodal routes (`/v1/audio/*`, `/v1/images/*`, `/v1/embeddings`, `/v1/videos`)
+also require an API key or a dashboard session. They serve only models declared
+through `/api/media-models`. See [docs/multimodal.md](docs/multimodal.md) for the
+endpoints, capabilities, fallback rules, and limitations.
+
 Ranking enrichment uses the Artificial Analysis Free endpoint by default and reuses a successful source snapshot for 24 hours during scheduled model syncs. The administrative ranking-sync endpoint forces a fresh fetch.
 
 The server supports streaming and non-streaming responses, tool calls, multimodal messages, parallel non-streaming choices, fallback routing, sticky sessions, rate limiting, and request analytics.
