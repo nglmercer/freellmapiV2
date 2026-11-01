@@ -91,11 +91,17 @@ fn builtins() -> &'static HashMap<String, Arc<dyn Provider>> {
             "https://integrate.api.nvidia.com/v1",
         ));
 
-        // Mistral - OpenAI-compatible
-        register(openai_compat(
-            "mistral",
-            "Mistral",
-            "https://api.mistral.ai/v1",
+        // Mistral - OpenAI-compatible; documented /v1/embeddings endpoint.
+        register(Arc::new(
+            OpenAICompatProvider::new(OpenAICompatOptions {
+                platform: "mistral".to_string(),
+                name: "Mistral".to_string(),
+                base_url: "https://api.mistral.ai/v1".to_string(),
+                extra_headers: Vec::new(),
+                validate_url: None,
+                timeout_ms: 15000,
+            })
+            .with_capabilities(CapabilitySet::of(&[Capability::Embeddings])),
         ));
 
         // OpenRouter - OpenAI-compatible with extra headers

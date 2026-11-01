@@ -259,6 +259,79 @@ async fn audio_upload(multipart: Multipart, capability: Capability) -> Response 
     }
 }
 
+/// Largest accepted embedding batch (number of inputs).
+const MAX_EMBEDDING_INPUTS: usize = 2048;
+
+/// `POST /v1/embeddings` — batched embeddings. `input` is a string, or an
+/// array of strings / token arrays. The body is forwarded unchanged.
+pub async fn embeddings(body: Bytes) -> Response {
+    let started = Instant::now();
+    let raw: Value = match serde_json::from_slice(&body) {
+        Ok(v) => v,
+        Err(_) => return error_response(400, "Malformed JSON payload"),
+    };
+    if !raw.is_object() {
+        return error_response(400, "Expected a JSON object");
+    }
+    let model = match required_string(&raw, "model") {
+        Ok(m) => m.to_string(),
+        Err(e) => return from_api_error(e),
+    };
+    if let Err(message) = validate_embedding_input(raw.get("input")) {
+        return error_response(400, message);
+    }
+    let cands = {
+        let conn = db().lock().await;
+        match candidates(&conn, Capability::Embeddings, &model) {
+            Ok(c) => c,
+            Err(e) => return from_api_error(e),
+        }
+    };
+    let first = cands.first().cloned();
+    let result = run_with_fallback(cands, true, |c| {
+        let raw = raw.clone();
+        async move {
+            let provider = c
+                .provider
+                .embeddings()
+                .ok_or_else(|| unsupported(&c.platform, Capability::Embeddings))?;
+            provider.embed(&c.api_key, &raw).await
+        }
+    })
+    .await;
+    finish_json(result, first, started).await
+}
+
+/// Checks the shape and batch size of an embeddings `input`.
+fn validate_embedding_input(input: Option<&Value>) -> Result<(), String> {
+    let items: Vec<&Value> = match input {
+        Some(Value::String(s)) if !s.trim().is_empty() => return Ok(()),
+        Some(Value::String(_)) => return Err("input must not be empty".to_string()),
+        Some(Value::Array(items)) if !items.is_empty() => items.iter().collect(),
+        Some(Value::Array(_)) => return Err("input must contain at least one item".to_string()),
+        _ => return Err("input is required and must be a string or an array".to_string()),
+    };
+    if items.len() > MAX_EMBEDDING_INPUTS {
+        return Err(format!(
+            "input must contain at most {MAX_EMBEDDING_INPUTS} items per batch"
+        ));
+    }
+    for item in items {
+        let ok = match item {
+            Value::String(s) => !s.trim().is_empty(),
+            // Token arrays: non-empty arrays of integers.
+            Value::Array(tokens) => {
+                !tokens.is_empty() && tokens.iter().all(|t| t.is_u64() || t.is_i64())
+            }
+            _ => false,
+        };
+        if !ok {
+            return Err("each input must be a non-empty string or token array".to_string());
+        }
+    }
+    Ok(())
+}
+
 /// Longest accepted image prompt, in characters.
 const MAX_IMAGE_PROMPT_CHARS: usize = 4000;
 
@@ -365,6 +438,7 @@ pub fn v1_router() -> axum::Router {
         .route("/audio/translations", post(translations))
         .route("/images/generations", post(image_generations))
         .route("/images/edits", post(image_edits))
+        .route("/embeddings", post(embeddings))
 }
 
 // ---- Admin: declare which models serve which operation ----
