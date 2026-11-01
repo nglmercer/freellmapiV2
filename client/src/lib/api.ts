@@ -3,6 +3,9 @@ const BASE = import.meta.env.BASE_URL.replace(/\/$/, '')
 /** Fired on the window when a dashboard request is refused with 401. */
 export const UNAUTHORIZED_EVENT = 'freellmapi:unauthorized'
 
+/** Account routes that answer 401 for a normal reason, not an expired session. */
+const PUBLIC_ACCOUNT_ROUTES = ['/api/account-status', '/api/account/create', '/api/account/join']
+
 export class ApiError extends Error {
   status: number
 
@@ -28,7 +31,9 @@ export async function apiFetch<T>(path: string, options?: RequestInit): Promise<
       typeof body?.error === 'string'
         ? body.error
         : (body?.error?.message as string | undefined) ?? res.statusText
-    const isAccountRoute = path.startsWith('/api/auth/') || path === '/api/account-status'
+    const isAccountRoute =
+      path.startsWith('/api/auth/') ||
+      PUBLIC_ACCOUNT_ROUTES.includes(path)
     if (res.status === 401 && path.startsWith('/api/') && !isAccountRoute) {
       window.dispatchEvent(new Event(UNAUTHORIZED_EVENT))
     }
@@ -41,14 +46,38 @@ export interface AccountStatus {
   hasAccount: boolean
 }
 
-export function signUp(input: { name: string; email: string; password: string }) {
-  return apiFetch('/api/auth/sign-up/email', { method: 'POST', body: JSON.stringify(input) })
+export function createAccount(input: { username: string; password: string }) {
+  return apiFetch('/api/account/create', { method: 'POST', body: JSON.stringify(input) })
 }
 
-export function signIn(input: { email: string; password: string }) {
-  return apiFetch('/api/auth/sign-in/email', { method: 'POST', body: JSON.stringify(input) })
+export function signInWithPassword(input: { username: string; password: string }) {
+  return apiFetch('/api/auth/sign-in/username', { method: 'POST', body: JSON.stringify(input) })
+}
+
+export function joinWithCode(code: string) {
+  return apiFetch('/api/account/join', { method: 'POST', body: JSON.stringify({ code }) })
 }
 
 export function signOut() {
   return apiFetch('/api/auth/sign-out', { method: 'POST', body: JSON.stringify({}) })
+}
+
+export interface JoinCodeStatus {
+  enabled: boolean
+}
+
+export function getJoinCodeStatus() {
+  return apiFetch<JoinCodeStatus>('/api/account/join-code')
+}
+
+/** Generates a join code and returns it once. Replaces any previous code. */
+export function generateJoinCode() {
+  return apiFetch<JoinCodeStatus & { code: string }>('/api/account/join-code', {
+    method: 'POST',
+    body: JSON.stringify({}),
+  })
+}
+
+export function revokeJoinCode() {
+  return apiFetch<JoinCodeStatus>('/api/account/join-code', { method: 'DELETE' })
 }

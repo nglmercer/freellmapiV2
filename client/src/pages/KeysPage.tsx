@@ -2,6 +2,7 @@ import { useState } from 'react'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { apiFetch } from '@/lib/api'
 import { ApiKeysPanel } from '@/components/api-keys-panel'
+import { JoinCodePanel } from '@/components/join-code-panel'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
@@ -168,6 +169,14 @@ export default function KeysPage() {
             <p className="text-xs text-muted-foreground mt-0.5">{t('keys.apiKeys.description')}</p>
           </div>
           <ApiKeysPanel />
+        </section>
+
+        <section className="rounded-lg border bg-card p-5">
+          <div className="mb-4">
+            <h2 className="text-sm font-medium">{t('keys.joinCode.title')}</h2>
+            <p className="text-xs text-muted-foreground mt-0.5">{t('keys.joinCode.description')}</p>
+          </div>
+          <JoinCodePanel />
         </section>
 
         <section>

@@ -23,8 +23,8 @@ pub struct TestApp {
     _guard: tokio::sync::MutexGuard<'static, ()>,
 }
 
-const OWNER_EMAIL: &str = "owner@example.com";
-const OWNER_PASSWORD: &str = "correct horse battery staple";
+pub const OWNER_USERNAME: &str = "owner";
+pub const OWNER_PASSWORD: &str = "correct horse battery staple";
 
 /// Credentials created by [`setup`]: the owner's session cookie (`name=value`)
 /// and an API key. Process-global because the helpers below read them without
@@ -79,16 +79,15 @@ pub async fn setup() -> TestApp {
     }
 }
 
-/// Creates the single owner account and returns its session cookie.
+/// Creates the owner account and returns its session cookie.
 async fn sign_up_owner(app: &Router) -> String {
     let resp = request(
         app,
         "POST",
-        "/api/auth/sign-up/email",
+        "/api/account/create",
         None,
         Some(serde_json::json!({
-            "email": OWNER_EMAIL,
-            "name": "Owner",
+            "username": OWNER_USERNAME,
             "password": OWNER_PASSWORD,
         })),
     )

@@ -33,6 +33,7 @@ pub fn create_app() -> axum::Router {
         .nest("/analytics", routes::analytics::router())
         .nest("/health", routes::health::router())
         .nest("/settings", routes::settings::router())
+        .merge(routes::account::session_routes())
         .nest("/providers", routes::providers::router())
         .fallback(|| async { axum::http::StatusCode::NOT_FOUND })
         .layer(middleware::from_fn(crate::auth::require_session));
@@ -63,6 +64,7 @@ pub fn create_app() -> axum::Router {
         // Better Auth owns sign-in, sign-out, session lookup and API keys.
         .route("/api/auth/{*path}", any(crate::auth::handler))
         .route("/api/account-status", get(account_status))
+        .merge(routes::account::public_routes())
         // Shutdown accepts the launcher's token or a dashboard session, so it
         // sits outside the session-only admin router.
         .route("/api/shutdown", post(routes::shutdown::request_shutdown))

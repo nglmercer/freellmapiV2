@@ -42,26 +42,20 @@ async fn account_status_is_public_and_reports_the_owner() {
 }
 
 #[tokio::test]
-async fn second_sign_up_is_refused() {
+async fn second_account_is_refused() {
     let app = common::setup().await;
     let res = common::request(
         &app.app,
         "POST",
-        "/api/auth/sign-up/email",
+        "/api/account/create",
         None,
         Some(serde_json::json!({
-            "email": "intruder@example.com",
-            "name": "Intruder",
+            "username": "intruder",
             "password": "another long password",
         })),
     )
     .await;
-    assert!(
-        res.status >= 400,
-        "second account must be refused, got {}: {}",
-        res.status,
-        res.text
-    );
+    common::expect_status(&res, StatusCode::FORBIDDEN);
 }
 
 #[tokio::test]
@@ -70,10 +64,10 @@ async fn wrong_password_is_rejected() {
     let res = common::request(
         &app.app,
         "POST",
-        "/api/auth/sign-in/email",
+        "/api/auth/sign-in/username",
         None,
         Some(serde_json::json!({
-            "email": "owner@example.com",
+            "username": common::OWNER_USERNAME,
             "password": "definitely wrong password",
         })),
     )

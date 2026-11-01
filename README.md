@@ -122,9 +122,15 @@ also be kept there. See `.env.example` for the list. Never commit real keys.
 
 Authentication uses [Better Auth for Rust](https://github.com/nglmercer/better-auth-rs).
 
-- **Dashboard:** the first visit creates the single owner account (email and
-  password). Once it exists, sign-up is closed and the dashboard asks for
-  sign-in. The session is an `HttpOnly` cookie. Sign out from the header.
+- **Dashboard:** the first visit asks for a username and password and creates
+  the single owner account. Once it exists, the dashboard asks for the same
+  username and password. The session is an `HttpOnly` cookie; sign out from the
+  header.
+- **Join code:** on the Keys page, generate a fast-join code. Enter it on the
+  sign-in screen's "Join code" tab, or open the join link
+  (`/?join=CODE`), to sign in on another device without the password. Generating
+  a new code invalidates the old one; revoke removes it. The code is shown only
+  once and stored only as a hash. Treat it like the password.
 - **OpenAI-compatible API (`/v1/*`):** create API keys on the Keys page. Send one
   as `Authorization: Bearer <key>` or `x-api-key: <key>`. Keys can be revoked
   there. A dashboard session also works, which is how the playground calls `/v1`.
@@ -140,9 +146,13 @@ The authentication change is not backward compatible. The old `ADMIN_API_KEY` an
 ## API
 
 Public routes: `/api/ping`, `/api/account-status` (reports whether the owner
-account exists), and the Better Auth routes under `/api/auth/*` (sign-up,
-sign-in, sign-out, session lookup, and API-key management at
-`/api/auth/api-key/*`).
+account exists), `/api/account/create` (creates the owner from a username and
+password, once), `/api/account/join` (signs in with a join code), and the Better
+Auth routes under `/api/auth/*` (username sign-in at `/api/auth/sign-in/username`,
+sign-out, session lookup, and API-key management at `/api/auth/api-key/*`).
+
+The join code is managed at `/api/account/join-code` (`GET` status, `POST` to
+generate, `DELETE` to revoke) and requires a dashboard session.
 
 Dashboard routes (`/api/keys`, `/api/models`, `/api/fallback`, `/api/analytics`,
 `/api/health`, `/api/settings`, `/api/providers`, and the rest of `/api/*`)
