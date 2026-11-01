@@ -59,6 +59,29 @@ async fn mock_multipart(
     .into_response()
 }
 
+async fn mock_image_generate(
+    State(mock): State<Mock>,
+    body: axum::body::Bytes,
+) -> axum::response::Response {
+    let req: Value = serde_json::from_slice(&body).unwrap_or(Value::Null);
+    if mock.rate_limited {
+        return (StatusCode::TOO_MANY_REQUESTS, "slow down").into_response();
+    }
+    axum::Json(json!({ "created": 1, "data": [{ "b64_json": "AAAA", "model": req["model"] }] }))
+        .into_response()
+}
+
+async fn mock_image_edit(body: axum::body::Bytes) -> axum::response::Response {
+    let text = String::from_utf8_lossy(&body).to_string();
+    axum::Json(json!({
+        "created": 1,
+        "data": [{ "url": "https://example.test/edited.png" }],
+        "has_image": text.contains("name=\"image\""),
+        "has_mask": text.contains("name=\"mask\"")
+    }))
+    .into_response()
+}
+
 async fn mock_translate() -> axum::response::Response {
     axum::Json(json!({ "text": "translated" })).into_response()
 }
@@ -69,6 +92,8 @@ async fn start_mock(rate_limited: bool) -> String {
         .route("/v1/audio/speech", post(mock_speech))
         .route("/v1/audio/transcriptions", post(mock_multipart))
         .route("/v1/audio/translations", post(mock_translate))
+        .route("/v1/images/generations", post(mock_image_generate))
+        .route("/v1/images/edits", post(mock_image_edit))
         .with_state(Mock { rate_limited });
     let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
     let addr = listener.local_addr().unwrap();
@@ -363,4 +388,179 @@ async fn transcription_without_usable_key_is_service_unavailable() {
     )
     .await;
     assert_eq!(status, StatusCode::SERVICE_UNAVAILABLE);
+}
+
+fn json_request(key: &str, uri: &str, body: Value) -> Request<Body> {
+    Request::builder()
+        .method("POST")
+        .uri(uri)
+        .header("authorization", format!("Bearer {key}"))
+        .header("content-type", "application/json")
+        .body(Body::from(body.to_string()))
+        .unwrap()
+}
+
+fn image_edit_request(key: &str, model: &str, with_mask: bool) -> Request<Body> {
+    let boundary = "----imgboundary";
+    let mut body = Vec::new();
+    body.extend_from_slice(
+        format!(
+            "--{boundary}\r\nContent-Disposition: form-data; name=\"model\"\r\n\r\n{model}\r\n"
+        )
+        .as_bytes(),
+    );
+    body.extend_from_slice(
+        format!(
+            "--{boundary}\r\nContent-Disposition: form-data; name=\"prompt\"\r\n\r\nadd a hat\r\n"
+        )
+        .as_bytes(),
+    );
+    body.extend_from_slice(format!("--{boundary}\r\nContent-Disposition: form-data; name=\"image\"; filename=\"cat.png\"\r\nContent-Type: image/png\r\n\r\n").as_bytes());
+    body.extend_from_slice(b"\x89PNG-fake");
+    body.extend_from_slice(b"\r\n");
+    if with_mask {
+        body.extend_from_slice(format!("--{boundary}\r\nContent-Disposition: form-data; name=\"mask\"; filename=\"mask.png\"\r\nContent-Type: image/png\r\n\r\n").as_bytes());
+        body.extend_from_slice(b"mask-bytes\r\n");
+    }
+    body.extend_from_slice(format!("--{boundary}--\r\n").as_bytes());
+    Request::builder()
+        .method("POST")
+        .uri("/v1/images/edits")
+        .header("authorization", format!("Bearer {key}"))
+        .header(
+            "content-type",
+            format!("multipart/form-data; boundary={boundary}"),
+        )
+        .body(Body::from(body))
+        .unwrap()
+}
+
+#[tokio::test]
+async fn image_generation_returns_provider_json() {
+    let app = common::setup().await;
+    let base = start_mock(false).await;
+    let platform = add_provider("img-mock", &base, r#"["chat","image_generation"]"#).await;
+    add_key(&platform, "img-key").await;
+    declare(&platform, "img-model", "image_generation", 0).await;
+
+    let (status, _, bytes) = send(
+        &app.app,
+        json_request(
+            &app.api_key,
+            "/v1/images/generations",
+            json!({"model": "img-model", "prompt": "a cat"}),
+        ),
+    )
+    .await;
+    assert_eq!(
+        status,
+        StatusCode::OK,
+        "{}",
+        String::from_utf8_lossy(&bytes)
+    );
+    let body: Value = serde_json::from_slice(&bytes).unwrap();
+    assert_eq!(body["data"][0]["b64_json"], "AAAA");
+    // Provider-specific fields such as the model are forwarded.
+    assert_eq!(body["data"][0]["model"], "img-model");
+}
+
+#[tokio::test]
+async fn image_generation_requires_prompt_and_declared_model() {
+    let app = common::setup().await;
+    let (status, _, _) = send(
+        &app.app,
+        json_request(
+            &app.api_key,
+            "/v1/images/generations",
+            json!({"model": "img-model"}),
+        ),
+    )
+    .await;
+    assert_eq!(status, StatusCode::BAD_REQUEST);
+
+    let (status, _, bytes) = send(
+        &app.app,
+        json_request(
+            &app.api_key,
+            "/v1/images/generations",
+            json!({"model": "undeclared", "prompt": "x"}),
+        ),
+    )
+    .await;
+    assert_eq!(status, StatusCode::BAD_REQUEST);
+    assert!(String::from_utf8_lossy(&bytes).contains("'image_generation'"));
+}
+
+#[tokio::test]
+async fn image_edit_forwards_all_image_and_mask_parts() {
+    let app = common::setup().await;
+    let base = start_mock(false).await;
+    let platform = add_provider("edit-mock", &base, r#"["chat","image_edit"]"#).await;
+    add_key(&platform, "edit-key").await;
+    declare(&platform, "edit-model", "image_edit", 0).await;
+
+    let (status, _, bytes) = send(
+        &app.app,
+        image_edit_request(&app.api_key, "edit-model", true),
+    )
+    .await;
+    assert_eq!(
+        status,
+        StatusCode::OK,
+        "{}",
+        String::from_utf8_lossy(&bytes)
+    );
+    let body: Value = serde_json::from_slice(&bytes).unwrap();
+    assert_eq!(body["has_image"], true);
+    assert_eq!(body["has_mask"], true);
+}
+
+#[tokio::test]
+async fn image_generation_falls_back_on_rate_limit_only() {
+    let app = common::setup().await;
+    let limited = start_mock(true).await;
+    let healthy = start_mock(false).await;
+    let first = add_provider("img-limited", &limited, r#"["chat","image_generation"]"#).await;
+    let second = add_provider("img-healthy", &healthy, r#"["chat","image_generation"]"#).await;
+    add_key(&first, "k1").await;
+    add_key(&second, "k2").await;
+    declare(&first, "img-shared", "image_generation", 0).await;
+    declare(&second, "img-shared", "image_generation", 1).await;
+
+    let (status, _, _) = send(
+        &app.app,
+        json_request(
+            &app.api_key,
+            "/v1/images/generations",
+            json!({"model": "img-shared", "prompt": "a cat"}),
+        ),
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK);
+}
+
+#[tokio::test]
+async fn image_generation_never_retries_after_transport_failure() {
+    let app = common::setup().await;
+    // Port 9 (discard) on loopback is closed: a transport failure, where the
+    // provider may already have generated the image.
+    let dead = "http://127.0.0.1:9/v1";
+    let healthy = start_mock(false).await;
+    let first = add_provider("img-dead", dead, r#"["chat","image_generation"]"#).await;
+    let second = add_provider("img-up", &healthy, r#"["chat","image_generation"]"#).await;
+    add_key(&first, "k1").await;
+    add_key(&second, "k2").await;
+    declare(&first, "img-ambiguous", "image_generation", 0).await;
+    declare(&second, "img-ambiguous", "image_generation", 1).await;
+
+    let (status, _, _) = send(
+        &app.app,
+        json_request(
+            &app.api_key,
+            "/v1/images/generations",
+            json!({"model": "img-ambiguous", "prompt": "a dog"}),
+        ),
+    )
+    .await;
+    assert_eq!(status, StatusCode::BAD_GATEWAY);
 }
