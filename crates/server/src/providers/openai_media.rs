@@ -10,7 +10,7 @@ use serde_json::Value;
 
 use super::base::{http_client, send_request, ProviderError};
 use super::capabilities::{
-    ImageProvider, MediaResponse, MediaStream, MultipartRequest, SpeechProvider,
+    EmbeddingProvider, ImageProvider, MediaResponse, MediaStream, MultipartRequest, SpeechProvider,
     TranscriptionProvider,
 };
 use super::openai_compat::OpenAICompatProvider;
@@ -151,6 +151,16 @@ impl ImageProvider for OpenAICompatProvider {
         let req = self
             .authorize(http_client().post(self.url("/images/edits")), api_key)
             .multipart(form);
+        json_call(self, req).await
+    }
+}
+
+#[async_trait]
+impl EmbeddingProvider for OpenAICompatProvider {
+    async fn embed(&self, api_key: &str, body: &Value) -> Result<Value, ProviderError> {
+        let req = self
+            .authorize(http_client().post(self.url("/embeddings")), api_key)
+            .json(body);
         json_call(self, req).await
     }
 }

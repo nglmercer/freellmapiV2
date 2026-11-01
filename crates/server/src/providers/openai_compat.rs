@@ -6,7 +6,8 @@ use tokio::sync::mpsc;
 
 use super::base::{normalize_choices, send_request, ChunkReceiver, Provider, ProviderError};
 use super::capabilities::{
-    Capability, CapabilitySet, ImageProvider, SpeechProvider, TranscriptionProvider,
+    Capability, CapabilitySet, EmbeddingProvider, ImageProvider, SpeechProvider,
+    TranscriptionProvider,
 };
 use crate::types::{ChatCompletionChunk, ChatCompletionResponse, ChatMessage, CompletionOptions};
 
@@ -151,6 +152,12 @@ impl Provider for OpenAICompatProvider {
         (self.capabilities.contains(Capability::ImageGeneration)
             || self.capabilities.contains(Capability::ImageEdit))
         .then_some(self as &dyn ImageProvider)
+    }
+
+    fn embeddings(&self) -> Option<&dyn EmbeddingProvider> {
+        self.capabilities
+            .contains(Capability::Embeddings)
+            .then_some(self as &dyn EmbeddingProvider)
     }
 
     fn transcription(&self) -> Option<&dyn TranscriptionProvider> {

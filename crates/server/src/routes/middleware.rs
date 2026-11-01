@@ -114,6 +114,40 @@ fn content_errors(content: &Value, allow_null: bool, path: &str, errors: &mut Ve
                             "{path}[{i}].image_url: Expected object, received undefined"
                         )),
                     },
+                    "input_audio" => match obj.get("input_audio") {
+                        Some(Value::Object(audio)) => {
+                            let data = audio.get("data").and_then(|v| v.as_str());
+                            let format = audio.get("format").and_then(|v| v.as_str());
+                            match (data, format) {
+                                (Some(d), Some(f)) => {
+                                    if let Err(e) = crate::media::validate_audio_input(d, f) {
+                                        errors.push(format!("{path}[{i}].input_audio: {e}"));
+                                    }
+                                }
+                                _ => errors.push(format!(
+                                    "{path}[{i}].input_audio: requires string data and format"
+                                )),
+                            }
+                        }
+                        _ => errors.push(format!(
+                            "{path}[{i}].input_audio: Expected object, received undefined"
+                        )),
+                    },
+                    "video_url" => match obj.get("video_url") {
+                        Some(Value::Object(v)) => match v.get("url").and_then(|u| u.as_str()) {
+                            Some(url) => {
+                                if let Err(e) = crate::media::validate_video_url(url) {
+                                    errors.push(format!("{path}[{i}].video_url.url: {e}"));
+                                }
+                            }
+                            None => errors.push(format!(
+                                "{path}[{i}].video_url.url: Expected string, received undefined"
+                            )),
+                        },
+                        _ => errors.push(format!(
+                            "{path}[{i}].video_url: Expected object, received undefined"
+                        )),
+                    },
                     _ => {}
                 }
             }
@@ -809,6 +843,38 @@ mod tests {
             "messages": [{ "role": "user", "content": [{ "type": "text" }] }]
         });
         assert!(validate_chat_body_value(&body).is_err());
+    }
+
+    #[test]
+    fn validation_rejects_malformed_audio_and_video_parts() {
+        use serde_json::json;
+        let bad = [
+            json!({ "type": "input_audio", "input_audio": { "data": "AAAA" } }),
+            json!({ "type": "input_audio", "input_audio": { "data": "AA!A", "format": "wav" } }),
+            json!({ "type": "video_url", "video_url": { "url": "ftp://x.test/v.mp4" } }),
+            json!({ "type": "video_url", "video_url": { "url": "data:image/png;base64,AAAA" } }),
+        ];
+        for part in bad {
+            let body = json!({ "model": "m", "messages": [{ "role": "user", "content": [part.clone()] }] });
+            assert!(
+                validate_chat_body_value(&body).is_err(),
+                "expected rejection for {part}"
+            );
+        }
+    }
+
+    #[test]
+    fn validation_accepts_audio_and_video_parts() {
+        use serde_json::json;
+        let body = json!({
+            "model": "m",
+            "messages": [{ "role": "user", "content": [
+                { "type": "input_audio", "input_audio": { "data": "AAAA", "format": "wav" } },
+                { "type": "video_url", "video_url": { "url": "https://x.test/clip.mp4" } },
+                { "type": "video_url", "video_url": { "url": "data:video/mp4;base64,AAAA" } }
+            ]}]
+        });
+        assert!(validate_chat_body_value(&body).is_ok());
     }
 
     #[test]

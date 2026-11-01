@@ -115,6 +115,33 @@ fn canonical_image_mime(mime: &str) -> &str {
     }
 }
 
+/// Validates the `url` of a `video_url` content part: an `http(s)` URL (shape
+/// only) or a base64 `data:video/*` URL.
+pub fn validate_video_url(url: &str) -> Result<(), String> {
+    if url.starts_with("data:") {
+        let parsed = parse_data_url(url)?;
+        if !parsed.mime.starts_with("video/") {
+            return Err(format!("unsupported video MIME type '{}'", parsed.mime));
+        }
+        return Ok(());
+    }
+    validate_http_url(url)
+}
+
+/// Validates an audio payload: base64 data, with a declared container format.
+pub fn validate_audio_input(data: &str, format: &str) -> Result<(), String> {
+    if data.is_empty() {
+        return Err("audio data must not be empty".to_string());
+    }
+    if !is_base64(data) {
+        return Err("audio data is not valid base64".to_string());
+    }
+    if format.trim().is_empty() {
+        return Err("audio format must not be empty".to_string());
+    }
+    Ok(())
+}
+
 /// Validates the `url` of an `image_url` content part.
 ///
 /// Accepts `http(s)` URLs (shape only, never fetched here) and base64 image
@@ -140,17 +167,24 @@ pub fn validate_image_url(url: &str) -> Result<(), String> {
         return Ok(());
     }
     if has_http_scheme(url) {
-        if url.chars().any(|c| c.is_whitespace() || c.is_control()) {
-            return Err("URL must not contain whitespace or control characters".to_string());
-        }
-        let after_scheme = url.split_once("://").map(|(_, rest)| rest).unwrap_or("");
-        let host = after_scheme.split(['/', '?', '#']).next().unwrap_or("");
-        if host.is_empty() {
-            return Err("URL is missing a host".to_string());
-        }
-        return Ok(());
+        return validate_http_url(url);
     }
     Err("image_url must be an http(s) URL or a base64 data URL".to_string())
+}
+
+fn validate_http_url(url: &str) -> Result<(), String> {
+    if !has_http_scheme(url) {
+        return Err("URL must be http(s)".to_string());
+    }
+    if url.chars().any(|c| c.is_whitespace() || c.is_control()) {
+        return Err("URL must not contain whitespace or control characters".to_string());
+    }
+    let after_scheme = url.split_once("://").map(|(_, rest)| rest).unwrap_or("");
+    let host = after_scheme.split(['/', '?', '#']).next().unwrap_or("");
+    if host.is_empty() {
+        return Err("URL is missing a host".to_string());
+    }
+    Ok(())
 }
 
 fn has_http_scheme(url: &str) -> bool {

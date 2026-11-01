@@ -82,6 +82,18 @@ async fn mock_image_edit(body: axum::body::Bytes) -> axum::response::Response {
     .into_response()
 }
 
+async fn mock_embeddings(body: axum::body::Bytes) -> axum::response::Response {
+    let req: Value = serde_json::from_slice(&body).unwrap_or(Value::Null);
+    let count = match &req["input"] {
+        Value::Array(items) => items.len(),
+        _ => 1,
+    };
+    let data: Vec<Value> = (0..count)
+        .map(|i| json!({"object": "embedding", "index": i, "embedding": [0.1, 0.2]}))
+        .collect();
+    axum::Json(json!({"object": "list", "model": req["model"], "data": data})).into_response()
+}
+
 async fn mock_translate() -> axum::response::Response {
     axum::Json(json!({ "text": "translated" })).into_response()
 }
@@ -94,6 +106,7 @@ async fn start_mock(rate_limited: bool) -> String {
         .route("/v1/audio/translations", post(mock_translate))
         .route("/v1/images/generations", post(mock_image_generate))
         .route("/v1/images/edits", post(mock_image_edit))
+        .route("/v1/embeddings", post(mock_embeddings))
         .with_state(Mock { rate_limited });
     let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
     let addr = listener.local_addr().unwrap();
@@ -563,4 +576,63 @@ async fn image_generation_never_retries_after_transport_failure() {
     )
     .await;
     assert_eq!(status, StatusCode::BAD_GATEWAY);
+}
+
+fn embeddings_request(key: &str, body: Value) -> Request<Body> {
+    json_request(key, "/v1/embeddings", body)
+}
+
+#[tokio::test]
+async fn embeddings_batch_returns_one_vector_per_input() {
+    let app = common::setup().await;
+    let base = start_mock(false).await;
+    let platform = add_provider("emb-mock", &base, r#"["chat","embeddings"]"#).await;
+    add_key(&platform, "emb-key").await;
+    declare(&platform, "embed-model", "embeddings", 0).await;
+
+    let (status, _, bytes) = send(
+        &app.app,
+        embeddings_request(
+            &app.api_key,
+            json!({"model": "embed-model", "input": ["one", "two", "three"]}),
+        ),
+    )
+    .await;
+    assert_eq!(
+        status,
+        StatusCode::OK,
+        "{}",
+        String::from_utf8_lossy(&bytes)
+    );
+    let body: Value = serde_json::from_slice(&bytes).unwrap();
+    assert_eq!(body["data"].as_array().unwrap().len(), 3);
+    assert_eq!(body["data"][2]["index"], 2);
+}
+
+#[tokio::test]
+async fn embeddings_validate_input_shape_and_batch_size() {
+    let app = common::setup().await;
+    for bad in [
+        json!({"model": "embed-model"}),
+        json!({"model": "embed-model", "input": ""}),
+        json!({"model": "embed-model", "input": []}),
+        json!({"model": "embed-model", "input": ["ok", ""]}),
+        json!({"model": "embed-model", "input": [1, 2.5]}),
+        json!({"model": "embed-model", "input": vec!["x"; 2049]}),
+    ] {
+        let (status, _, _) = send(&app.app, embeddings_request(&app.api_key, bad.clone())).await;
+        assert_eq!(status, StatusCode::BAD_REQUEST, "expected 400 for {bad}");
+    }
+}
+
+#[tokio::test]
+async fn embeddings_require_a_declared_model() {
+    let app = common::setup().await;
+    let (status, _, bytes) = send(
+        &app.app,
+        embeddings_request(&app.api_key, json!({"model": "nope", "input": "hi"})),
+    )
+    .await;
+    assert_eq!(status, StatusCode::BAD_REQUEST);
+    assert!(String::from_utf8_lossy(&bytes).contains("'embeddings'"));
 }
