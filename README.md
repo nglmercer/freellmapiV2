@@ -186,6 +186,29 @@ Ranking enrichment uses the Artificial Analysis Free endpoint by default and reu
 
 The server supports streaming and non-streaming responses, tool calls, multimodal messages, parallel non-streaming choices, fallback routing, sticky sessions, rate limiting, and request analytics.
 
+## Command-line client
+
+`freellmapi-cli` talks to a running server from the terminal. Build it with the
+server (`cargo build --release -p server --bin freellmapi-cli`).
+
+```sh
+export FREELLMAPI_URL=http://127.0.0.1:3001
+export FREELLMAPI_API_KEY=...            # or: FREELLMAPI_USER=... FREELLMAPI_PASSWORD=...
+
+freellmapi-cli models --capability speech
+freellmapi-cli chat "hola"                        # one question
+freellmapi-cli chat "¿qué ves?" -i foto.png       # attach an image
+freellmapi-cli chat "transcribe" -a nota.wav -d notas.txt
+freellmapi-cli chat                               # interactive: /image, /audio, /doc, /model, /clear, /exit
+freellmapi-cli speak "hola" -o voz.mp3 -m <tts-model>
+freellmapi-cli transcribe nota.wav -m <stt-model>
+freellmapi-cli image "un gato" -o gato.png -m <image-model>
+freellmapi-cli embed "uno" "dos" -m <embedding-model>
+```
+
+The password is read only from `FREELLMAPI_PASSWORD`, never a flag, and nothing
+is written to disk. Documents must be UTF-8 text; PDF and Word are not supported.
+
 ## Maintenance commands
 
 To probe every currently enabled model/key pair using the configured providers:
