@@ -569,7 +569,7 @@
     "coding": "Coding",
     "speed": "Observed speed",
     "ttft": "Observed TTFT",
-    "price": "Input price / 1M tokens",
+    "price": "Price in / out per 1M",
     "reliability": "Reliability",
     "details": "Metrics and local performance",
     "stats": {
@@ -580,7 +580,8 @@
       "onPage": "{{count}} on this page",
       "free": "{{count}} free",
       "comparing": "Comparing {{count}} of {{max}}",
-      "clearComparison": "Clear comparison"
+      "clearComparison": "Clear comparison",
+      "addSource": "Add a benchmark source"
     },
     "noMetrics": "No metrics synced yet",
     "hints": {
@@ -592,7 +593,33 @@
     "range": "Showing {{from}}–{{to}} of {{total}}",
     "page": "Page {{page}} of {{pages}}",
     "addBenchmarkKey": "Add benchmark key",
-    "priceShort": "Price in / out per 1M"
+    "priceShort": "In / out per 1M",
+    "pagination": "Pagination",
+    "selectUpTo": "Select up to {{max}} deployments to compare.",
+    "compareSelected": "Compare selected",
+    "compareTitle": "Compare deployments",
+    "compareMin": "Select at least two deployments to compare.",
+    "removeCompare": "Remove {{label}} from comparison",
+    "limitReached": "Comparison limit of {{max}} reached",
+    "emptyFiltered": "No models match the current filters.",
+    "retry": "Try again",
+    "capabilities": "Capabilities",
+    "evidence": "Evidence",
+    "localPerformance": "Local performance",
+    "windowLabel": "Last {{minutes}} min",
+    "noCapabilityData": "No capability data yet",
+    "chips": {
+      "query": "Search: {{value}}",
+      "provider": "Provider: {{value}}",
+      "capability": "Capability: {{value}}",
+      "context": "Context ≥ {{value}}"
+    },
+    "filters": {
+      "title": "Filters",
+      "active": "{{count}} active",
+      "clearAll": "Clear all",
+      "remove": "Remove filter {{label}}"
+    }
   },
   "auth": {
     "createTitle": "Create the owner account",
