@@ -1,9 +1,11 @@
 //! Authentication for the dashboard and the OpenAI-compatible proxy, built on
 //! Better Auth for Rust (https://github.com/nglmercer/better-auth-rs).
 //!
-//! - Dashboard: email/password sign-in with a cookie session, served under
-//!   `/api/auth`. The first sign-up creates the single owner account; later
-//!   sign-ups are refused by [`SingleOwnerAccount`].
+//! - Dashboard: a single owner account with a username and password (see
+//!   [`account`]), signed in with a cookie session. Better Auth routes live
+//!   under `/api/auth`. Once the owner exists, further accounts are refused by
+//!   [`SingleOwnerAccount`]. A join code can sign a second browser in without
+//!   the password.
 //! - Proxy (`/v1`): API keys created in the dashboard through
 //!   `/api/auth/api-key/create`, sent as `Authorization: Bearer <key>` or
 //!   `x-api-key: <key>`. A dashboard session is also accepted so the built-in
@@ -13,6 +15,7 @@
 //! `BETTER_AUTH_SECRET` when set, otherwise it is generated once and kept in
 //! the SQLite `settings` table, like the provider-key encryption key.
 
+pub mod account;
 pub mod sqlite;
 
 use std::sync::{Arc, Mutex};
@@ -34,9 +37,11 @@ use better_auth::{
         options::{AuthOptions, PasswordHashOptions},
         plugin::Plugin,
     },
+    email_password::EmailPasswordService,
     router::axum_adapter,
+    username::UsernameService,
     ApiKeyPlugin, AuthContext, AuthHooks, AuthPrincipal, AuthRouter, RequestMetadata,
-    SessionService, User,
+    SessionService, User, UsernamePlugin,
 };
 use serde_json::json;
 use sqlite::SqliteDbAdapter;
@@ -57,6 +62,8 @@ const DEV_ORIGINS: [&str; 3] = [
 struct AuthState {
     router: Arc<AuthRouter>,
     sessions: SessionService,
+    email_password: EmailPasswordService,
+    usernames: UsernameService,
     api_keys: ApiKeyService,
     adapter: Arc<dyn DbAdapter>,
 }
@@ -111,23 +118,38 @@ pub async fn init(
     };
     let context = AuthContext::builder(options)
         .database(db.clone())
-        .plugins(vec![Arc::new(ApiKeyPlugin) as Arc<dyn Plugin>])
+        .plugins(vec![
+            Arc::new(ApiKeyPlugin) as Arc<dyn Plugin>,
+            Arc::new(UsernamePlugin) as Arc<dyn Plugin>,
+        ])
         .hooks(vec![Arc::new(SingleOwnerAccount {
             adapter: db.clone(),
         }) as Arc<dyn AuthHooks>])
         .build()
         .map_err(|error| error.to_string())?;
     adapter
+        .add_missing_columns(&context.schema)
+        .await
+        .map_err(|error| error.to_string())?;
+    adapter
         .apply_migrations(&context.migration_plan())
+        .await
+        .map_err(|error| error.to_string())?;
+    account::backfill_usernames(db.as_ref())
         .await
         .map_err(|error| error.to_string())?;
     let router = AuthRouter::new(context.clone()).map_err(|error| error.to_string())?;
     let sessions = SessionService::new(context.clone()).map_err(|error| error.to_string())?;
+    let email_password =
+        EmailPasswordService::new(context.clone()).map_err(|error| error.to_string())?;
+    let usernames = UsernameService::new(context.clone());
     let api_keys = ApiKeyService::new(context).map_err(|error| error.to_string())?;
 
     let state = AuthState {
         router: Arc::new(router),
         sessions,
+        email_password,
+        usernames,
         api_keys,
         adapter: db,
     };

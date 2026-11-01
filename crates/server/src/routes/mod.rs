@@ -1,5 +1,6 @@
 //! HTTP route handlers wired into the application router.
 
+pub mod account;
 pub mod analytics;
 pub mod completions;
 pub mod fallback;

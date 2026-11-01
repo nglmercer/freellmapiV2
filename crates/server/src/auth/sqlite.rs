@@ -10,7 +10,7 @@
 use better_auth::core::{
     adapter::{record_id, DbAdapter, DbOperation, FilterOp, OrderDirection, Query},
     error::{AuthError, Result},
-    migration::{MigrationExecutor, MigrationPlan, SqlDialect},
+    migration::{MigrationExecutor, MigrationPlan, MigrationStep, SqlDialect},
     schema::{core_schema, FieldType, SchemaExtension},
 };
 use rusqlite::{
@@ -65,6 +65,53 @@ impl SqliteDbAdapter {
 
     pub async fn apply_migrations(&self, plan: &MigrationPlan) -> Result<()> {
         plan.apply(self, SqlDialect::Sqlite).await
+    }
+
+    /// Adds columns that `schema` defines but an existing table lacks.
+    ///
+    /// `CREATE TABLE IF NOT EXISTS` never alters a table that already exists, so
+    /// a field added to the schema later (such as the username plugin's
+    /// `user.username` on a database created by an earlier version) would be
+    /// missing, and the unique index on it would then fail. Run this before
+    /// `apply_migrations`. Tables that do not exist yet are left to the create
+    /// plan.
+    pub async fn add_missing_columns(&self, schema: &SchemaExtension) -> Result<()> {
+        let mut steps = Vec::new();
+        for (table, definition) in &schema.tables {
+            if !self.table_exists(table)? {
+                continue;
+            }
+            for (name, field) in &definition.fields {
+                if self.column_exists(table, name).await? != Some(true) {
+                    // An index on a column the table did not have is stale and
+                    // breaks writes once the column exists. Drop it; the create
+                    // plan rebuilds the unique index over the new column.
+                    self.execute(&format!("DROP INDEX IF EXISTS \"{table}_{name}_unique\";"))
+                        .await?;
+                    steps.push(MigrationStep::AddField {
+                        table: table.clone(),
+                        name: name.clone(),
+                        schema: field.clone(),
+                    });
+                }
+            }
+        }
+        MigrationPlan { steps }
+            .apply(self, SqlDialect::Sqlite)
+            .await
+    }
+
+    fn table_exists(&self, table: &str) -> Result<bool> {
+        let connection = self.connection.lock().map_err(|_| lock_error())?;
+        connection
+            .query_row(
+                "SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = ?1",
+                params![table],
+                |_| Ok(()),
+            )
+            .optional()
+            .map(|row| row.is_some())
+            .map_err(sqlite_error)
     }
 
     /// Registers application/plugin schema metadata so JSON and boolean
