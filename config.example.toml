@@ -1,0 +1,46 @@
+# FreeLLMAPI configuration. Optional: every setting has a default, so the
+# file can be deleted or left empty. Copy it to `config.toml` in the project
+# root (or point FREELLMAPI_CONFIG at another path) to change a setting.
+#
+# Secrets are NOT read from this file. Provider API keys, the encryption key,
+# the auth signing secret and the benchmark key are stored encrypted in the
+# database or added in the dashboard.
+
+[server]
+# HTTP port. 0 asks the OS for a free port.
+port = 3001
+# Keep 127.0.0.1 unless the deployment intentionally exposes the service.
+bind_address = "127.0.0.1"
+# Directory with the built dashboard. Defaults to client/dist.
+# static_dir = "/srv/freellmapi/dashboard"
+
+[database]
+# SQLite file. Defaults to data/freeapi.db under the project root.
+# path = "/var/lib/freellmapi/freeapi.db"
+
+[logging]
+enabled = true
+# tracing filter, for example "info" or "info,tower_http=debug".
+# level = "warn"
+
+[dashboard]
+# Extra browser origins allowed to call the API. Same-origin use needs no
+# entry; localhost:5173 and 127.0.0.1:5173 are always allowed for Vite.
+# origins = ["http://pi.local:3001"]
+origins = []
+
+[limits]
+# Request body limit for /v1 chat and embeddings, in bytes (default 20 MiB).
+v1_max_body_bytes = 20971520
+# Request body limit for /v1 audio, image and video routes (default 64 MiB).
+v1_media_max_body_bytes = 67108864
+
+[media]
+# Upstream media calls in flight at once.
+max_concurrency = 16
+
+[sources]
+# Public Hugging Face repository ids for metadata lookups (at most 20 used).
+huggingface_metadata_repos = []
+# Override the artificial-analysis endpoint (mirrors or Pro deployments).
+# artificial_analysis_url = "https://example.test/aa"

@@ -40,7 +40,7 @@ fn credentials() -> (String, String) {
 }
 
 /// Builds a fresh in-memory DB with migrations, the auth runtime, an owner
-/// account, fixtures and the router. No `.env` values are needed: the
+/// account, fixtures and the router. No configuration values are needed: the
 /// encryption key and auth secret are generated into the in-memory database.
 ///
 /// Holds the global test lock for the lifetime of the returned value.
@@ -50,7 +50,6 @@ pub async fn setup() -> TestApp {
     std::env::remove_var("ENCRYPTION_KEY");
     std::env::remove_var("BETTER_AUTH_SECRET");
     std::env::remove_var("DASHBOARD_ORIGINS");
-    // Silence .env auto-generation writes into the repo root during tests.
     std::env::set_var("PORT", "0");
     let conn_dir = std::env::temp_dir().join(format!("freellmapi-test-{}", std::process::id()));
     std::fs::create_dir_all(&conn_dir).ok();

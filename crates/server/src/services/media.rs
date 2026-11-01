@@ -150,21 +150,12 @@ pub fn may_fall_back(err: &ProviderError, ambiguous_ok: bool) -> bool {
     }
 }
 
-/// Default number of media calls allowed in flight at once.
-const DEFAULT_MAX_CONCURRENT_MEDIA: usize = 16;
-
 /// Process-wide bound on concurrent upstream media calls
-/// (`MEDIA_MAX_CONCURRENCY`, default 16). A permit is held only while a call
+/// (`media.max_concurrency`, default 16). A permit is held only while a call
 /// is being made, so a streamed response does not occupy a slot afterwards.
 fn permits() -> &'static Semaphore {
     static PERMITS: OnceLock<Semaphore> = OnceLock::new();
-    PERMITS.get_or_init(|| {
-        let max = crate::env::env_string("MEDIA_MAX_CONCURRENCY")
-            .and_then(|s| s.parse::<usize>().ok())
-            .filter(|&n| n > 0)
-            .unwrap_or(DEFAULT_MAX_CONCURRENT_MEDIA);
-        Semaphore::new(max)
-    })
+    PERMITS.get_or_init(|| Semaphore::new(crate::config::get().media.max_concurrency))
 }
 
 /// Runs `op` against candidates in order. Returns the first success, or the

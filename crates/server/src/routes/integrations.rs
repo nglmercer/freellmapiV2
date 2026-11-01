@@ -1,4 +1,4 @@
-//! Benchmark-source credentials, set from the dashboard instead of `.env`.
+//! Benchmark-source credentials, set from the dashboard, never from configuration files.
 
 use axum::extract::Json as JsonBody;
 use axum::response::{IntoResponse, Response};

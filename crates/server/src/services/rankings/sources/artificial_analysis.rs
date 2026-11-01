@@ -149,7 +149,7 @@ pub struct ArtificialAnalysisProvider {
 impl ArtificialAnalysisProvider {
     pub fn from_env() -> Self {
         Self {
-            url: endpoint_url(crate::env::env_string("ARTIFICIAL_ANALYSIS_URL")),
+            url: endpoint_url(crate::config::get().sources.artificial_analysis_url.clone()),
             api_key: crate::services::integrations::artificial_analysis_key(),
         }
     }

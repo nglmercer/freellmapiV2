@@ -47,10 +47,11 @@ fn valid_hf_repo(repo: &str) -> bool {
         })
 }
 fn hf_repos() -> Vec<String> {
-    crate::env::env_string("HUGGINGFACE_METADATA_REPOS")
-        .unwrap_or_default()
-        .split(',')
-        .map(str::trim)
+    crate::config::get()
+        .sources
+        .huggingface_metadata_repos
+        .iter()
+        .map(|r| r.trim())
         .filter(|r| valid_hf_repo(r))
         .take(20)
         .map(str::to_owned)
@@ -105,7 +106,11 @@ impl ModelMetadataSource for CatalogSource {
         SourceDefinition {
             id: self.0,
             url: if self.0 == "artificial-analysis" {
-                crate::env::env_string("ARTIFICIAL_ANALYSIS_URL").unwrap_or_else(|| url.into())
+                crate::config::get()
+                    .sources
+                    .artificial_analysis_url
+                    .clone()
+                    .unwrap_or_else(|| url.into())
             } else {
                 url.into()
             },

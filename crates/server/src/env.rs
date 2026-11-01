@@ -1,4 +1,4 @@
-//! Optional `.env` loading and project-root discovery.
+//! Project-root discovery and environment lookups for launcher-provided paths.
 //!
 //! The binary can run from anywhere, so the project root is located by
 //! walking up from the current directory and looking for the client plus the
@@ -47,30 +47,11 @@ pub fn set_project_root(path: PathBuf) {
     let _ = PROJECT_ROOT.set(path);
 }
 
-pub fn get_port() -> u16 {
-    env_string("PORT")
-        .and_then(|s| s.parse().ok())
-        .unwrap_or(3001)
-}
-
-pub fn get_bind_address() -> String {
-    env_string("BIND_ADDRESS").unwrap_or_else(|| "127.0.0.1".to_string())
-}
-
-/// Env lookup: real env var first, then the loaded .env file.
+/// Reads a launcher or secret environment variable. Non-secret settings come
+/// from `config.toml` instead.
 pub fn env_string(key: &str) -> Option<String> {
     match std::env::var(key) {
         Ok(v) if !v.is_empty() => Some(v),
         _ => None,
-    }
-}
-
-/// Loads `<root>/.env` when it exists. The file is optional: every setting
-/// has a default, and secrets are generated and stored in the database when
-/// they are not supplied.
-pub fn init() {
-    let env_path = project_root().join(".env");
-    if env_path.exists() {
-        dotenvy::from_path(&env_path).ok();
     }
 }

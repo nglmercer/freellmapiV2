@@ -2,9 +2,9 @@
 
 use std::time::Instant;
 
+use server::config;
 use server::crypto;
 use server::db;
-use server::env;
 use server::types::{ChatMessage, CompletionOptions};
 
 #[derive(Debug, Clone)]
@@ -23,7 +23,7 @@ struct ProbeResult {
 
 #[tokio::main]
 async fn main() {
-    env::init();
+    config::init();
     server::logger::init();
 
     db::init_db(None).expect("failed to initialize database");
