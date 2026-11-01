@@ -174,6 +174,23 @@ fn to_gemini_tool_config(tool_choice: Option<&ChatToolChoice>) -> Option<serde_j
     }
 }
 
+/// Gemini translation covers text and image parts only. Any other part type
+/// is reported as an explicit error instead of being dropped from the prompt.
+fn unsupported_content_error(messages: &[ChatMessage]) -> Option<ProviderError> {
+    messages.iter().find_map(|m| match &m.content {
+        MessageContent::Parts(parts) => parts
+            .iter()
+            .find(|p| !matches!(p.r#type.as_str(), "text" | "image_url"))
+            .map(|p| {
+                ProviderError::new(format!(
+                    "Google Gemini does not support content part type '{}' in this adapter",
+                    p.r#type
+                ))
+            }),
+        _ => None,
+    })
+}
+
 /// `contentToGeminiParts(content)`.
 fn content_to_gemini_parts(content: &MessageContent) -> Vec<serde_json::Value> {
     match content {
@@ -588,6 +605,9 @@ impl GoogleProvider {
         options: &CompletionOptions,
         stream: bool,
     ) -> Result<reqwest::Response, ProviderError> {
+        if let Some(err) = unsupported_content_error(messages) {
+            return Err(err);
+        }
         let body = gemini_request_body(messages, options);
         let url = if stream {
             format!(
@@ -979,6 +999,48 @@ mod tests {
                 ]}
             ])
         );
+    }
+
+    #[test]
+    fn gemini_rejects_unsupported_audio_part_instead_of_dropping_it() {
+        let messages = vec![ChatMessage {
+            role: "user".to_string(),
+            content: MessageContent::Parts(vec![
+                serde_json::from_value(json!({"type": "text", "text": "listen"})).unwrap(),
+                serde_json::from_value(json!({
+                    "type": "input_audio",
+                    "input_audio": {"data": "AAAA", "format": "wav"}
+                }))
+                .unwrap(),
+            ]),
+            name: None,
+            tool_call_id: None,
+            tool_calls: None,
+            extra: serde_json::Map::new(),
+        }];
+        let err = unsupported_content_error(&messages).expect("audio must be rejected");
+        assert!(err.message.contains("input_audio"));
+        assert_eq!(err.status, None);
+    }
+
+    #[test]
+    fn gemini_accepts_text_and_image_parts() {
+        let messages = vec![ChatMessage {
+            role: "user".to_string(),
+            content: MessageContent::Parts(vec![
+                serde_json::from_value(json!({"type": "text", "text": "hi"})).unwrap(),
+                serde_json::from_value(json!({
+                    "type": "image_url",
+                    "image_url": {"url": "data:image/png;base64,AAAA"}
+                }))
+                .unwrap(),
+            ]),
+            name: None,
+            tool_call_id: None,
+            tool_calls: None,
+            extra: serde_json::Map::new(),
+        }];
+        assert!(unsupported_content_error(&messages).is_none());
     }
 
     #[test]

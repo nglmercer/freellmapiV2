@@ -5,6 +5,7 @@ pub mod auth;
 pub mod db;
 pub mod env;
 pub mod error;
+pub mod media;
 pub mod providers;
 pub mod routes;
 pub mod services;
