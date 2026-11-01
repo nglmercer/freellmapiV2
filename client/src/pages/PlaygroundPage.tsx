@@ -5,13 +5,14 @@ import { Button } from '@/components/ui/button'
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
 import { PageHeader } from '@/components/page-header'
 import { useTranslations } from '@/hooks/useTranslations'
+import { ACCEPT_ATTRIBUTE, AttachmentError, buildContent, readAttachment, type Attachment } from '@/lib/attachments'
 import type { FallbackEntry } from '../../../shared/types'
 
 interface ChatMessage {
   role: 'user' | 'assistant'
   content: string
-  /** Optional image attached to a user message, as a data URL. */
-  image?: string
+  /** Files attached to a user message. */
+  attachments?: Attachment[]
   meta?: {
     platform?: string
     model?: string
@@ -20,15 +21,8 @@ interface ChatMessage {
   }
 }
 
-const MAX_ATTACHMENT_BYTES = 5 * 1024 * 1024
-
-/** Plain string for text-only messages; content parts when an image is attached. */
-function toContent(m: ChatMessage): string | Array<Record<string, unknown>> {
-  if (!m.image) return m.content
-  const parts: Array<Record<string, unknown>> = []
-  if (m.content) parts.push({ type: 'text', text: m.content })
-  parts.push({ type: 'image_url', image_url: { url: m.image } })
-  return parts
+function toContent(m: ChatMessage) {
+  return buildContent(m.content, m.attachments ?? [])
 }
 
 export default function PlaygroundPage() {
@@ -37,7 +31,7 @@ export default function PlaygroundPage() {
   const [input, setInput] = useState('')
   const [loading, setLoading] = useState(false)
   const [selectedModel, setSelectedModel] = useState<string>('auto')
-  const [attachedImage, setAttachedImage] = useState<string | null>(null)
+  const [attachments, setAttachments] = useState<Attachment[]>([])
   const [attachError, setAttachError] = useState<string | null>(null)
   const messagesEndRef = useRef<HTMLDivElement>(null)
   const inputRef = useRef<HTMLTextAreaElement>(null)
@@ -56,13 +50,13 @@ export default function PlaygroundPage() {
 
   const handleSend = async () => {
     const text = input.trim()
-    if ((!text && !attachedImage) || loading) return
+    if ((!text && attachments.length === 0) || loading) return
 
-    const userMsg: ChatMessage = { role: 'user', content: text, image: attachedImage ?? undefined }
+    const userMsg: ChatMessage = { role: 'user', content: text, attachments }
     const newMessages = [...messages, userMsg]
     setMessages(newMessages)
     setInput('')
-    setAttachedImage(null)
+    setAttachments([])
     setLoading(true)
     inputRef.current?.focus()
 
@@ -255,9 +249,15 @@ export default function PlaygroundPage() {
                         : 'bg-muted'
                     }`}
                   >
-                    {msg.image && (
-                      <img src={msg.image} alt="" className="max-h-60 rounded-md mb-2" />
-                    )}
+                    {msg.attachments?.map((a, i) => (
+                      <div key={i} className="mb-2">
+                        {a.kind === 'image' && <img src={a.dataUrl} alt={a.name} className="max-h-60 rounded-md" />}
+                        {a.kind === 'audio' && <audio controls src={a.dataUrl} className="max-w-full" />}
+                        {a.kind === 'document' && (
+                          <span className="inline-block rounded bg-background/40 px-2 py-1 text-xs">📄 {a.name}</span>
+                        )}
+                      </div>
+                    ))}
                     <div className="whitespace-pre-wrap">{msg.content}</div>
                     {msg.meta && (
                       <div className="flex items-center gap-2 mt-2 flex-wrap text-[11px] opacity-70 tabular-nums">
@@ -289,16 +289,20 @@ export default function PlaygroundPage() {
         </div>
 
         <div className="border-t bg-background/50 p-3">
-          {(attachedImage || attachError) && (
-            <div className="flex items-center gap-2 pb-2 text-sm">
-              {attachedImage && (
-                <>
-                  <img src={attachedImage} alt="" className="size-10 rounded object-cover border" />
-                  <button type="button" className="underline text-muted-foreground" onClick={() => setAttachedImage(null)}>
+          {(attachments.length > 0 || attachError) && (
+            <div className="flex flex-wrap items-center gap-2 pb-2 text-sm">
+              {attachments.map((a, i) => (
+                <span key={i} className="inline-flex items-center gap-2 rounded-md border px-2 py-1">
+                  {a.kind === 'image' ? '🖼' : a.kind === 'audio' ? '🎵' : '📄'} {a.name}
+                  <button
+                    type="button"
+                    className="underline text-muted-foreground"
+                    onClick={() => setAttachments(list => list.filter((_, j) => j !== i))}
+                  >
                     {t('playground.removeAttachment')}
                   </button>
-                </>
-              )}
+                </span>
+              ))}
               {attachError && <span className="text-destructive">{attachError}</span>}
             </div>
           )}
@@ -321,20 +325,22 @@ export default function PlaygroundPage() {
             <input
               ref={fileRef}
               type="file"
-              accept="image/png,image/jpeg,image/webp"
+              multiple
+              accept={ACCEPT_ATTRIBUTE}
               className="hidden"
-              onChange={e => {
-                const file = e.target.files?.[0]
+              onChange={async e => {
+                const files = Array.from(e.target.files ?? [])
                 e.target.value = ''
-                if (!file) return
-                if (file.size > MAX_ATTACHMENT_BYTES) {
-                  setAttachError(t('playground.attachTooLarge'))
-                  return
-                }
                 setAttachError(null)
-                const reader = new FileReader()
-                reader.onload = () => setAttachedImage(String(reader.result))
-                reader.readAsDataURL(file)
+                for (const file of files) {
+                  try {
+                    const attachment = await readAttachment(file)
+                    setAttachments(list => [...list, attachment])
+                  } catch (err) {
+                    if (err instanceof AttachmentError) setAttachError(t(err.key, err.params))
+                    else setAttachError(t('playground.attachReadFailed'))
+                  }
+                }
               }}
             />
             <Button
@@ -345,7 +351,7 @@ export default function PlaygroundPage() {
             >
               {t('playground.attach')}
             </Button>
-            <Button onClick={handleSend} disabled={loading || (!input.trim() && !attachedImage)} size="default">
+            <Button onClick={handleSend} disabled={loading || (!input.trim() && attachments.length === 0)} size="default">
               {loading ? t('playground.sending') : t('playground.send')}
             </Button>
           </div>

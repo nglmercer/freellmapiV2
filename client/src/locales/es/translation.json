@@ -115,9 +115,11 @@
     "streamError": "Error de transmisión: {{message}}",
     "fallback_one": "{{count}} fallback",
     "fallback_other": "{{count}} fallbacks",
-    "attach": "Adjuntar imagen",
-    "attachTooLarge": "La imagen supera 5 MB.",
-    "removeAttachment": "Quitar imagen"
+    "attach": "Adjuntar archivo",
+    "attachTooLarge": "{{name}} supera los {{limit}} MB.",
+    "removeAttachment": "Quitar",
+    "attachUnsupported": "“{{name}}” no está soportado. Usa una imagen (PNG, JPEG, WebP, GIF), audio (WAV, MP3, FLAC, OGG, M4A, WebM) o un archivo de texto. Los PDF y Word requieren extracción de texto, que aún no está disponible.",
+    "attachReadFailed": "No se pudo leer el archivo."
   },
   "keys": {
     "title": "Claves",

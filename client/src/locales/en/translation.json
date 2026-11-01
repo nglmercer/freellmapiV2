@@ -115,9 +115,11 @@
     "streamError": "Stream Error: {{message}}",
     "fallback_one": "{{count}} fallback",
     "fallback_other": "{{count}} fallbacks",
-    "attach": "Attach image",
-    "attachTooLarge": "Image is larger than 5 MB.",
-    "removeAttachment": "Remove image"
+    "attach": "Attach file",
+    "attachTooLarge": "{{name}} is larger than {{limit}} MB.",
+    "removeAttachment": "Remove",
+    "attachUnsupported": "“{{name}}” is not supported. Use an image (PNG, JPEG, WebP, GIF), audio (WAV, MP3, FLAC, OGG, M4A, WebM) or a text file. PDF and Word files need text extraction, which is not available yet.",
+    "attachReadFailed": "The file could not be read."
   },
   "keys": {
     "title": "Keys",
