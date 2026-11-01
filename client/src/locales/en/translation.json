@@ -240,7 +240,9 @@
     "tokenBudget": {
       "title": "Monthly token budget",
       "remaining": "{{remaining}} remaining",
-      "of": "{{remainingPct}}% of {{total}}"
+      "of": "{{remainingPct}}% of {{total}}",
+      "segment": "{{name}} ({{platform}}) — {{tokens}} remaining",
+      "usedTitle": "Used — {{tokens}}"
     },
     "quality": "Quality",
     "speed": "Speed",
@@ -332,13 +334,8 @@
       "enabled": "Enabled",
       "qualityScored": "Quality scored",
       "speedMeasured": "Speed measured",
-      "freeCount": "{{count}} free"
-    },
-    "preview": {
-      "title": "Next up",
-      "hint": "Requests try these in order",
-      "empty": "No enabled models. Enable at least one to route requests.",
-      "noScores": "No scores yet"
+      "freeCount": "{{count}} free",
+      "addKey": "Add a benchmark key"
     },
     "metrics": {
       "quality": "Quality",
@@ -370,7 +367,8 @@
       "updated": "Updated",
       "rateLimitHits": "Rate-limit hits",
       "noCapabilities": "No capability data yet",
-      "summary": "Details"
+      "summary": "Details",
+      "rateLimits": "Rate limits"
     },
     "tier": {
       "free": "Free",
@@ -393,7 +391,33 @@
     "configure": "Configure {{provider}}",
     "unconfiguredNote": "{{count}} entries are hidden because their provider has no key: {{platforms}}.",
     "showUnconfigured": "Show {{count}} unconfigured",
-    "hideUnconfigured": "Hide unconfigured"
+    "hideUnconfigured": "Hide unconfigured",
+    "short": {
+      "needsKey": "Needs benchmark key",
+      "awaiting": "After first request"
+    },
+    "syncResult": {
+      "added": "+{{count}} added",
+      "updated": "{{count}} updated",
+      "removed": "−{{count}} removed",
+      "result": "Sync complete: {{changes}}",
+      "none": "Models are up to date",
+      "error": "Sync failed: {{message}}"
+    },
+    "save": {
+      "saving": "Saving…",
+      "saved": "All changes saved",
+      "failed": "Couldn't save the order",
+      "retry": "Retry",
+      "error": "Couldn't save the order: {{message}}"
+    },
+    "sort": {
+      "error": "Sort failed: {{message}}"
+    },
+    "order": {
+      "title": "Chain order"
+    },
+    "unconfiguredShown": "Showing {{count}} entries whose provider has no key."
   },
   "analytics": {
     "title": "Analytics",
