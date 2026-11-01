@@ -22,7 +22,7 @@ export const DEFAULT_FILTERS: CatalogFilters = {
 }
 
 /** Capabilities the list can filter on; the backend accepts a single one. */
-export const CAPABILITY_FILTERS = ['tools', 'vision', 'reasoning', 'structured_output'] as const
+export const CAPABILITY_FILTERS = ['tools', 'vision', 'audio_input', 'video_input', 'reasoning', 'structured_output'] as const
 
 /** `value` is the minimum context in tokens; empty means no minimum. */
 export const CONTEXT_PRESETS = [
