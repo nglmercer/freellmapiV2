@@ -59,6 +59,10 @@ fn extract_status(status: u16) -> u16 {
 fn is_retryable_error(err: &ProviderError) -> bool {
     let msg = err.message.to_lowercase();
     [
+        // Out of credits on this key/model: another candidate may still answer.
+        "402",
+        "payment required",
+        "add credits",
         "429",
         "rate limit",
         "too many requests",
@@ -287,9 +291,53 @@ pub async fn chat_completions(body: Bytes) -> Response {
                 |r| r.get(0),
             )
             .ok();
+        // Release the lock before the checks below, which take it again.
+        drop(conn);
         tracing::info!(
             "[Proxy] Requested specific model: {requested}, found ID: {preferred_model:?}, isSpecific: {is_specific_model}"
         );
+        // A requested model is never silently replaced by another one.
+        match preferred_model {
+            None => {
+                return error_json(
+                    StatusCode::NOT_FOUND,
+                    "invalid_request_error",
+                    &format!("Model '{requested}' is not available. See GET /v1/models."),
+                );
+            }
+            Some(id) => {
+                let policy = crate::services::model_metadata::routing::RoutingPolicy::from_request(
+                    &raw,
+                    estimated_input_tokens,
+                    options.max_tokens.unwrap_or(1000),
+                );
+                let decision = {
+                    let conn = db().lock().await;
+                    crate::services::model_metadata::routing::evaluate(&conn, id, &policy)
+                };
+                if let Ok(decision) = decision {
+                    let missing: Vec<String> = decision
+                        .rejection_reasons
+                        .iter()
+                        .filter_map(|r| {
+                            r.strip_prefix("capability:")
+                                .and_then(|rest| rest.strip_suffix(":unsupportedOrUnknown"))
+                                .map(str::to_string)
+                        })
+                        .collect();
+                    if !missing.is_empty() {
+                        return error_json(
+                            StatusCode::BAD_REQUEST,
+                            "invalid_request_error",
+                            &format!(
+                                "Model '{requested}' has no verified support for: {}. Choose a model that accepts this input.",
+                                missing.join(", ")
+                            ),
+                        );
+                    }
+                }
+            }
+        }
     }
 
     let mut skip_keys: HashSet<String> = HashSet::new();
@@ -318,6 +366,17 @@ pub async fn chat_completions(body: Bytes) -> Response {
         let route = match route {
             Ok(r) => r,
             Err(err) => {
+                if is_specific_model {
+                    return error_json(
+                        StatusCode::SERVICE_UNAVAILABLE,
+                        "routing_error",
+                        &format!(
+                            "Requested model '{}' is not available right now: {}",
+                            requested_model.as_deref().unwrap_or_default(),
+                            err.message
+                        ),
+                    );
+                }
                 if let Some(ref last) = last_error {
                     return (
                         StatusCode::TOO_MANY_REQUESTS,
@@ -340,6 +399,18 @@ pub async fn chat_completions(body: Bytes) -> Response {
                     .into_response();
             }
         };
+
+        // A specific model must be the one routed to; never substitute another.
+        if is_specific_model && requested_model.as_deref() != Some(route.model_id.as_str()) {
+            return error_json(
+                StatusCode::SERVICE_UNAVAILABLE,
+                "routing_error",
+                &format!(
+                    "Requested model '{}' is not available right now (no usable key or it is cooling down).",
+                    requested_model.as_deref().unwrap_or_default()
+                ),
+            );
+        }
 
         // Provider call — runs WITHOUT the DB lock held.
         let call: Result<Response, ProviderError> = if stream {
@@ -452,6 +523,15 @@ pub async fn chat_completions(body: Bytes) -> Response {
                 "type": "rate_limit_error",
             }
         })),
+    )
+        .into_response()
+}
+
+/// OpenAI-shaped error body with the given status.
+fn error_json(status: StatusCode, kind: &str, message: &str) -> Response {
+    (
+        status,
+        axum::Json(json!({ "error": { "message": message, "type": kind } })),
     )
         .into_response()
 }
