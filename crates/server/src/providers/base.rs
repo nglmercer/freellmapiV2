@@ -3,6 +3,10 @@
 use async_trait::async_trait;
 use tokio::sync::mpsc;
 
+use super::capabilities::{
+    CapabilitySet, EmbeddingProvider, ImageProvider, SpeechProvider, TranscriptionProvider,
+    VideoProvider,
+};
 use crate::types::{ChatCompletionChunk, ChatCompletionResponse, ChatMessage, CompletionOptions};
 
 /// Streaming chunks arrive over a channel.
@@ -71,6 +75,29 @@ pub trait Provider: Send + Sync {
     /// transport error (DNS/timeout/TLS), which health checks must NOT treat
     /// as a failure count.
     async fn validate_key(&self, api_key: &str) -> Result<bool, ProviderError>;
+
+    /// Operations this provider implements. Chat is always present; every
+    /// other entry must have a matching accessor below returning `Some`.
+    fn capabilities(&self) -> CapabilitySet {
+        CapabilitySet::chat_only()
+    }
+
+    /// Optional modality interfaces. Default: not supported.
+    fn speech(&self) -> Option<&dyn SpeechProvider> {
+        None
+    }
+    fn transcription(&self) -> Option<&dyn TranscriptionProvider> {
+        None
+    }
+    fn images(&self) -> Option<&dyn ImageProvider> {
+        None
+    }
+    fn embeddings(&self) -> Option<&dyn EmbeddingProvider> {
+        None
+    }
+    fn video(&self) -> Option<&dyn VideoProvider> {
+        None
+    }
 }
 
 /// Shared reqwest client with per-request timeouts.

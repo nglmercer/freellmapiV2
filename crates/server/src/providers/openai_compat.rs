@@ -5,6 +5,7 @@ use serde_json::json;
 use tokio::sync::mpsc;
 
 use super::base::{normalize_choices, send_request, ChunkReceiver, Provider, ProviderError};
+use super::capabilities::{Capability, CapabilitySet};
 use crate::types::{ChatCompletionChunk, ChatCompletionResponse, ChatMessage, CompletionOptions};
 
 /// Generic provider for platforms that use an OpenAI-compatible API.
@@ -21,6 +22,9 @@ pub struct OpenAICompatProvider {
     /// locally-hosted inference (llama.cpp / vLLM on CPU) can take 30-120s
     /// for long prompts. Default 15000.
     pub timeout_ms: u64,
+    /// Operations this endpoint supports beyond chat. Opt-in per provider and
+    /// per model family; chat is always included.
+    pub capabilities: CapabilitySet,
 }
 
 pub struct OpenAICompatOptions {
@@ -33,8 +37,15 @@ pub struct OpenAICompatOptions {
 }
 
 impl OpenAICompatProvider {
+    /// Declares the non-chat operations this endpoint supports.
+    pub fn with_capabilities(mut self, caps: CapabilitySet) -> Self {
+        self.capabilities = caps.with(Capability::Chat);
+        self
+    }
+
     pub fn new(opts: OpenAICompatOptions) -> Self {
         Self {
+            capabilities: CapabilitySet::chat_only(),
             platform: opts.platform,
             provider_name: opts.name,
             base_url: opts.base_url,
@@ -122,6 +133,10 @@ impl OpenAICompatProvider {
 impl Provider for OpenAICompatProvider {
     fn platform(&self) -> String {
         self.platform.clone()
+    }
+
+    fn capabilities(&self) -> CapabilitySet {
+        self.capabilities.clone()
     }
 
     fn name(&self) -> String {
