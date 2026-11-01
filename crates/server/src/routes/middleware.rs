@@ -1,13 +1,8 @@
-//! Request validation, unified-key authentication, message normalization, and
-//! token estimation.
+//! Request validation, message normalization, and token estimation.
 
-use axum::extract::Request;
-use axum::http::HeaderMap;
-use axum::middleware::Next;
 use axum::response::{IntoResponse, Response};
 use serde_json::Value;
 
-use crate::db::unified_key::get_unified_api_key;
 use crate::types::{ChatCompletionRequest, ChatMessage, ContentPart, MessageContent};
 
 /// Errors collect zod-style messages; the proxy route joins them with ", "
@@ -520,135 +515,6 @@ pub fn malformed_json() -> Response {
         .into_response()
 }
 
-// ---- Auth ----
-
-/// Constant-time comparison for authentication tokens.
-pub fn timing_safe_string_equal(a: &str, b: &str) -> bool {
-    let ab = a.as_bytes();
-    let bb = b.as_bytes();
-    let match_len = ab.len() == bb.len();
-    // Constant-time compare over equal lengths; on length mismatch, compare
-    // against itself to burn the same amount of CPU before returning false.
-    let compare_to: &[u8] = if match_len { bb } else { ab };
-    let mut diff = 0u8;
-    for i in 0..ab.len() {
-        diff |= ab[i] ^ compare_to[i];
-    }
-    diff == 0 && match_len
-}
-
-fn bearer_token(headers: &HeaderMap) -> Option<String> {
-    let auth = headers
-        .get(axum::http::header::AUTHORIZATION)?
-        .to_str()
-        .ok()?;
-    // header.replace(/^Bearer\s+/i, '')
-    static RE: std::sync::LazyLock<regex::Regex> =
-        std::sync::LazyLock::new(|| regex::Regex::new(r"(?i)^Bearer\s+").unwrap());
-    let token = RE.replace(auth, "").to_string();
-    if token.is_empty() {
-        None
-    } else {
-        Some(token)
-    }
-}
-
-/// `apiKeyAuth` — returns Ok(()) or a 401 JSON response.
-pub async fn api_key_auth(headers: &HeaderMap) -> Result<(), Response> {
-    let Some(token) = bearer_token(headers) else {
-        tracing::info!("[Auth] Missing Authorization header");
-        return Err((
-            axum::http::StatusCode::UNAUTHORIZED,
-            axum::Json(serde_json::json!({
-                "error": {
-                    "message": "Missing Authorization header. Include \"Authorization: Bearer <your-api-key>\"",
-                    "type": "authentication_error"
-                }
-            })),
-        )
-            .into_response());
-    };
-
-    let unified_key = get_unified_api_key().await;
-    if !timing_safe_string_equal(&token, &unified_key) {
-        tracing::info!(
-            "[Auth] Invalid API key provided (length: {} expected: {})",
-            token.len(),
-            unified_key.len()
-        );
-        return Err((
-            axum::http::StatusCode::UNAUTHORIZED,
-            axum::Json(serde_json::json!({
-                "error": {
-                    "message": "Invalid API key. Get your key from the dashboard Settings page.",
-                    "type": "authentication_error"
-                }
-            })),
-        )
-            .into_response());
-    }
-    Ok(())
-}
-
-/// Authentication middleware for dashboard/admin routes. This credential is
-/// deliberately separate from the unified proxy key because it grants access
-/// to provider credentials, configuration, and key regeneration.
-pub async fn admin_auth(request: Request, next: Next) -> Response {
-    if let Err(response) = admin_api_key_auth(request.headers()).await {
-        return response;
-    }
-    next.run(request).await
-}
-
-/// Returns Ok(()) or a generic 401/503 response without disclosing the admin
-/// credential or whether a supplied token was close to valid.
-pub async fn admin_api_key_auth(headers: &HeaderMap) -> Result<(), Response> {
-    let Some(expected) = crate::env::env_string("ADMIN_API_KEY")
-        .filter(|key| crate::env::is_valid_admin_api_key(key))
-    else {
-        tracing::error!("ADMIN_API_KEY is not configured");
-        return Err((
-            axum::http::StatusCode::SERVICE_UNAVAILABLE,
-            axum::Json(serde_json::json!({
-                "error": {
-                    "message": "Admin API authentication is not configured",
-                    "type": "configuration_error"
-                }
-            })),
-        )
-            .into_response());
-    };
-
-    let Some(token) = bearer_token(headers) else {
-        return Err(admin_authentication_error());
-    };
-    if !timing_safe_string_equal(&token, expected.trim()) {
-        tracing::info!("[AdminAuth] Invalid admin credential provided");
-        return Err(admin_authentication_error());
-    }
-    Ok(())
-}
-
-pub async fn unified_api_auth(request: Request, next: Next) -> Response {
-    if let Err(response) = api_key_auth(request.headers()).await {
-        return response;
-    }
-    next.run(request).await
-}
-
-fn admin_authentication_error() -> Response {
-    (
-        axum::http::StatusCode::UNAUTHORIZED,
-        axum::Json(serde_json::json!({
-            "error": {
-                "message": "Invalid or missing admin Authorization header",
-                "type": "authentication_error"
-            }
-        })),
-    )
-        .into_response()
-}
-
 // ---- normalizeContent / normalizeMessages ----
 
 fn normalize_content(content: &Value) -> MessageContent {
@@ -770,14 +636,6 @@ mod tests {
     use super::*;
 
     #[test]
-    fn timing_safe_equal() {
-        assert!(timing_safe_string_equal("abc123", "abc123"));
-        assert!(!timing_safe_string_equal("abc123", "abc124"));
-        assert!(!timing_safe_string_equal("abc123", "abc1234"));
-        assert!(!timing_safe_string_equal("", "x"));
-    }
-
-    #[test]
     fn estimate_tokens_matches_char_div_4() {
         let msgs = vec![ChatMessage::text("user", "hello world this is text")];
         assert_eq!(estimate_input_tokens(&msgs), (24.0f64 / 4.0).ceil() as i64);
@@ -823,15 +681,6 @@ mod tests {
     }
 
     // ── validation behavior tests ──
-
-    #[test]
-    fn timing_safe_string_equal_cases() {
-        assert!(timing_safe_string_equal("abc", "abc"));
-        assert!(!timing_safe_string_equal("abc", "xyz"));
-        assert!(!timing_safe_string_equal("abc", "abcdef"));
-        assert!(!timing_safe_string_equal("", "abc"));
-        assert!(timing_safe_string_equal("", ""));
-    }
 
     #[test]
     fn normalize_basic_user_message() {

@@ -17,14 +17,6 @@
     "loading": "Loading…",
     "close": "Close"
   },
-  "adminAuth": {
-    "title": "Dashboard authentication",
-    "description": "The tray launcher supplies this automatically. If you started the server manually, enter ADMIN_API_KEY from its configuration. It is kept only for this browser session.",
-    "label": "Admin API key",
-    "placeholder": "Paste the admin key",
-    "invalid": "That admin key was rejected. Check the server configuration and try again.",
-    "continue": "Continue"
-  },
   "setup": {
     "welcome": {
       "title": "Welcome to FreeLLMAPI",
@@ -32,8 +24,8 @@
       "whatYoullConfigure": "What you'll configure:",
       "providerKeys": "Provider API Keys",
       "providerKeysDescription": "Add keys from free LLM providers (Google, Groq, Mistral, etc.)",
-      "unifiedApiKey": "Unified API Key",
-      "unifiedApiKeyDescription": "Get your personal key to authenticate requests to this proxy",
+      "unifiedApiKey": "API Keys",
+      "unifiedApiKeyDescription": "Create keys your apps use to authenticate requests to this proxy",
       "startUsing": "Start Using",
       "startUsingDescription": "Use the OpenAI-compatible endpoint with any client",
       "tipPrefix": "Tip:",
@@ -123,20 +115,9 @@
   },
   "keys": {
     "title": "Keys",
-    "description": "Provider credentials and the unified API key your apps connect with.",
+    "description": "Provider credentials, and the API keys your apps use to connect.",
     "checkAll": "Check all",
     "checking": "Checking…",
-    "unifiedKey": {
-      "title": "Your unified API key",
-      "description": "Use this as your OpenAI api_key; it authenticates requests to this proxy.",
-      "regenerate": "Regenerate",
-      "hide": "Hide",
-      "show": "Show",
-      "copied": "Copied",
-      "copy": "Copy",
-      "baseUrl": "Base URL",
-      "endpoint": "Endpoint"
-    },
     "addKey": {
       "title": "Add a provider key",
       "platformLabel": "Platform",
@@ -163,7 +144,24 @@
     "check": "Check",
     "remove": "Remove",
     "keyCount_one": "{{count}} key",
-    "keyCount_other": "{{count}} keys"
+    "keyCount_other": "{{count}} keys",
+    "apiKeys": {
+      "title": "API keys",
+      "description": "Keys authenticate requests to this proxy. The dashboard session also works for the playground.",
+      "namePlaceholder": "Key name, e.g. laptop",
+      "create": "Create key",
+      "creating": "Creating…",
+      "newKeyTitle": "New key — copy it now",
+      "newKeyDescription": "The full key is shown only once. Store it somewhere safe.",
+      "copy": "Copy",
+      "copied": "Copied",
+      "dismiss": "Done",
+      "empty": "No API keys yet. Create one to start using the proxy.",
+      "revoke": "Revoke",
+      "error": "Could not create the key. Try again.",
+      "baseUrl": "Base URL",
+      "endpoint": "Endpoint"
+    }
   },
   "fallback": {
     "title": "Fallback chain",
@@ -446,5 +444,20 @@
     "price": "Input price / 1M tokens",
     "reliability": "Reliability",
     "details": "Metrics and local performance"
+  },
+  "auth": {
+    "createTitle": "Create the owner account",
+    "createDescription": "This dashboard has a single owner. Create the account now; afterwards you sign in with it.",
+    "signInTitle": "Sign in",
+    "signInDescription": "Sign in to manage provider keys, routing and analytics.",
+    "name": "Name",
+    "email": "Email",
+    "password": "Password",
+    "passwordHint": "At least 8 characters.",
+    "createButton": "Create account",
+    "signInButton": "Sign in",
+    "signOut": "Sign out",
+    "failed": "Something went wrong. Try again.",
+    "unreachable": "Cannot reach the server."
   }
 }

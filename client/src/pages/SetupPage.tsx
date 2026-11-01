@@ -1,7 +1,8 @@
 import { useState } from 'react'
-import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
+import { useMutation, useQueryClient } from '@tanstack/react-query'
 import { useNavigate } from 'react-router-dom'
 import { apiFetch } from '@/lib/api'
+import { ApiKeysPanel } from '@/components/api-keys-panel'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
@@ -332,25 +333,6 @@ function AddKeysStep({
 
 function UnifiedKeyStep({ onNext, onBack }: { onNext: () => void; onBack: () => void }) {
   const { t } = useTranslations()
-  const [showKey, setShowKey] = useState(false)
-  const [copied, setCopied] = useState(false)
-
-  const { data } = useQuery<{ apiKey: string }>({
-    queryKey: ['unified-key'],
-    queryFn: () => apiFetch('/api/settings/api-key'),
-  })
-
-  const apiKey = data?.apiKey ?? ''
-  const masked = apiKey ? apiKey.slice(0, 13) + '•'.repeat(32) : '…'
-  const baseUrl = import.meta.env.DEV
-    ? `http://${window.location.hostname}:${__SERVER_PORT__}/v1`
-    : `${window.location.origin}/v1`
-
-  function copy() {
-    navigator.clipboard.writeText(apiKey)
-    setCopied(true)
-    setTimeout(() => setCopied(false), 1500)
-  }
 
   return (
     <div className="max-w-lg">
@@ -361,41 +343,8 @@ function UnifiedKeyStep({ onNext, onBack }: { onNext: () => void; onBack: () => 
         </p>
       </div>
 
-      <div className="rounded-lg border bg-card p-5 mb-6 space-y-4">
-        <div>
-          <Label className="text-xs text-muted-foreground">{t('setup.unifiedKey.label')}</Label>
-          <div className="flex items-center gap-2 mt-1.5">
-            <code className="flex-1 font-mono text-xs bg-muted px-3 py-2 rounded-md select-all truncate tabular-nums">
-              {showKey ? apiKey : masked}
-            </code>
-            <Button variant="outline" size="sm" onClick={() => setShowKey(!showKey)}>
-              {showKey ? t('setup.unifiedKey.hide') : t('setup.unifiedKey.show')}
-            </Button>
-            <Button variant="outline" size="sm" onClick={copy}>
-              {copied ? t('setup.unifiedKey.copied') : t('setup.unifiedKey.copy')}
-            </Button>
-          </div>
-        </div>
-
-        <div className="grid grid-cols-[auto_1fr] gap-x-4 gap-y-2 text-sm">
-          <span className="text-muted-foreground">{t('setup.unifiedKey.baseUrl')}</span>
-          <code className="font-mono text-xs">{baseUrl}</code>
-          <span className="text-muted-foreground">{t('setup.unifiedKey.endpoint')}</span>
-          <code className="font-mono text-xs">/v1/chat/completions</code>
-        </div>
-      </div>
-
       <div className="rounded-lg border bg-card p-5 mb-6">
-        <h3 className="text-sm font-medium mb-3">{t('setup.unifiedKey.quickStartTitle')}</h3>
-        <pre className="text-xs font-mono bg-muted p-3 rounded-md overflow-x-auto whitespace-pre-wrap">
-{`curl ${baseUrl}/chat/completions \\
-  -H "Authorization: Bearer ${apiKey.slice(0, 13)}..." \\
-  -H "Content-Type: application/json" \\
-  -d '{
-    "model": "gemini-2.0-flash",
-    "messages": [{"role": "user", "content": "Hello!"}]
-  }'`}
-        </pre>
+        <ApiKeysPanel />
       </div>
 
       <div className="flex gap-3">

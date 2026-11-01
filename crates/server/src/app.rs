@@ -1,7 +1,7 @@
 //! HTTP application construction and static-asset serving.
 
 use axum::http::{header, HeaderValue, Method};
-use axum::routing::get;
+use axum::routing::{any, get, post};
 use axum::Json;
 use std::path::PathBuf;
 use tower_http::cors::{AllowOrigin, CorsLayer};
@@ -19,7 +19,6 @@ fn dist_dir() -> PathBuf {
 pub fn create_app() -> axum::Router {
     use crate::routes;
     use axum::middleware;
-    use axum::routing::post;
 
     let admin_routes = axum::Router::new()
         .nest("/keys", routes::keys::router())
@@ -35,12 +34,11 @@ pub fn create_app() -> axum::Router {
         .nest("/health", routes::health::router())
         .nest("/settings", routes::settings::router())
         .nest("/providers", routes::providers::router())
-        .route("/shutdown", post(routes::shutdown::request_shutdown))
         .fallback(|| async { axum::http::StatusCode::NOT_FOUND })
-        .layer(middleware::from_fn(routes::middleware::admin_auth));
+        .layer(middleware::from_fn(crate::auth::require_session));
 
-    // The unified key protects every OpenAI-compatible endpoint, including
-    // GET /v1/models. Handler-level checks remain defense in depth.
+    // API keys (or a dashboard session) protect every OpenAI-compatible endpoint, including
+    // GET /v1/models. Handlers do not repeat the check.
     let proxy_routes = axum::Router::new()
         .route("/models", get(routes::proxy::list_models))
         .route("/chat/completions", post(routes::proxy::chat_completions))
@@ -49,7 +47,7 @@ pub fn create_app() -> axum::Router {
             post(routes::completions::completions_handler),
         )
         .fallback(|| async { axum::http::StatusCode::NOT_FOUND })
-        .layer(middleware::from_fn(routes::middleware::unified_api_auth));
+        .layer(middleware::from_fn(crate::auth::require_api_access));
 
     axum::Router::new()
         // Health check
@@ -62,6 +60,12 @@ pub fn create_app() -> axum::Router {
                 }))
             }),
         )
+        // Better Auth owns sign-in, sign-out, session lookup and API keys.
+        .route("/api/auth/{*path}", any(crate::auth::handler))
+        .route("/api/account-status", get(account_status))
+        // Shutdown accepts the launcher's token or a dashboard session, so it
+        // sits outside the session-only admin router.
+        .route("/api/shutdown", post(routes::shutdown::request_shutdown))
         .nest("/api", admin_routes)
         .nest("/v1", proxy_routes)
         .layer(dashboard_cors())
@@ -71,6 +75,12 @@ pub fn create_app() -> axum::Router {
             // without an extension rewrite to /index.html).
             ServeDir::new(dist_dir()).fallback(ServeFile::new(dist_dir().join("index.html"))),
         )
+}
+
+/// `GET /api/account-status` — public. Tells the dashboard whether the owner
+/// account exists yet, so it can show sign-up or sign-in.
+async fn account_status() -> Json<serde_json::Value> {
+    Json(serde_json::json!({ "hasAccount": crate::auth::account_exists().await }))
 }
 
 /// By default the dashboard is same-origin only. Cross-origin dashboard
@@ -85,7 +95,12 @@ fn dashboard_cors() -> CorsLayer {
             Method::DELETE,
             Method::OPTIONS,
         ])
-        .allow_headers([header::AUTHORIZATION, header::CONTENT_TYPE]);
+        .allow_headers([
+            header::AUTHORIZATION,
+            header::CONTENT_TYPE,
+            header::HeaderName::from_static("x-api-key"),
+        ])
+        .allow_credentials(true);
 
     let origins = crate::env::env_string("DASHBOARD_ORIGINS")
         .into_iter()

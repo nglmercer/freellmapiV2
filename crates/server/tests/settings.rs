@@ -1,51 +1,23 @@
-//! Settings route integration tests.
+//! Dashboard authentication and shutdown integration tests.
 
 mod common;
 
 use axum::http::StatusCode;
 
 #[tokio::test]
-async fn settings_reject_missing_admin_authentication() {
+async fn dashboard_api_requires_a_session() {
     let app = common::setup().await;
-    let get_res = common::request(&app.app, "GET", "/api/settings/api-key", None, None).await;
-    common::expect_status(&get_res, StatusCode::UNAUTHORIZED);
-
-    let post_res = common::request(
-        &app.app,
-        "POST",
-        "/api/settings/api-key/regenerate",
-        None,
-        None,
-    )
-    .await;
-    common::expect_status(&post_res, StatusCode::UNAUTHORIZED);
-
-    let shutdown_res = common::request(&app.app, "POST", "/api/shutdown", None, None).await;
-    common::expect_status(&shutdown_res, StatusCode::UNAUTHORIZED);
+    let res = common::request(&app.app, "GET", "/api/settings/setup-status", None, None).await;
+    common::expect_status(&res, StatusCode::UNAUTHORIZED);
 }
 
 #[tokio::test]
-async fn authenticated_shutdown_requests_graceful_server_stop() {
-    let app = common::setup().await;
-    let res = common::request(
-        &app.app,
-        "POST",
-        "/api/shutdown",
-        Some(&common::admin_key()),
-        None,
-    )
-    .await;
-    common::expect_status(&res, StatusCode::ACCEPTED);
-    assert_eq!(res.body["status"], "shutting_down");
-}
-
-#[tokio::test]
-async fn settings_reject_unified_key_as_admin_authentication() {
+async fn dashboard_api_rejects_provider_api_key() {
     let app = common::setup().await;
     let res = common::request(
         &app.app,
         "GET",
-        "/api/settings/api-key",
+        "/api/settings/setup-status",
         Some(&app.api_key),
         None,
     )
@@ -54,65 +26,126 @@ async fn settings_reject_unified_key_as_admin_authentication() {
 }
 
 #[tokio::test]
-async fn shutdown_rejects_unified_key_as_admin_authentication() {
+async fn dashboard_api_accepts_session() {
+    let app = common::setup().await;
+    let res = common::get(&app.app, "/api/settings/setup-status").await;
+    common::expect_status(&res, StatusCode::OK);
+    assert!(res.body.get("unifiedKey").is_none(), "{}", res.text);
+}
+
+#[tokio::test]
+async fn account_status_is_public_and_reports_the_owner() {
+    let app = common::setup().await;
+    let res = common::request(&app.app, "GET", "/api/account-status", None, None).await;
+    common::expect_status(&res, StatusCode::OK);
+    assert_eq!(res.body["hasAccount"], true);
+}
+
+#[tokio::test]
+async fn second_sign_up_is_refused() {
+    let app = common::setup().await;
+    let res = common::request(
+        &app.app,
+        "POST",
+        "/api/auth/sign-up/email",
+        None,
+        Some(serde_json::json!({
+            "email": "intruder@example.com",
+            "name": "Intruder",
+            "password": "another long password",
+        })),
+    )
+    .await;
+    assert!(
+        res.status >= 400,
+        "second account must be refused, got {}: {}",
+        res.status,
+        res.text
+    );
+}
+
+#[tokio::test]
+async fn wrong_password_is_rejected() {
+    let app = common::setup().await;
+    let res = common::request(
+        &app.app,
+        "POST",
+        "/api/auth/sign-in/email",
+        None,
+        Some(serde_json::json!({
+            "email": "owner@example.com",
+            "password": "definitely wrong password",
+        })),
+    )
+    .await;
+    assert!(res.status >= 400, "got {}: {}", res.status, res.text);
+}
+
+#[tokio::test]
+async fn sign_out_ends_the_session() {
+    let app = common::setup().await;
+    let out = common::request(
+        &app.app,
+        "POST",
+        "/api/auth/sign-out",
+        Some(&common::owner_credential()),
+        Some(serde_json::json!({})),
+    )
+    .await;
+    common::expect_status(&out, StatusCode::OK);
+
+    let res = common::request(
+        &app.app,
+        "GET",
+        "/api/settings/setup-status",
+        Some(&common::owner_credential()),
+        None,
+    )
+    .await;
+    common::expect_status(&res, StatusCode::UNAUTHORIZED);
+}
+
+#[tokio::test]
+async fn shutdown_rejects_missing_credentials() {
+    let app = common::setup().await;
+    let res = common::request(&app.app, "POST", "/api/shutdown", None, None).await;
+    common::expect_status(&res, StatusCode::UNAUTHORIZED);
+}
+
+#[tokio::test]
+async fn shutdown_rejects_provider_api_key() {
     let app = common::setup().await;
     let res = common::request(&app.app, "POST", "/api/shutdown", Some(&app.api_key), None).await;
     common::expect_status(&res, StatusCode::UNAUTHORIZED);
 }
 
-/// GET /api/settings/api-key returns the unified API key.
 #[tokio::test]
-async fn should_return_the_unified_api_key() {
+async fn shutdown_accepts_owner_session() {
     let app = common::setup().await;
-    let res = common::get(&app.app, "/api/settings/api-key").await;
-    common::expect_status(&res, StatusCode::OK);
-    assert!(
-        res.body.get("apiKey").is_some(),
-        "missing apiKey field: {}",
-        res.text
-    );
-    let api_key = res.body["apiKey"]
-        .as_str()
-        .expect("apiKey must be a string");
-    assert_eq!(api_key.len(), 48);
+    let res = common::request(
+        &app.app,
+        "POST",
+        "/api/shutdown",
+        Some(&common::owner_credential()),
+        None,
+    )
+    .await;
+    common::expect_status(&res, StatusCode::ACCEPTED);
+    assert_eq!(res.body["status"], "shutting_down");
 }
 
-/// GET /api/settings/api-key matches getUnifiedApiKey().
 #[tokio::test]
-async fn should_match_get_unified_api_key_value() {
+async fn shutdown_accepts_launcher_token() {
     let app = common::setup().await;
-    let expected = server::db::get_unified_api_key().await;
-    let res = common::get(&app.app, "/api/settings/api-key").await;
-    assert_eq!(res.body["apiKey"].as_str().unwrap(), expected);
-}
-
-/// POST /api/settings/api-key/regenerate returns a new 48-char key.
-#[tokio::test]
-async fn should_regenerate_and_return_a_new_api_key() {
-    let app = common::setup().await;
-    let old_key = server::db::get_unified_api_key().await;
-
-    let res = common::post(&app.app, "/api/settings/api-key/regenerate", "").await;
-    common::expect_status(&res, StatusCode::OK);
-    assert!(res.body.get("apiKey").is_some());
-    let new_key = res.body["apiKey"]
-        .as_str()
-        .expect("apiKey must be a string");
-    assert_eq!(new_key.len(), 48);
-    assert_ne!(
-        new_key, old_key,
-        "regenerated key must differ from the old one"
-    );
-}
-
-/// The regenerated key persists in the DB and is returned by GET afterwards.
-#[tokio::test]
-async fn should_persist_the_regenerated_key() {
-    let app = common::setup().await;
-    let res = common::post(&app.app, "/api/settings/api-key/regenerate", "").await;
-    let new_key = res.body["apiKey"].as_str().unwrap().to_string();
-
-    let get_res = common::get(&app.app, "/api/settings/api-key").await;
-    common::expect_status(&get_res, StatusCode::OK);
-    assert_eq!(get_res.body["apiKey"].as_str().unwrap(), new_key);
+    std::env::set_var("FREELLMAPI_SHUTDOWN_TOKEN", "launcher-token-for-test");
+    let res = common::request(
+        &app.app,
+        "POST",
+        "/api/shutdown",
+        Some("launcher-token-for-test"),
+        None,
+    )
+    .await;
+    std::env::remove_var("FREELLMAPI_SHUTDOWN_TOKEN");
+    common::expect_status(&res, StatusCode::ACCEPTED);
 }

@@ -1,78 +1,54 @@
-const BASE = import.meta.env.BASE_URL.replace(/\/$/, '');
-const ADMIN_KEY_STORAGE = 'freellmapi.adminApiKey';
-let runtimeAdminApiKey = '';
+const BASE = import.meta.env.BASE_URL.replace(/\/$/, '')
 
-function consumeBrowserBootstrapKey(): string {
-  if (typeof window === 'undefined' || !window.location.hash) return '';
+/** Fired on the window when a dashboard request is refused with 401. */
+export const UNAUTHORIZED_EVENT = 'freellmapi:unauthorized'
 
-  const params = new URLSearchParams(window.location.hash.slice(1));
-  const key = params.get('adminKey')?.trim() ?? '';
-  if (!key) return '';
+export class ApiError extends Error {
+  status: number
 
-  runtimeAdminApiKey = key;
-  try {
-    window.sessionStorage.setItem(ADMIN_KEY_STORAGE, key);
-  } catch {
-    // Keep the key in memory when browser storage is unavailable.
-  }
-
-  // The tray launcher passes the credential in a fragment, which is not sent
-  // to the server. Remove it immediately so it does not remain in browser
-  // history or be copied as part of the dashboard URL.
-  window.history.replaceState(
-    window.history.state,
-    document.title,
-    window.location.pathname + window.location.search,
-  );
-  return key;
-}
-
-export function getAdminApiKey(): string {
-  const bootstrapKey = consumeBrowserBootstrapKey();
-  if (bootstrapKey) return bootstrapKey;
-  if (runtimeAdminApiKey) return runtimeAdminApiKey;
-
-  if (typeof window !== 'undefined') {
-    try {
-      const sessionKey = window.sessionStorage.getItem(ADMIN_KEY_STORAGE)?.trim();
-      if (sessionKey) {
-        runtimeAdminApiKey = sessionKey;
-        return sessionKey;
-      }
-    } catch {
-      // Session storage can be unavailable in privacy-restricted browsers.
-    }
-  }
-  return import.meta.env.VITE_ADMIN_API_KEY?.trim() ?? '';
-}
-
-export function setAdminApiKey(key: string): void {
-  runtimeAdminApiKey = key.trim();
-  if (typeof window === 'undefined') return;
-  try {
-    if (runtimeAdminApiKey) {
-      window.sessionStorage.setItem(ADMIN_KEY_STORAGE, runtimeAdminApiKey);
-    } else {
-      window.sessionStorage.removeItem(ADMIN_KEY_STORAGE);
-    }
-  } catch {
-    // The build-time VITE_ADMIN_API_KEY remains available as a fallback.
+  constructor(message: string, status: number) {
+    super(message)
+    this.name = 'ApiError'
+    this.status = status
   }
 }
 
 export async function apiFetch<T>(path: string, options?: RequestInit): Promise<T> {
-  const needsAdminAuth = path.startsWith('/api/') && path !== '/api/ping';
-  const adminKey = getAdminApiKey();
-  const headers = new Headers(options?.headers);
-  if (!headers.has('Content-Type')) headers.set('Content-Type', 'application/json');
-  if (needsAdminAuth && adminKey) headers.set('Authorization', 'Bearer ' + adminKey);
+  const headers = new Headers(options?.headers)
+  if (!headers.has('Content-Type')) headers.set('Content-Type', 'application/json')
+  // Same-origin requests carry the Better Auth session cookie automatically.
   const res = await fetch(`${BASE}${path}`, {
     ...options,
     headers,
-  });
+    credentials: 'same-origin',
+  })
   if (!res.ok) {
-    const body = await res.json().catch(() => ({ error: { message: res.statusText } }));
-    throw new Error(body.error?.message ?? `HTTP ${res.status}`);
+    const body = await res.json().catch(() => null)
+    const message =
+      typeof body?.error === 'string'
+        ? body.error
+        : (body?.error?.message as string | undefined) ?? res.statusText
+    const isAccountRoute = path.startsWith('/api/auth/') || path === '/api/account-status'
+    if (res.status === 401 && path.startsWith('/api/') && !isAccountRoute) {
+      window.dispatchEvent(new Event(UNAUTHORIZED_EVENT))
+    }
+    throw new ApiError(message || `HTTP ${res.status}`, res.status)
   }
-  return res.json();
+  return res.json()
+}
+
+export interface AccountStatus {
+  hasAccount: boolean
+}
+
+export function signUp(input: { name: string; email: string; password: string }) {
+  return apiFetch('/api/auth/sign-up/email', { method: 'POST', body: JSON.stringify(input) })
+}
+
+export function signIn(input: { email: string; password: string }) {
+  return apiFetch('/api/auth/sign-in/email', { method: 'POST', body: JSON.stringify(input) })
+}
+
+export function signOut() {
+  return apiFetch('/api/auth/sign-out', { method: 'POST', body: JSON.stringify({}) })
 }

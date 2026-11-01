@@ -17,14 +17,6 @@
     "loading": "Cargando…",
     "close": "Cerrar"
   },
-  "adminAuth": {
-    "title": "Autenticación del panel",
-    "description": "El lanzador de la bandeja la proporciona automáticamente. Si iniciaste el servidor manualmente, introduce ADMIN_API_KEY de su configuración. Solo se conservará durante esta sesión del navegador.",
-    "label": "Clave API de administrador",
-    "placeholder": "Pega la clave de administrador",
-    "invalid": "La clave de administrador fue rechazada. Comprueba la configuración del servidor e inténtalo de nuevo.",
-    "continue": "Continuar"
-  },
   "setup": {
     "welcome": {
       "title": "Bienvenido a FreeLLMAPI",
@@ -32,8 +24,8 @@
       "whatYoullConfigure": "Qué vas a configurar:",
       "providerKeys": "Claves de proveedores",
       "providerKeysDescription": "Añade claves de proveedores gratuitos (Google, Groq, Mistral, etc.)",
-      "unifiedApiKey": "Clave API unificada",
-      "unifiedApiKeyDescription": "Obtén tu clave personal para autenticar las solicitudes a este proxy",
+      "unifiedApiKey": "Claves de API",
+      "unifiedApiKeyDescription": "Crea claves que tus aplicaciones usan para autenticar las solicitudes a este proxy",
       "startUsing": "Empezar a usar",
       "startUsingDescription": "Usa el endpoint compatible con OpenAI desde cualquier cliente",
       "tipPrefix": "Consejo:",
@@ -123,20 +115,9 @@
   },
   "keys": {
     "title": "Claves",
-    "description": "Credenciales de proveedores y la clave API unificada con la que se conectan tus aplicaciones.",
+    "description": "Credenciales de proveedores y las claves de API que usan tus aplicaciones para conectarse.",
     "checkAll": "Verificar todas",
     "checking": "Verificando…",
-    "unifiedKey": {
-      "title": "Tu clave API unificada",
-      "description": "Úsala como api_key de OpenAI; autentica las solicitudes a este proxy.",
-      "regenerate": "Regenerar",
-      "hide": "Ocultar",
-      "show": "Mostrar",
-      "copied": "Copiado",
-      "copy": "Copiar",
-      "baseUrl": "URL base",
-      "endpoint": "Endpoint"
-    },
     "addKey": {
       "title": "Añadir clave de proveedor",
       "platformLabel": "Plataforma",
@@ -163,7 +144,24 @@
     "check": "Verificar",
     "remove": "Eliminar",
     "keyCount_one": "{{count}} clave",
-    "keyCount_other": "{{count}} claves"
+    "keyCount_other": "{{count}} claves",
+    "apiKeys": {
+      "title": "Claves de API",
+      "description": "Las claves autentican las peticiones a este proxy. La sesión del panel también funciona en el playground.",
+      "namePlaceholder": "Nombre de la clave, p. ej. portátil",
+      "create": "Crear clave",
+      "creating": "Creando…",
+      "newKeyTitle": "Clave nueva — cópiala ahora",
+      "newKeyDescription": "La clave completa solo se muestra una vez. Guárdala en un lugar seguro.",
+      "copy": "Copiar",
+      "copied": "Copiado",
+      "dismiss": "Listo",
+      "empty": "Aún no hay claves de API. Crea una para empezar a usar el proxy.",
+      "revoke": "Revocar",
+      "error": "No se pudo crear la clave. Inténtalo de nuevo.",
+      "baseUrl": "URL base",
+      "endpoint": "Endpoint"
+    }
   },
   "fallback": {
     "title": "Cadena de fallback",
@@ -445,5 +443,20 @@
     "price": "Precio de entrada / 1M tokens",
     "reliability": "Fiabilidad",
     "details": "Métricas y rendimiento local"
+  },
+  "auth": {
+    "createTitle": "Crear la cuenta de propietario",
+    "createDescription": "Este panel tiene un único propietario. Crea la cuenta ahora; después inicia sesión con ella.",
+    "signInTitle": "Iniciar sesión",
+    "signInDescription": "Inicia sesión para gestionar claves de proveedores, enrutamiento y analítica.",
+    "name": "Nombre",
+    "email": "Correo electrónico",
+    "password": "Contraseña",
+    "passwordHint": "Al menos 8 caracteres.",
+    "createButton": "Crear cuenta",
+    "signInButton": "Iniciar sesión",
+    "signOut": "Cerrar sesión",
+    "failed": "Algo salió mal. Inténtalo de nuevo.",
+    "unreachable": "No se puede conectar con el servidor."
   }
 }

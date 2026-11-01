@@ -32,7 +32,7 @@ use winit::event_loop::{ActiveEventLoop, ControlFlow, EventLoop, EventLoopProxy}
 use winit::window::WindowId;
 
 const APP_DATA_DIR: &str = "FreeLLMAPI";
-const ADMIN_KEY_FRAGMENT: &str = "adminKey";
+const SHUTDOWN_TOKEN_ENV: &str = "FREELLMAPI_SHUTDOWN_TOKEN";
 const STARTUP_TIMEOUT: Duration = Duration::from_secs(20);
 const SHUTDOWN_TIMEOUT: Duration = Duration::from_secs(5);
 const SHUTDOWN_POLL_INTERVAL: Duration = Duration::from_millis(50);
@@ -91,7 +91,7 @@ struct TrayResources {
 struct RunningServer {
     child: Child,
     port: u16,
-    admin_key: String,
+    shutdown_token: String,
     stopped: bool,
 }
 
@@ -132,7 +132,7 @@ impl RunningServer {
         let _ = stream.set_write_timeout(Some(SHUTDOWN_CONNECT_TIMEOUT));
         let request = format!(
             "POST /api/shutdown HTTP/1.1\r\nHost: 127.0.0.1:{}\r\nAuthorization: Bearer {}\r\nContent-Length: 0\r\nConnection: close\r\n\r\n",
-            self.port, self.admin_key
+            self.port, self.shutdown_token
         );
         if stream.write_all(request.as_bytes()).is_err() {
             return false;
@@ -180,7 +180,6 @@ struct Launcher {
     data_dir: PathBuf,
     static_dir: PathBuf,
     server_binary: PathBuf,
-    preferred_admin_key: Option<String>,
     server: Option<RunningServer>,
 }
 
@@ -202,22 +201,10 @@ impl Launcher {
             .stdout(Stdio::inherit())
             .stderr(Stdio::inherit());
 
-        if let Some(admin_key) = &self.preferred_admin_key {
-            command.env("ADMIN_API_KEY", admin_key);
-        } else {
-            command.env_remove("ADMIN_API_KEY");
-        }
-
-        // The server's generated encryption key belongs to the tray app's
-        // data directory. Do not accidentally inherit a different key from
-        // the shell that launched the tray process.
-        if let Some(encryption_key) = read_env_value(&self.data_dir.join(".env"), "ENCRYPTION_KEY")
-            .filter(|key| valid_encryption_key(key))
-        {
-            command.env("ENCRYPTION_KEY", encryption_key);
-        } else {
-            command.env_remove("ENCRYPTION_KEY");
-        }
+        // Per-launch secret for the shutdown request. It lives only in this
+        // process and the child's environment; nothing is written to disk.
+        let shutdown_token = random_token();
+        command.env(SHUTDOWN_TOKEN_ENV, &shutdown_token);
 
         let mut child = command.spawn().map_err(|error| {
             format!(
@@ -225,24 +212,15 @@ impl Launcher {
                 self.server_binary.display()
             )
         })?;
-        let admin_key = match wait_for_server(
-            &mut child,
-            port,
-            &self.data_dir,
-            self.preferred_admin_key.as_deref(),
-        ) {
-            Ok(key) => key,
-            Err(error) => {
-                let _ = child.kill();
-                let _ = child.wait();
-                return Err(error.into());
-            }
-        };
-        self.preferred_admin_key = Some(admin_key.clone());
+        if let Err(error) = wait_for_server(&mut child, port) {
+            let _ = child.kill();
+            let _ = child.wait();
+            return Err(error.into());
+        }
         self.server = Some(RunningServer {
             child,
             port,
-            admin_key,
+            shutdown_token,
             stopped: false,
         });
         Ok(())
@@ -266,11 +244,7 @@ impl Launcher {
         } else {
             format!("/{}", path.trim_start_matches('/'))
         };
-        Some(format!(
-            "http://127.0.0.1:{}{path}#{ADMIN_KEY_FRAGMENT}={}",
-            server.port,
-            encode_fragment(&server.admin_key)
-        ))
+        Some(format!("http://127.0.0.1:{}{path}", server.port))
     }
 
     fn open_dashboard(&self, path: &str) {
@@ -314,25 +288,10 @@ fn main() -> Result<(), Box<dyn Error>> {
     let executable = env::current_exe()?;
     let static_dir = static_dir(&executable)?;
     let server_binary = server_binary(&executable)?;
-    let env_path = data_dir.join(".env");
-    let persisted_admin_key = read_env_value(&env_path, "ADMIN_API_KEY");
-    let preferred_admin_key = persisted_admin_key.clone().or_else(|| {
-        env::var("ADMIN_API_KEY")
-            .ok()
-            .filter(|key| server::env::is_valid_admin_api_key(key))
-    });
-    if persisted_admin_key.is_none() {
-        if let Some(admin_key) = &preferred_admin_key {
-            write_env_value(&env_path, "ADMIN_API_KEY", admin_key)?;
-            restrict_file_permissions(&env_path)?;
-        }
-    }
-
     let mut launcher = Launcher {
         data_dir,
         static_dir,
         server_binary,
-        preferred_admin_key,
         server: None,
     };
     launcher.start()?;
@@ -722,14 +681,8 @@ fn free_port() -> io::Result<u16> {
     Ok(listener.local_addr()?.port())
 }
 
-fn wait_for_server(
-    child: &mut Child,
-    port: u16,
-    data_dir: &Path,
-    preferred_admin_key: Option<&str>,
-) -> Result<String, String> {
+fn wait_for_server(child: &mut Child, port: u16) -> Result<(), String> {
     let deadline = Instant::now() + STARTUP_TIMEOUT;
-    let env_path = data_dir.join(".env");
     while Instant::now() < deadline {
         if let Some(status) = child
             .try_wait()
@@ -737,15 +690,8 @@ fn wait_for_server(
         {
             return Err(format!("Server exited during startup with status {status}"));
         }
-        if let Some(admin_key) = preferred_admin_key
-            .filter(|key| server::env::is_valid_admin_api_key(key))
-            .map(str::to_owned)
-            .or_else(|| read_env_value(&env_path, "ADMIN_API_KEY"))
-        {
-            if TcpStream::connect(("127.0.0.1", port)).is_ok() {
-                restrict_file_permissions(&env_path).map_err(|error| error.to_string())?;
-                return Ok(admin_key);
-            }
+        if TcpStream::connect(("127.0.0.1", port)).is_ok() {
+            return Ok(());
         }
         thread::sleep(Duration::from_millis(100));
     }
@@ -754,68 +700,11 @@ fn wait_for_server(
     ))
 }
 
-fn read_env_value(path: &Path, key: &str) -> Option<String> {
-    let content = fs::read_to_string(path).ok()?;
-    content.lines().find_map(|line| {
-        let line = line.trim();
-        let value = line.strip_prefix(&format!("{key}="))?.trim();
-        let value = value
-            .strip_prefix('"')
-            .and_then(|value| value.strip_suffix('"'))
-            .or_else(|| {
-                value
-                    .strip_prefix('\'')
-                    .and_then(|value| value.strip_suffix('\''))
-            })
-            .unwrap_or(value)
-            .trim();
-        if key == "ADMIN_API_KEY" && !server::env::is_valid_admin_api_key(value) {
-            None
-        } else {
-            Some(value.to_string())
-        }
-    })
-}
-
-fn write_env_value(path: &Path, key: &str, value: &str) -> io::Result<()> {
-    let content = fs::read_to_string(path).unwrap_or_default();
-    let prefix = format!("{key}=");
-    let mut found = false;
-    let mut updated = String::new();
-
-    for line in content.lines() {
-        if line.trim_start().starts_with(&prefix) {
-            updated.push_str(&prefix);
-            updated.push_str(value);
-            found = true;
-        } else {
-            updated.push_str(line);
-        }
-        updated.push('\n');
-    }
-
-    if !found {
-        updated.push_str(&prefix);
-        updated.push_str(value);
-        updated.push('\n');
-    }
-    fs::write(path, updated)
-}
-
-fn valid_encryption_key(value: &str) -> bool {
-    value.len() == 64 && value.chars().all(|character| character.is_ascii_hexdigit())
-}
-
-fn encode_fragment(value: &str) -> String {
-    value
-        .bytes()
-        .flat_map(|byte| match byte {
-            b'A'..=b'Z' | b'a'..=b'z' | b'0'..=b'9' | b'-' | b'.' | b'_' | b'~' => {
-                vec![byte as char]
-            }
-            byte => format!("%{byte:02X}").chars().collect(),
-        })
-        .collect()
+/// 32 random bytes, hex encoded.
+fn random_token() -> String {
+    let mut bytes = [0u8; 32];
+    rand::RngCore::fill_bytes(&mut rand::rng(), &mut bytes);
+    hex::encode(bytes)
 }
 
 fn tray_icon_image() -> Result<Icon, Box<dyn Error>> {
@@ -850,20 +739,6 @@ fn restrict_directory_permissions(path: &Path) -> io::Result<()> {
     {
         use std::os::unix::fs::PermissionsExt;
         fs::set_permissions(path, fs::Permissions::from_mode(0o700))?;
-    }
-    #[cfg(not(unix))]
-    let _ = path;
-    Ok(())
-}
-
-fn restrict_file_permissions(path: &Path) -> io::Result<()> {
-    if !path.is_file() {
-        return Ok(());
-    }
-    #[cfg(unix)]
-    {
-        use std::os::unix::fs::PermissionsExt;
-        fs::set_permissions(path, fs::Permissions::from_mode(0o600))?;
     }
     #[cfg(not(unix))]
     let _ = path;
@@ -906,7 +781,7 @@ mod tests {
         let mut server = RunningServer {
             child,
             port: 0,
-            admin_key: "a".repeat(64),
+            shutdown_token: "a".repeat(64),
             stopped: false,
         };
 

@@ -81,7 +81,7 @@ async fn completions_401_with_wrong_key() {
 }
 
 #[tokio::test]
-async fn completions_allows_correct_unified_key() {
+async fn completions_allows_a_valid_api_key() {
     let app = common::setup().await;
     let res = common::post_json(
         &app.app,
