@@ -9,7 +9,9 @@
       "fallback": "Fallback",
       "analytics": "Analytics"
     },
-    "initialSetup": "Initial Setup"
+    "initialSetup": "Initial Setup",
+    "pageLoadError": "This page could not be loaded. It may be out of date after an update.",
+    "reload": "Reload"
   },
   "common": {
     "cancel": "Cancel",

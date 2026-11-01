@@ -1,22 +1,35 @@
-import { lazy, Suspense } from 'react'
+import { Suspense } from 'react'
 import { Navigate, NavLink, Route, Routes, useLocation } from 'react-router-dom'
 import { useTranslations } from '@/hooks/useTranslations'
 import PageSkeleton from '@/components/PageSkeleton'
 import { DarkModeToggle, LanguageToggle, SignOutButton } from './header-controls'
+import { pageLoaders, pages } from './routes'
+import { RouteErrorBoundary } from './RouteErrorBoundary'
 
-const KeysPage = lazy(() => import('@/pages/KeysPage'))
-const PlaygroundPage = lazy(() => import('@/pages/PlaygroundPage'))
-const FallbackPage = lazy(() => import('@/pages/FallbackPage'))
-const AnalyticsPage = lazy(() => import('@/pages/AnalyticsPage'))
-const ProvidersPage = lazy(() => import('@/pages/ProvidersPage'))
-const ProviderModelsPage = lazy(() => import('@/pages/ProviderModelsPage'))
-const ModelExplorerPage = lazy(() => import('@/pages/ModelExplorerPage'))
-const SetupPage = lazy(() => import('@/pages/SetupPage'))
+/** Starts downloading a page chunk early so the click renders without a wait. */
+function preload(load: () => Promise<unknown>) {
+  return () => {
+    void load().catch(() => {
+      // Ignored: the page's own lazy() call retries and reports the failure.
+    })
+  }
+}
 
-function NavItem({ to, children }: { to: string; children: React.ReactNode }) {
+function NavItem({
+  to,
+  preloadPage,
+  children,
+}: {
+  to: string
+  preloadPage: () => Promise<unknown>
+  children: React.ReactNode
+}) {
+  const onPreload = preload(preloadPage)
   return (
     <NavLink
       to={to}
+      onMouseEnter={onPreload}
+      onFocus={onPreload}
       className={({ isActive }) =>
         `relative text-sm px-1 py-4 transition-colors ${
           isActive
@@ -46,9 +59,11 @@ export function AppLayout() {
 
   if (isSetup) {
     return (
-      <Suspense fallback={<PageSkeleton />}>
-        <SetupPage />
-      </Suspense>
+      <RouteErrorBoundary key={location.pathname}>
+        <Suspense fallback={<PageSkeleton />}>
+          <pages.setup />
+        </Suspense>
+      </RouteErrorBoundary>
     )
   }
 
@@ -58,11 +73,11 @@ export function AppLayout() {
         <div className="max-w-6xl mx-auto px-4 flex flex-wrap items-center">
           <Brand />
           <nav className="flex items-center gap-4 ml-4 overflow-x-auto max-w-full order-3 sm:order-0">
-            <NavItem to="/playground">{t('app.nav.playground')}</NavItem>
-            <NavItem to="/keys">{t('app.nav.keys')}</NavItem>
-            <NavItem to="/fallback">{t('app.nav.fallback')}</NavItem>
-            <NavItem to="/models">{t('metadata.explorer')}</NavItem>
-            <NavItem to="/analytics">{t('app.nav.analytics')}</NavItem>
+            <NavItem to="/playground" preloadPage={pageLoaders.playground}>{t('app.nav.playground')}</NavItem>
+            <NavItem to="/keys" preloadPage={pageLoaders.keys}>{t('app.nav.keys')}</NavItem>
+            <NavItem to="/fallback" preloadPage={pageLoaders.fallback}>{t('app.nav.fallback')}</NavItem>
+            <NavItem to="/models" preloadPage={pageLoaders.models}>{t('metadata.explorer')}</NavItem>
+            <NavItem to="/analytics" preloadPage={pageLoaders.analytics}>{t('app.nav.analytics')}</NavItem>
           </nav>
           <div className="ml-auto py-2 flex items-center gap-2">
             <LanguageToggle />
@@ -72,20 +87,22 @@ export function AppLayout() {
         </div>
       </header>
       <main className="max-w-6xl mx-auto px-6 py-8">
-        <Suspense fallback={<PageSkeleton />}>
-          <Routes>
-            <Route path="/" element={<Navigate to="/playground" replace />} />
-            <Route path="/providers" element={<ProvidersPage />} />
-            <Route path="/providers/:id/models" element={<ProviderModelsPage />} />
-            <Route path="/playground" element={<PlaygroundPage />} />
-            <Route path="/keys" element={<KeysPage />} />
-            <Route path="/fallback" element={<FallbackPage />} />
-            <Route path="/models" element={<ModelExplorerPage />} />
-            <Route path="/analytics" element={<AnalyticsPage />} />
-            <Route path="/test" element={<Navigate to="/playground" replace />} />
-            <Route path="/health" element={<Navigate to="/keys" replace />} />
-          </Routes>
-        </Suspense>
+        <RouteErrorBoundary key={location.pathname}>
+          <Suspense fallback={<PageSkeleton />}>
+            <Routes>
+              <Route path="/" element={<Navigate to="/playground" replace />} />
+              <Route path="/providers" element={<pages.providers />} />
+              <Route path="/providers/:id/models" element={<pages.providerModels />} />
+              <Route path="/playground" element={<pages.playground />} />
+              <Route path="/keys" element={<pages.keys />} />
+              <Route path="/fallback" element={<pages.fallback />} />
+              <Route path="/models" element={<pages.models />} />
+              <Route path="/analytics" element={<pages.analytics />} />
+              <Route path="/test" element={<Navigate to="/playground" replace />} />
+              <Route path="/health" element={<Navigate to="/keys" replace />} />
+            </Routes>
+          </Suspense>
+        </RouteErrorBoundary>
       </main>
     </div>
   )
