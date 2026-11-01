@@ -149,8 +149,16 @@ pub async fn translations(multipart: Multipart) -> Response {
     audio_upload(multipart, Capability::Translation).await
 }
 
-/// Reads a multipart upload with exactly one `file` part and a `model` field.
-async fn read_upload(mut multipart: Multipart) -> Result<(String, MultipartRequest), ApiError> {
+/// Reads a multipart upload with a `model` field and file parts.
+///
+/// `single_file` requires exactly one file part; otherwise at least one is
+/// required. `rename_to` forces the upstream field name (transcription expects
+/// `file`); `None` keeps the client's field names (image edits send `image`).
+async fn read_upload(
+    mut multipart: Multipart,
+    single_file: bool,
+    rename_to: Option<&str>,
+) -> Result<(String, MultipartRequest), ApiError> {
     let mut req = MultipartRequest::default();
     let mut model: Option<String> = None;
     loop {
@@ -174,7 +182,9 @@ async fn read_upload(mut multipart: Multipart) -> Result<(String, MultipartReque
                 return Err(ApiError::new(400, "Uploaded file is empty"));
             }
             req.files.push(MultipartFile {
-                field: "file".to_string(),
+                field: rename_to
+                    .map(str::to_string)
+                    .unwrap_or_else(|| name.clone()),
                 filename,
                 content_type,
                 data,
@@ -193,15 +203,18 @@ async fn read_upload(mut multipart: Multipart) -> Result<(String, MultipartReque
     let model = model
         .filter(|m| !m.trim().is_empty())
         .ok_or_else(|| ApiError::new(400, "model is required"))?;
-    if req.files.len() != 1 {
+    if single_file && req.files.len() != 1 {
         return Err(ApiError::new(400, "Exactly one file part is required"));
+    }
+    if !single_file && req.files.is_empty() {
+        return Err(ApiError::new(400, "At least one image part is required"));
     }
     Ok((model, req))
 }
 
 async fn audio_upload(multipart: Multipart, capability: Capability) -> Response {
     let started = Instant::now();
-    let (model, req) = match read_upload(multipart).await {
+    let (model, req) = match read_upload(multipart, true, Some("file")).await {
         Ok(v) => v,
         Err(e) => return from_api_error(e),
     };
@@ -246,12 +259,112 @@ async fn audio_upload(multipart: Multipart, capability: Capability) -> Response 
     }
 }
 
-/// Public `/v1` audio routes. Upload limits are applied by the caller.
+/// Longest accepted image prompt, in characters.
+const MAX_IMAGE_PROMPT_CHARS: usize = 4000;
+
+/// `POST /v1/images/generations` — text-to-image. The JSON body is forwarded
+/// with provider options intact. Transport failures never fall back: the
+/// provider may already have generated (and charged for) the image.
+pub async fn image_generations(body: Bytes) -> Response {
+    let started = Instant::now();
+    let raw: Value = match serde_json::from_slice(&body) {
+        Ok(v) => v,
+        Err(_) => return error_response(400, "Malformed JSON payload"),
+    };
+    if !raw.is_object() {
+        return error_response(400, "Expected a JSON object");
+    }
+    let model = match required_string(&raw, "model") {
+        Ok(m) => m.to_string(),
+        Err(e) => return from_api_error(e),
+    };
+    let prompt = match required_string(&raw, "prompt") {
+        Ok(p) => p,
+        Err(e) => return from_api_error(e),
+    };
+    if prompt.chars().count() > MAX_IMAGE_PROMPT_CHARS {
+        return error_response(
+            400,
+            format!("prompt must be at most {MAX_IMAGE_PROMPT_CHARS} characters"),
+        );
+    }
+    let cands = {
+        let conn = db().lock().await;
+        match candidates(&conn, Capability::ImageGeneration, &model) {
+            Ok(c) => c,
+            Err(e) => return from_api_error(e),
+        }
+    };
+    let first = cands.first().cloned();
+    let result = run_with_fallback(cands, false, |c| {
+        let raw = raw.clone();
+        async move {
+            let provider = c
+                .provider
+                .images()
+                .ok_or_else(|| unsupported(&c.platform, Capability::ImageGeneration))?;
+            provider.generate(&c.api_key, &raw).await
+        }
+    })
+    .await;
+    finish_json(result, first, started).await
+}
+
+/// `POST /v1/images/edits` — image editing and image-to-image (multipart).
+pub async fn image_edits(multipart: Multipart) -> Response {
+    let started = Instant::now();
+    let (model, req) = match read_upload(multipart, false, None).await {
+        Ok(v) => v,
+        Err(e) => return from_api_error(e),
+    };
+    let cands = {
+        let conn = db().lock().await;
+        match candidates(&conn, Capability::ImageEdit, &model) {
+            Ok(c) => c,
+            Err(e) => return from_api_error(e),
+        }
+    };
+    let first = cands.first().cloned();
+    let result = run_with_fallback(cands, false, |c| {
+        let req = req.clone();
+        async move {
+            let provider = c
+                .provider
+                .images()
+                .ok_or_else(|| unsupported(&c.platform, Capability::ImageEdit))?;
+            provider.edit(&c.api_key, req).await
+        }
+    })
+    .await;
+    finish_json(result, first, started).await
+}
+
+/// Shared tail for JSON-returning operations: records usage and maps errors.
+async fn finish_json(
+    result: Result<(Value, MediaCandidate), crate::providers::ProviderError>,
+    first: Option<MediaCandidate>,
+    started: Instant,
+) -> Response {
+    match result {
+        Ok((value, winner)) => {
+            record(Some(&winner), "success", started, None).await;
+            Json(value).into_response()
+        }
+        Err(err) => {
+            record(first.as_ref(), "error", started, Some(&err.message)).await;
+            error_response(provider_error_status(&err), err.message)
+        }
+    }
+}
+
+/// Public `/v1` media routes. Upload limits are applied by the caller.
 pub fn v1_router() -> axum::Router {
     axum::Router::new()
         .route("/audio/speech", post(speech))
         .route("/audio/transcriptions", post(transcriptions))
         .route("/audio/translations", post(translations))
+        .route("/images/generations", post(image_generations))
+        .route("/images/edits", post(image_edits))
 }
 
 // ---- Admin: declare which models serve which operation ----

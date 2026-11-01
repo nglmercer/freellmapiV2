@@ -5,7 +5,9 @@ use serde_json::json;
 use tokio::sync::mpsc;
 
 use super::base::{normalize_choices, send_request, ChunkReceiver, Provider, ProviderError};
-use super::capabilities::{Capability, CapabilitySet, SpeechProvider, TranscriptionProvider};
+use super::capabilities::{
+    Capability, CapabilitySet, ImageProvider, SpeechProvider, TranscriptionProvider,
+};
 use crate::types::{ChatCompletionChunk, ChatCompletionResponse, ChatMessage, CompletionOptions};
 
 /// Generic provider for platforms that use an OpenAI-compatible API.
@@ -143,6 +145,12 @@ impl Provider for OpenAICompatProvider {
         self.capabilities
             .contains(Capability::Speech)
             .then_some(self as &dyn SpeechProvider)
+    }
+
+    fn images(&self) -> Option<&dyn ImageProvider> {
+        (self.capabilities.contains(Capability::ImageGeneration)
+            || self.capabilities.contains(Capability::ImageEdit))
+        .then_some(self as &dyn ImageProvider)
     }
 
     fn transcription(&self) -> Option<&dyn TranscriptionProvider> {

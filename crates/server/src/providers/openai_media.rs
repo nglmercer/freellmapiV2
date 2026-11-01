@@ -10,7 +10,8 @@ use serde_json::Value;
 
 use super::base::{http_client, send_request, ProviderError};
 use super::capabilities::{
-    MediaResponse, MediaStream, MultipartRequest, SpeechProvider, TranscriptionProvider,
+    ImageProvider, MediaResponse, MediaStream, MultipartRequest, SpeechProvider,
+    TranscriptionProvider,
 };
 use super::openai_compat::OpenAICompatProvider;
 
@@ -119,5 +120,37 @@ impl TranscriptionProvider for OpenAICompatProvider {
     ) -> Result<MediaResponse, ProviderError> {
         self.multipart_call(api_key, "/audio/translations", request)
             .await
+    }
+}
+
+/// Sends a request expecting a JSON body (image generation and editing).
+async fn json_call(
+    provider: &OpenAICompatProvider,
+    req: reqwest::RequestBuilder,
+) -> Result<Value, ProviderError> {
+    let res = send_request(req, Some(MEDIA_TIMEOUT_MS)).await?;
+    if !res.status().is_success() {
+        return Err(OpenAICompatProvider::error_from_response(res, &provider.provider_name).await);
+    }
+    res.json::<Value>()
+        .await
+        .map_err(|e| ProviderError::new(format!("Failed to parse response: {e}")))
+}
+
+#[async_trait]
+impl ImageProvider for OpenAICompatProvider {
+    async fn generate(&self, api_key: &str, body: &Value) -> Result<Value, ProviderError> {
+        let req = self
+            .authorize(http_client().post(self.url("/images/generations")), api_key)
+            .json(body);
+        json_call(self, req).await
+    }
+
+    async fn edit(&self, api_key: &str, request: MultipartRequest) -> Result<Value, ProviderError> {
+        let form = Self::form(request)?;
+        let req = self
+            .authorize(http_client().post(self.url("/images/edits")), api_key)
+            .multipart(form);
+        json_call(self, req).await
     }
 }
