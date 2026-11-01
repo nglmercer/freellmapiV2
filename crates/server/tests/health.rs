@@ -130,7 +130,7 @@ async fn lists_all_keys_in_keys_array() {
 #[tokio::test]
 async fn check_invalid_key_id_returns_400() {
     let app = common::setup().await;
-    let admin_key = common::admin_key();
+    let admin_key = common::owner_credential();
     let res = common::request(
         &app.app,
         "POST",
@@ -147,7 +147,7 @@ async fn check_invalid_key_id_returns_400() {
 #[tokio::test]
 async fn check_negative_key_id_is_accepted_numeric_id() {
     let app = common::setup().await;
-    let admin_key = common::admin_key();
+    let admin_key = common::owner_credential();
     let res = common::request(
         &app.app,
         "POST",
@@ -165,7 +165,7 @@ async fn check_negative_key_id_is_accepted_numeric_id() {
 #[tokio::test]
 async fn check_nonexistent_key_returns_error_status() {
     let app = common::setup().await;
-    let admin_key = common::admin_key();
+    let admin_key = common::owner_credential();
     let res = common::request(
         &app.app,
         "POST",
@@ -183,7 +183,7 @@ async fn check_nonexistent_key_returns_error_status() {
 #[tokio::test]
 async fn check_all_with_no_keys_returns_success() {
     let app = common::setup().await;
-    let admin_key = common::admin_key();
+    let admin_key = common::owner_credential();
     let res = common::request(
         &app.app,
         "POST",
@@ -202,7 +202,7 @@ async fn check_all_with_keys_returns_success() {
     let app = common::setup().await;
     insert_key("google", "check-all", "unknown", 1).await;
 
-    let admin_key = common::admin_key();
+    let admin_key = common::owner_credential();
     let res = common::request(
         &app.app,
         "POST",

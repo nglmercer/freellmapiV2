@@ -14,6 +14,10 @@ async fn main() {
     .await
     .expect("failed to run database migrations");
 
+    server::auth::start_with_file(&db::db_path())
+        .await
+        .expect("failed to start authentication");
+
     server::services::state_persistence::restore_runtime_state();
     let app = server::app::create_app();
 

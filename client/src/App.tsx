@@ -1,8 +1,16 @@
-import { lazy, Suspense, useState } from 'react'
+import { lazy, Suspense, useEffect, useState } from 'react'
 import { BrowserRouter, Routes, Route, Navigate, NavLink, useLocation } from 'react-router-dom'
-import { QueryClient, QueryClientProvider, useQuery } from '@tanstack/react-query'
+import { QueryClient, QueryClientProvider, useQuery, useQueryClient } from '@tanstack/react-query'
 import { Button } from '@/components/ui/button'
-import { apiFetch, getAdminApiKey, setAdminApiKey } from '@/lib/api'
+import {
+  ApiError,
+  UNAUTHORIZED_EVENT,
+  apiFetch,
+  signIn,
+  signOut,
+  signUp,
+  type AccountStatus,
+} from '@/lib/api'
 import { useTranslations } from '@/hooks/useTranslations'
 import { switchLanguage, getCurrentLanguage } from '@/i18n'
 import PageSkeleton from '@/components/PageSkeleton'
@@ -95,19 +103,37 @@ function SetupGuard({ children, status }: { children: React.ReactNode; status: S
   return <>{children}</>
 }
 
-function AdminKeyPrompt({ initialKey, onSubmit, hasError }: {
-  initialKey: string
-  onSubmit: (key: string) => void
-  hasError: boolean
-}) {
+function AuthPanel({ hasAccount }: { hasAccount: boolean }) {
   const { t } = useTranslations()
-  const [key, setKey] = useState(initialKey)
+  const queryClient = useQueryClient()
+  const [name, setName] = useState('')
+  const [email, setEmail] = useState('')
+  const [password, setPassword] = useState('')
+  const [error, setError] = useState('')
+  const [pending, setPending] = useState(false)
 
-  function submit(event: React.FormEvent) {
+  async function submit(event: React.FormEvent) {
     event.preventDefault()
-    const trimmed = key.trim()
-    if (trimmed) onSubmit(trimmed)
+    setPending(true)
+    setError('')
+    try {
+      if (hasAccount) {
+        await signIn({ email: email.trim(), password })
+      } else {
+        await signUp({ name: name.trim(), email: email.trim(), password })
+      }
+      setPassword('')
+      await queryClient.invalidateQueries()
+    } catch (err) {
+      if (err instanceof ApiError) setError(err.message)
+      else if (err instanceof TypeError) setError(t('auth.unreachable'))
+      else setError(t('auth.failed'))
+    } finally {
+      setPending(false)
+    }
   }
+
+  const canSubmit = Boolean(email.trim() && password && (hasAccount || name.trim()))
 
   return (
     <div className="min-h-screen bg-background flex items-center justify-center px-6">
@@ -117,63 +143,137 @@ function AdminKeyPrompt({ initialKey, onSubmit, hasError }: {
             <span className="inline-block size-2 rounded-full bg-foreground" />
             <span className="font-semibold tracking-tight text-sm">FreeLLMAPI</span>
           </div>
-          <h1 className="text-lg font-semibold tracking-tight">{t('adminAuth.title')}</h1>
-          <p className="text-sm text-muted-foreground mt-2">{t('adminAuth.description')}</p>
+          <h1 className="text-lg font-semibold tracking-tight">
+            {hasAccount ? t('auth.signInTitle') : t('auth.createTitle')}
+          </h1>
+          <p className="text-sm text-muted-foreground mt-2">
+            {hasAccount ? t('auth.signInDescription') : t('auth.createDescription')}
+          </p>
         </div>
+        {!hasAccount && (
+          <div className="space-y-1.5">
+            <label htmlFor="auth-name" className="text-xs font-medium">{t('auth.name')}</label>
+            <input
+              id="auth-name"
+              value={name}
+              onChange={event => setName(event.target.value)}
+              autoComplete="name"
+              className="flex h-9 w-full rounded-md border border-input bg-background px-3 py-1 text-sm shadow-sm outline-none focus-visible:ring-1 focus-visible:ring-ring"
+            />
+          </div>
+        )}
         <div className="space-y-1.5">
-          <label htmlFor="admin-api-key" className="text-xs font-medium">{t('adminAuth.label')}</label>
+          <label htmlFor="auth-email" className="text-xs font-medium">{t('auth.email')}</label>
           <input
-            id="admin-api-key"
-            type="password"
-            value={key}
-            onChange={event => setKey(event.target.value)}
-            placeholder={t('adminAuth.placeholder')}
-            autoComplete="current-password"
+            id="auth-email"
+            type="email"
+            value={email}
+            onChange={event => setEmail(event.target.value)}
+            autoComplete="email"
             autoFocus
             className="flex h-9 w-full rounded-md border border-input bg-background px-3 py-1 text-sm shadow-sm outline-none focus-visible:ring-1 focus-visible:ring-ring"
           />
         </div>
-        {hasError && <p className="text-sm text-destructive">{t('adminAuth.invalid')}</p>}
-        <Button type="submit" className="w-full" disabled={!key.trim()}>
-          {t('adminAuth.continue')}
+        <div className="space-y-1.5">
+          <label htmlFor="auth-password" className="text-xs font-medium">{t('auth.password')}</label>
+          <input
+            id="auth-password"
+            type="password"
+            value={password}
+            onChange={event => setPassword(event.target.value)}
+            autoComplete={hasAccount ? 'current-password' : 'new-password'}
+            className="flex h-9 w-full rounded-md border border-input bg-background px-3 py-1 text-sm shadow-sm outline-none focus-visible:ring-1 focus-visible:ring-ring"
+          />
+          {!hasAccount && <p className="text-xs text-muted-foreground">{t('auth.passwordHint')}</p>}
+        </div>
+        {error && <p className="text-sm text-destructive">{error}</p>}
+        <Button type="submit" className="w-full" disabled={!canSubmit || pending}>
+          {hasAccount ? t('auth.signInButton') : t('auth.createButton')}
         </Button>
       </form>
     </div>
   )
 }
 
-function AdminKeyGate({ children }: { children: React.ReactNode }) {
-  const [adminKey, setAdminKey] = useState(() => getAdminApiKey())
+/**
+ * Shows the sign-up form on first run (no owner account yet), the sign-in form
+ * afterwards, and the dashboard once a session cookie is accepted.
+ */
+function AccountGate({ children }: { children: React.ReactNode }) {
+  const { t } = useTranslations()
+  const queryClient = useQueryClient()
+
+  const account = useQuery<AccountStatus>({
+    queryKey: ['account-status'],
+    queryFn: () => apiFetch('/api/account-status'),
+    retry: false,
+  })
+
   const setup = useQuery<SetupStatus>({
-    queryKey: ['setup-status', adminKey],
+    queryKey: ['setup-status'],
     queryFn: () => apiFetch('/api/settings/setup-status'),
-    enabled: Boolean(adminKey),
+    enabled: account.isSuccess,
     staleTime: 30_000,
     retry: false,
   })
 
-  if (!adminKey || setup.isError) {
-    return (
-      <AdminKeyPrompt
-        initialKey={adminKey}
-        hasError={Boolean(adminKey && setup.isError)}
-        onSubmit={key => {
-          setAdminApiKey(key)
-          setAdminKey(key)
-        }}
-      />
-    )
-  }
+  // A request refused with 401 anywhere in the dashboard means the session is
+  // gone. Reset only while signed-in data is cached: the reset refetch is itself
+  // refused with 401 and must not trigger another reset.
+  useEffect(() => {
+    const onUnauthorized = () => {
+      if (queryClient.getQueryData(['setup-status'])) {
+        queryClient.resetQueries({ queryKey: ['setup-status'] })
+      }
+    }
+    window.addEventListener(UNAUTHORIZED_EVENT, onUnauthorized)
+    return () => window.removeEventListener(UNAUTHORIZED_EVENT, onUnauthorized)
+  }, [queryClient])
 
+  if (account.isError) {
+    return <CenteredMessage text={t('auth.unreachable')} />
+  }
+  if (account.isLoading || !account.data) {
+    return <CenteredMessage text="Loading…" />
+  }
+  if (setup.isError && setup.error instanceof ApiError && setup.error.status === 401) {
+    return <AuthPanel hasAccount={account.data.hasAccount} />
+  }
+  if (setup.isError) {
+    return <CenteredMessage text={t('auth.unreachable')} />
+  }
   if (setup.isLoading || !setup.data) {
-    return (
-      <div className="min-h-screen bg-background flex items-center justify-center">
-        <div className="text-sm text-muted-foreground">Loading…</div>
-      </div>
-    )
+    return <CenteredMessage text="Loading…" />
   }
 
   return <SetupGuard status={setup.data}>{children}</SetupGuard>
+}
+
+function CenteredMessage({ text }: { text: string }) {
+  return (
+    <div className="min-h-screen bg-background flex items-center justify-center">
+      <div className="text-sm text-muted-foreground">{text}</div>
+    </div>
+  )
+}
+
+function SignOutButton() {
+  const { t } = useTranslations()
+  const queryClient = useQueryClient()
+
+  async function signOutNow() {
+    try {
+      await signOut()
+    } finally {
+      queryClient.invalidateQueries({ queryKey: ['setup-status'] })
+    }
+  }
+
+  return (
+    <Button variant="ghost" size="sm" onClick={signOutNow}>
+      {t('auth.signOut')}
+    </Button>
+  )
 }
 
 function LanguageToggle() {
@@ -208,7 +308,7 @@ function AppLayout() {
       <header className="sticky top-0 z-40 bg-background/80 backdrop-blur border-b">
         <div className="max-w-6xl mx-auto px-4 flex flex-wrap items-center">
           <Brand />
-          <nav className="flex items-center gap-4 ml-4 overflow-x-auto max-w-full order-3 sm:order-none">
+          <nav className="flex items-center gap-4 ml-4 overflow-x-auto max-w-full order-3 sm:order-0">
             <NavItem to="/playground">{t('app.nav.playground')}</NavItem>
             <NavItem to="/keys">{t('app.nav.keys')}</NavItem>
             <NavItem to="/fallback">{t('app.nav.fallback')}</NavItem>
@@ -218,6 +318,7 @@ function AppLayout() {
           <div className="ml-auto py-2 flex items-center gap-2">
             <LanguageToggle />
             <DarkModeToggle />
+            <SignOutButton />
           </div>
         </div>
       </header>
@@ -245,9 +346,9 @@ function App() {
   return (
     <QueryClientProvider client={queryClient}>
       <BrowserRouter basename={import.meta.env.BASE_URL}>
-        <AdminKeyGate>
+        <AccountGate>
           <AppLayout />
-        </AdminKeyGate>
+        </AccountGate>
       </BrowserRouter>
     </QueryClientProvider>
   )

@@ -621,21 +621,10 @@ mod tests {
         let fallback_count: i64 = conn
             .query_row("SELECT COUNT(*) FROM fallback_config", [], |r| r.get(0))
             .unwrap();
-        let key_value: String = conn
-            .query_row(
-                "SELECT value FROM settings WHERE key = 'unified_api_key'",
-                [],
-                |r| r.get(0),
-            )
-            .unwrap();
 
         assert!(
             model_count > 0,
             "expected fixture models to survive migrations"
-        );
-        assert!(
-            !key_value.is_empty(),
-            "unified_api_key setting should exist after run_migrations"
         );
         assert_eq!(
             fallback_count, model_count,
@@ -651,13 +640,6 @@ mod tests {
         let fallback_count_2: i64 = conn
             .query_row("SELECT COUNT(*) FROM fallback_config", [], |r| r.get(0))
             .unwrap();
-        let key_count: i64 = conn
-            .query_row(
-                "SELECT COUNT(*) FROM settings WHERE key = 'unified_api_key'",
-                [],
-                |r| r.get(0),
-            )
-            .unwrap();
 
         assert_eq!(
             model_count, model_count_2,
@@ -666,10 +648,6 @@ mod tests {
         assert_eq!(
             fallback_count, fallback_count_2,
             "fallback_config row count must be stable"
-        );
-        assert_eq!(
-            key_count, 1,
-            "unified_api_key must still exist exactly once"
         );
     }
 }

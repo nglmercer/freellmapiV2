@@ -27,11 +27,6 @@ export default function PlaygroundPage() {
   const messagesEndRef = useRef<HTMLDivElement>(null)
   const inputRef = useRef<HTMLTextAreaElement>(null)
 
-  const { data: keyData } = useQuery<{ apiKey: string }>({
-    queryKey: ['unified-key'],
-    queryFn: () => apiFetch('/api/settings/api-key'),
-  })
-
   const { data: fallbackEntries = [] } = useQuery<FallbackEntry[]>({
     queryKey: ['fallback'],
     queryFn: () => apiFetch('/api/fallback'),
@@ -55,8 +50,8 @@ export default function PlaygroundPage() {
     inputRef.current?.focus()
 
     try {
+      // The dashboard session cookie authorizes the playground; no key is needed.
       const headers: Record<string, string> = { 'Content-Type': 'application/json' }
-      if (keyData?.apiKey) headers['Authorization'] = `Bearer ${keyData.apiKey}`
 
       const body: Record<string, unknown> = {
         messages: newMessages.map(m => ({ role: m.role, content: m.content })),

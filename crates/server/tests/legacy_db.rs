@@ -131,9 +131,7 @@ fn create_legacy_database(path: &PathBuf) {
     )
     .expect("insert legacy encrypted key");
     conn.execute(
-        "INSERT INTO settings (key, value) VALUES
-         ('unified_api_key', 'legacy-unified-key'),
-         ('dashboard_theme', 'dark')",
+        "INSERT INTO settings (key, value) VALUES ('dashboard_theme', 'dark')",
         [],
     )
     .expect("insert legacy settings");
@@ -214,14 +212,6 @@ async fn migrates_realistic_legacy_database_without_losing_data() {
             "legacy-provider-key"
         );
 
-        let unified: String = conn
-            .query_row(
-                "SELECT value FROM settings WHERE key = 'unified_api_key'",
-                [],
-                |row| row.get(0),
-            )
-            .unwrap();
-        assert_eq!(unified, "legacy-unified-key");
         let theme: String = conn
             .query_row(
                 "SELECT value FROM settings WHERE key = 'dashboard_theme'",
@@ -294,7 +284,7 @@ async fn migrates_realistic_legacy_database_without_losing_data() {
     }
 
     // A second startup migration must leave all preserved data and migration
-    // tables usable and must not generate a replacement unified key.
+    // tables usable.
     server::db::run_in_transaction(|conn| {
         server::db::run_migrations(conn);
         Ok::<(), rusqlite::Error>(())
@@ -305,14 +295,6 @@ async fn migrates_realistic_legacy_database_without_losing_data() {
     assert_eq!(fallback_snapshot().await[0].0, "legacy-second");
     {
         let conn = server::db::db().lock().await;
-        let unified: String = conn
-            .query_row(
-                "SELECT value FROM settings WHERE key = 'unified_api_key'",
-                [],
-                |row| row.get(0),
-            )
-            .unwrap();
-        assert_eq!(unified, "legacy-unified-key");
         let sync_counts: (i64, i64) = conn
             .query_row(
                 "SELECT (SELECT COUNT(*) FROM sync_log),

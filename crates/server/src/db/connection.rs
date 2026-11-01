@@ -58,6 +58,11 @@ pub fn init_db(path: Option<&str>) -> rusqlite::Result<()> {
     } else {
         Connection::open(&resolved)?
     };
+    // Better Auth keeps its own connection to this file; wait for its writes
+    // instead of failing with "database is locked".
+    sqlite
+        .busy_timeout(std::time::Duration::from_secs(5))
+        .expect("failed to set SQLite busy timeout");
     if !is_memory {
         sqlite.execute_batch("PRAGMA journal_mode = WAL").ok();
     }

@@ -1,7 +1,7 @@
 //! FreeLLMAPI server library and HTTP application.
-//! The public API and SQLite/encryption formats remain backwards compatible.
 
 pub mod app;
+pub mod auth;
 pub mod db;
 pub mod env;
 pub mod error;

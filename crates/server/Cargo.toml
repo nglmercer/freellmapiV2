@@ -36,6 +36,9 @@ hex = { workspace = true }
 tracing = { workspace = true }
 tracing-subscriber = { workspace = true }
 axum = "0.8"
+# Pinned: the sqlite adapter is ported locally (see src/auth/sqlite.rs) because
+# better-auth's bundled sqlite adapter would pull a second libsqlite3-sys.
+better-auth = { git = "https://github.com/nglmercer/better-auth-rs", rev = "1b1a6cdca121055e7f3eee166a6f88f602f4c5d6", default-features = false, features = ["axum"] }
 tower-http = { version = "0.6", features = ["cors", "fs", "limit"] }
 tower = "0.5"
 rusqlite = { version = "0.37", features = ["bundled", "chrono"] }

@@ -64,9 +64,10 @@ npm run build:desktop
 ```
 
 The tray menu provides dashboard, setup, restart, and quit actions. On first
-launch the browser is taken through the normal setup page. The launcher passes
-the local admin credential in a URL fragment; the dashboard consumes it and
-removes it from the address bar before making API requests.
+launch the browser is taken through the normal account setup. The launcher
+generates a random shutdown token for each run and passes it to the server
+through its environment, so graceful shutdown works without any credential on
+disk.
 
 For distribution, place these files in one application directory:
 
@@ -101,30 +102,55 @@ cargo run -p server
 
 ## Configuration
 
-Supported environment variables are:
+No `.env` file is required. Every setting is optional and has a default.
 
-- `ENCRYPTION_KEY` — 64 hexadecimal characters (32 bytes) used for AES-256-GCM provider-key encryption.
-- `ADMIN_API_KEY` — separate credential required for every administrative `/api/*` route except `/api/ping`. If omitted from a local `.env`, startup generates one.
 - `PORT` — HTTP port; defaults to `3001`.
 - `BIND_ADDRESS` — listen address; defaults to `127.0.0.1`. Set `0.0.0.0` only when the deployment intentionally exposes the service.
-- `DASHBOARD_ORIGINS` — optional comma-separated browser-origin allowlist for cross-origin dashboard requests. CORS is denied by default.
+- `ENCRYPTION_KEY` — optional 64 hexadecimal characters (32 bytes) for AES-256-GCM provider-key encryption. When unset, a random key is generated on first start and stored in the database.
+- `BETTER_AUTH_SECRET` — optional secret (at least 32 characters) that signs dashboard sessions and hashes API keys. When unset, a random secret is generated on first start and stored in the database.
+- `DASHBOARD_ORIGINS` — optional comma-separated browser-origin allowlist for cross-origin dashboard requests. Same-origin use needs no setting. `localhost:5173` and `127.0.0.1:5173` are always trusted for the Vite dev server.
 - `ARTIFICIAL_ANALYSIS_API_KEY` — optional Artificial Analysis Data API key. The default endpoint is the Free integration at `/api/v2/language/models/free`.
 - `ARTIFICIAL_ANALYSIS_URL` — optional endpoint override for Pro/commercial or compatible deployments.
 - `DB_PATH` — explicit SQLite database path.
 - `STATIC_DIR` — directory containing the built client assets.
 - `RUST_LOG` — tracing filter, for example `info,tower_http=debug`.
 
-Copy `.env.example` to `.env` and set `ENCRYPTION_KEY` and `ADMIN_API_KEY` for a deployment that already has encrypted provider keys. Never commit real keys.
+A `.env` file in the project root is loaded when present, so these variables can
+also be kept there. See `.env.example` for the list. Never commit real keys.
 
-The dashboard prompts for `ADMIN_API_KEY` when the server is not built with a `VITE_ADMIN_API_KEY`; the entered credential is kept only in the browser session. For local Vite development, set `DASHBOARD_ORIGINS=http://localhost:5173,http://127.0.0.1:5173` and optionally set `VITE_ADMIN_API_KEY` to avoid the prompt. Do not publish the admin credential in a broadly accessible production bundle. The OpenAI-compatible `/v1/*` routes use the separate unified API key returned by the protected Settings endpoints.
+### Accounts and API keys
+
+Authentication uses [Better Auth for Rust](https://github.com/nglmercer/better-auth-rs).
+
+- **Dashboard:** the first visit creates the single owner account (email and
+  password). Once it exists, sign-up is closed and the dashboard asks for
+  sign-in. The session is an `HttpOnly` cookie. Sign out from the header.
+- **OpenAI-compatible API (`/v1/*`):** create API keys on the Keys page. Send one
+  as `Authorization: Bearer <key>` or `x-api-key: <key>`. Keys can be revoked
+  there. A dashboard session also works, which is how the playground calls `/v1`.
+- Browser-based local development with Vite (`npm run dev:client`) works with no
+  extra configuration.
 
 ### Database compatibility
 
-Existing installations are preserved. When `DB_PATH` is not set, the server first uses an existing legacy database at `server/data/freeapi.db`; if it does not exist, it creates the new default at `data/freeapi.db`. Runtime state is stored as `runtime-state.json` beside the selected database. The migration creates missing tables and columns in place and is idempotent; it does not reset or recreate an existing database.
+Existing provider keys and models are preserved. When `DB_PATH` is not set, the server first uses an existing legacy database at `server/data/freeapi.db`; if it does not exist, it creates the new default at `data/freeapi.db`. Runtime state is stored as `runtime-state.json` beside the selected database. The migration creates missing tables and columns in place and is idempotent; it does not reset or recreate an existing database.
+
+The authentication change is not backward compatible. The old `ADMIN_API_KEY` and the unified proxy key are no longer read. After upgrading, open the dashboard, create the owner account, and create new API keys for your clients.
 
 ## API
 
-`/api/ping` is public. All other administrative routes (`/api/keys`, `/api/models`, `/api/fallback`, `/api/analytics`, `/api/health`, `/api/settings`, `/api/providers`, and `/api/shutdown`) require `Authorization: Bearer <ADMIN_API_KEY>`. The shutdown route is intended for the desktop launcher and requests a graceful stop. OpenAI-compatible routes (`/v1/models`, `/v1/chat/completions`, and `/v1/completions`) require `Authorization: Bearer <unified API key>`.
+Public routes: `/api/ping`, `/api/account-status` (reports whether the owner
+account exists), and the Better Auth routes under `/api/auth/*` (sign-up,
+sign-in, sign-out, session lookup, and API-key management at
+`/api/auth/api-key/*`).
+
+Dashboard routes (`/api/keys`, `/api/models`, `/api/fallback`, `/api/analytics`,
+`/api/health`, `/api/settings`, `/api/providers`, and the rest of `/api/*`)
+require a signed-in session cookie. `/api/shutdown` accepts that session or the
+launcher's per-run token; it requests a graceful stop.
+
+OpenAI-compatible routes (`/v1/models`, `/v1/chat/completions`, and
+`/v1/completions`) require an API key or a dashboard session.
 
 Ranking enrichment uses the Artificial Analysis Free endpoint by default and reuses a successful source snapshot for 24 hours during scheduled model syncs. The administrative ranking-sync endpoint forces a fresh fetch.
 

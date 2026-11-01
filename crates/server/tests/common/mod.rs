@@ -18,17 +18,38 @@ fn test_lock() -> &'static tokio::sync::Mutex<()> {
 
 pub struct TestApp {
     pub app: Router,
+    /// `Authorization: Bearer` key for the OpenAI-compatible `/v1` routes.
     pub api_key: String,
     _guard: tokio::sync::MutexGuard<'static, ()>,
 }
 
-/// Fresh in-memory DB + migrations + fixtures + router. Holds the global
-/// test lock for the lifetime of the returned value.
+const OWNER_EMAIL: &str = "owner@example.com";
+const OWNER_PASSWORD: &str = "correct horse battery staple";
+
+/// Credentials created by [`setup`]: the owner's session cookie (`name=value`)
+/// and an API key. Process-global because the helpers below read them without
+/// a `TestApp` in hand; the test lock keeps them consistent.
+static CREDENTIALS: std::sync::Mutex<Option<(String, String)>> = std::sync::Mutex::new(None);
+
+fn credentials() -> (String, String) {
+    CREDENTIALS
+        .lock()
+        .unwrap()
+        .clone()
+        .expect("setup() has not run")
+}
+
+/// Builds a fresh in-memory DB with migrations, the auth runtime, an owner
+/// account, fixtures and the router. No `.env` values are needed: the
+/// encryption key and auth secret are generated into the in-memory database.
+///
+/// Holds the global test lock for the lifetime of the returned value.
 pub async fn setup() -> TestApp {
     let guard = test_lock().lock().await;
 
-    std::env::set_var("ENCRYPTION_KEY", "a".repeat(64));
-    std::env::set_var("ADMIN_API_KEY", "b".repeat(64));
+    std::env::remove_var("ENCRYPTION_KEY");
+    std::env::remove_var("BETTER_AUTH_SECRET");
+    std::env::remove_var("DASHBOARD_ORIGINS");
     // Silence .env auto-generation writes into the repo root during tests.
     std::env::set_var("PORT", "0");
     let conn_dir = std::env::temp_dir().join(format!("freellmapi-test-{}", std::process::id()));
@@ -43,14 +64,62 @@ pub async fn setup() -> TestApp {
         server::db::run_migrations(&conn);
         seed_test_models(&conn);
     }
+    server::auth::start_in_memory()
+        .await
+        .expect("start authentication");
 
     let app = server::app::create_app();
-    let api_key = server::db::get_unified_api_key().await;
+    let cookie = sign_up_owner(&app).await;
+    let api_key = create_api_key(&app, &cookie).await;
+    *CREDENTIALS.lock().unwrap() = Some((cookie, api_key.clone()));
     TestApp {
         app,
         api_key,
         _guard: guard,
     }
+}
+
+/// Creates the single owner account and returns its session cookie.
+async fn sign_up_owner(app: &Router) -> String {
+    let resp = request(
+        app,
+        "POST",
+        "/api/auth/sign-up/email",
+        None,
+        Some(serde_json::json!({
+            "email": OWNER_EMAIL,
+            "name": "Owner",
+            "password": OWNER_PASSWORD,
+        })),
+    )
+    .await;
+    expect_status(&resp, StatusCode::OK);
+    session_cookie(&resp).expect("sign-up sets a session cookie")
+}
+
+/// Creates an API key for the signed-in owner.
+async fn create_api_key(app: &Router, cookie: &str) -> String {
+    let resp = request(
+        app,
+        "POST",
+        "/api/auth/api-key/create",
+        Some(&format!("cookie:{cookie}")),
+        Some(serde_json::json!({ "name": "test" })),
+    )
+    .await;
+    expect_status(&resp, StatusCode::OK);
+    resp.body["key"].as_str().expect("api key").to_string()
+}
+
+/// Extracts `name=value` from the first `Set-Cookie` header of a response.
+fn session_cookie(resp: &TestResponse) -> Option<String> {
+    resp.headers
+        .get_all("set-cookie")
+        .iter()
+        .filter_map(|value| value.to_str().ok())
+        .find(|value| value.contains("session_token="))
+        .and_then(|value| value.split(';').next())
+        .map(str::to_owned)
 }
 
 // ---- deterministic model fixtures ----
@@ -197,9 +266,23 @@ pub async fn request(
     auth: Option<&str>,
     body: Option<Value>,
 ) -> TestResponse {
+    let auth_header = auth.map(|value| match value.strip_prefix("cookie:") {
+        Some(cookie) => ("cookie", cookie.to_string()),
+        None => ("authorization", format!("Bearer {value}")),
+    });
+    request_with_header(app, method, path, auth_header, body).await
+}
+
+async fn request_with_header(
+    app: &Router,
+    method: &str,
+    path: &str,
+    auth_header: Option<(&str, String)>,
+    body: Option<Value>,
+) -> TestResponse {
     let mut builder = Request::builder().method(method).uri(path);
-    if let Some(token) = auth {
-        builder = builder.header("authorization", format!("Bearer {token}"));
+    if let Some((name, value)) = auth_header {
+        builder = builder.header(name, value);
     }
     let req = match body {
         Some(v) => {
@@ -226,9 +309,9 @@ pub async fn request(
 
 pub async fn get(app: &Router, path: &str) -> TestResponse {
     let auth = if path.starts_with("/api/") && path != "/api/ping" {
-        Some(admin_key())
+        Some(owner_credential())
     } else if path.starts_with("/v1/") {
-        Some(server::db::get_unified_api_key().await)
+        Some(api_key_credential())
     } else {
         None
     };
@@ -237,18 +320,29 @@ pub async fn get(app: &Router, path: &str) -> TestResponse {
 
 pub async fn post_json(app: &Router, path: &str, key: &str, body: Value) -> TestResponse {
     let admin = path.starts_with("/api/") && path != "/api/ping";
-    let auth = admin.then(admin_key).unwrap_or_else(|| key.to_string());
+    let auth = admin
+        .then(owner_credential)
+        .unwrap_or_else(|| key.to_string());
     request(app, "POST", path, Some(&auth), Some(body)).await
 }
 
 pub async fn post(app: &Router, path: &str, key: &str) -> TestResponse {
     let admin = path.starts_with("/api/") && path != "/api/ping";
-    let auth = admin.then(admin_key).unwrap_or_else(|| key.to_string());
+    let auth = admin
+        .then(owner_credential)
+        .unwrap_or_else(|| key.to_string());
     request(app, "POST", path, Some(&auth), None).await
 }
 
-pub fn admin_key() -> String {
-    std::env::var("ADMIN_API_KEY").expect("test admin key")
+/// Credential for dashboard routes: the owner's session cookie. Passed to
+/// [`request`] with a `cookie:` prefix so it is sent as a `Cookie` header.
+pub fn owner_credential() -> String {
+    format!("cookie:{}", credentials().0)
+}
+
+/// Credential for `/v1` routes: the owner's API key, sent as a bearer token.
+pub fn api_key_credential() -> String {
+    credentials().1
 }
 
 pub fn expect_status(resp: &TestResponse, code: StatusCode) {

@@ -100,7 +100,7 @@ async fn effective_priority_equals_priority_initially() {
 #[tokio::test]
 async fn should_update_fallback_chain_successfully() {
     let app = common::setup().await;
-    let admin_key = common::admin_key();
+    let admin_key = common::owner_credential();
     let body = json!([
         { "modelDbId": 1, "priority": 2, "enabled": true },
         { "modelDbId": 2, "priority": 1, "enabled": true },
@@ -121,7 +121,7 @@ async fn should_update_fallback_chain_successfully() {
 #[tokio::test]
 async fn should_persist_updated_priorities_in_subsequent_get() {
     let app = common::setup().await;
-    let admin_key = common::admin_key();
+    let admin_key = common::owner_credential();
     let body = json!([
         { "modelDbId": 1, "priority": 10, "enabled": true },
         { "modelDbId": 2, "priority": 5, "enabled": true },
@@ -150,7 +150,7 @@ async fn should_persist_updated_priorities_in_subsequent_get() {
 #[tokio::test]
 async fn should_return_400_for_invalid_body() {
     let app = common::setup().await;
-    let admin_key = common::admin_key();
+    let admin_key = common::owner_credential();
     let res = common::request(
         &app.app,
         "PUT",
@@ -171,7 +171,7 @@ async fn should_return_400_for_invalid_body() {
 #[tokio::test]
 async fn should_return_400_when_model_db_id_not_a_number() {
     let app = common::setup().await;
-    let admin_key = common::admin_key();
+    let admin_key = common::owner_credential();
     let body = json!([{ "modelDbId": "abc", "priority": 1, "enabled": true }]);
     let res = common::request(
         &app.app,
@@ -189,7 +189,7 @@ async fn should_return_400_when_model_db_id_not_a_number() {
 #[tokio::test]
 async fn should_return_400_when_enabled_not_a_boolean() {
     let app = common::setup().await;
-    let admin_key = common::admin_key();
+    let admin_key = common::owner_credential();
     let body = json!([{ "modelDbId": 1, "priority": 1, "enabled": "yes" }]);
     let res = common::request(
         &app.app,
@@ -219,7 +219,7 @@ async fn put_works_without_auth_header() {
 #[tokio::test]
 async fn sort_by_intelligence_preset() {
     let app = common::setup().await;
-    let admin_key = common::admin_key();
+    let admin_key = common::owner_credential();
     let res = common::request(
         &app.app,
         "POST",
@@ -236,7 +236,7 @@ async fn sort_by_intelligence_preset() {
 #[tokio::test]
 async fn sort_by_speed_preset() {
     let app = common::setup().await;
-    let admin_key = common::admin_key();
+    let admin_key = common::owner_credential();
     let res = common::request(
         &app.app,
         "POST",
@@ -253,7 +253,7 @@ async fn sort_by_speed_preset() {
 #[tokio::test]
 async fn sort_by_budget_preset() {
     let app = common::setup().await;
-    let admin_key = common::admin_key();
+    let admin_key = common::owner_credential();
     let res = common::request(
         &app.app,
         "POST",
@@ -271,7 +271,7 @@ async fn sort_by_budget_preset() {
 #[tokio::test]
 async fn sort_unknown_preset_returns_400() {
     let app = common::setup().await;
-    let admin_key = common::admin_key();
+    let admin_key = common::owner_credential();
     let res = common::request(
         &app.app,
         "POST",

@@ -269,7 +269,7 @@ async fn api_is_admin_only_validates_and_bounds_queries() {
         &app.app,
         "PATCH",
         "/api/metadata/sources/models-dev",
-        Some(&common::admin_key()),
+        Some(&common::owner_credential()),
         Some(json!({"ttlSeconds":-1})),
     )
     .await;
@@ -685,12 +685,12 @@ async fn saved_policy_validates_and_enforces_shared_constraints() {
         &app.app,
         "PATCH",
         "/api/routing/policy",
-        Some(&common::admin_key()),
+        Some(&common::owner_credential()),
         Some(json!({"weights":{"quality":-1}})),
     )
     .await;
     assert_eq!(invalid.status, 400);
-    let response=common::request(&app.app,"PATCH","/api/routing/policy",Some(&common::admin_key()),Some(json!({"strategy":"weighted","freeOnly":true,"maxCostUsd":0,"requiredCapabilities":["vision"]}))).await;
+    let response=common::request(&app.app,"PATCH","/api/routing/policy",Some(&common::owner_credential()),Some(json!({"strategy":"weighted","freeOnly":true,"maxCostUsd":0,"requiredCapabilities":["vision"]}))).await;
     assert_eq!(response.status, 200);
     let conn = db().lock().await;
     let request = RoutingPolicy {

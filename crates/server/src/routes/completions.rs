@@ -6,7 +6,7 @@ use std::collections::HashSet;
 use std::time::Instant;
 
 use axum::body::{Body, Bytes};
-use axum::http::{HeaderMap, StatusCode};
+use axum::http::StatusCode;
 use axum::response::{IntoResponse, Response};
 use futures::future::join_all;
 use serde_json::{json, Value};
@@ -14,7 +14,7 @@ use serde_json::{json, Value};
 use crate::db::connection::db;
 use crate::providers::base::{ChunkReceiver, ProviderError};
 use crate::routes::middleware::{
-    api_key_auth, estimate_input_tokens, malformed_json, validate_completion_body_value,
+    estimate_input_tokens, malformed_json, validate_completion_body_value,
 };
 use crate::services::ratelimit::{record_request, record_tokens, set_cooldown};
 use crate::services::router::{record_rate_limit_hit, record_success, route_request, RouteResult};
@@ -68,10 +68,7 @@ fn preview(s: &str, max: usize) -> &str {
 
 /// Route handler for `POST /v1/completions` with authentication and
 /// validation.
-pub async fn completions_handler(headers: HeaderMap, body: Bytes) -> Response {
-    if let Err(resp) = api_key_auth(&headers).await {
-        return resp;
-    }
+pub async fn completions_handler(body: Bytes) -> Response {
     let raw: Value = match serde_json::from_slice(&body) {
         Ok(v) => v,
         Err(_) => return malformed_json(),

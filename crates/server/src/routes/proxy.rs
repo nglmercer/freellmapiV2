@@ -4,7 +4,7 @@ use std::collections::HashSet;
 use std::time::Instant;
 
 use axum::body::Bytes;
-use axum::http::{HeaderMap, StatusCode};
+use axum::http::StatusCode;
 use axum::response::{IntoResponse, Response};
 use futures::future::join_all;
 use serde_json::{json, Value};
@@ -12,8 +12,7 @@ use serde_json::{json, Value};
 use crate::db::connection::db;
 use crate::providers::base::ProviderError;
 use crate::routes::middleware::{
-    api_key_auth, estimate_input_tokens, malformed_json, normalize_messages,
-    validate_chat_body_value,
+    estimate_input_tokens, malformed_json, normalize_messages, validate_chat_body_value,
 };
 use crate::routes::stream_handler::{handle_standard_completion, handle_streaming_completion};
 use crate::services::ratelimit::{
@@ -166,12 +165,7 @@ fn log_request(
 }
 
 /// `POST /v1/chat/completions`
-pub async fn chat_completions(headers: HeaderMap, body: Bytes) -> Response {
-    // apiKeyAuth
-    if let Err(resp) = api_key_auth(&headers).await {
-        return resp;
-    }
-
+pub async fn chat_completions(body: Bytes) -> Response {
     // validateChatBody
     let raw: Value = match serde_json::from_slice(&body) {
         Ok(v) => v,
