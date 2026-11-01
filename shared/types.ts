@@ -124,6 +124,29 @@ export interface FallbackEntry {
   reliability?: ReliabilityMetric;
   rankingConfidence?: number;
   routing?: { balancedScore: number | null };
+  /** Why quality is empty: a benchmark source must be configured, or none has data. */
+  qualityState?: QualityState;
+  /** Why speed is empty: it is measured after the first request, or has no data. */
+  speedState?: SpeedState;
+  /** Registry facts for this deployment (context, price, capabilities, latency). */
+  metrics?: FallbackMetrics | null;
+}
+
+export type QualityState = 'available' | 'needs_source' | 'no_data';
+export type SpeedState = 'available' | 'awaiting_requests' | 'no_data';
+
+export interface FallbackMetrics {
+  /** Total context window in tokens. */
+  contextWindow: number | null;
+  /** USD per 1M input tokens. */
+  priceInput: number | null;
+  /** USD per 1M output tokens. */
+  priceOutput: number | null;
+  ttftMs: number | null;
+  latencyMs: number | null;
+  codingScore: number | null;
+  /** Capability names the registry marks as supported, e.g. "tools", "vision". */
+  capabilities: string[];
 }
 
 // ---- OpenAI-Compatible Types ----

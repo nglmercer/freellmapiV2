@@ -13,16 +13,17 @@ import {
   arrayMove,
   SortableContext,
   sortableKeyboardCoordinates,
-  useSortable,
   verticalListSortingStrategy,
 } from '@dnd-kit/sortable'
-import { CSS } from '@dnd-kit/utilities'
 import { useTranslations } from '@/hooks/useTranslations'
 import { apiFetch } from '@/lib/api'
 import { Button } from '@/components/ui/button'
-import { Switch } from '@/components/ui/switch'
 import { PageHeader } from '@/components/page-header'
 import { ControlsPanel } from '@/components/fallback-controls'
+import { FallbackStats } from '@/components/fallback-stats'
+import { ChainPreview } from '@/components/fallback-chain-preview'
+import { SortableFallbackRow } from '@/components/fallback-row'
+import { speedOf } from '@/components/fallback-format'
 import {
   EMPTY_FILTERS,
   filterEntries,
@@ -35,39 +36,6 @@ function formatTokens(n: number): string {
   if (n >= 1_000_000) return `${(n / 1_000_000).toFixed(1)}M`
   if (n >= 1_000) return `${(n / 1_000).toFixed(1)}K`
   return String(n)
-}
-
-function formatQuality(entry: FallbackEntry): string {
-  const score = entry.quality?.score ?? entry.intelligenceScore
-  const rank = entry.quality?.rank ?? entry.intelligenceRank
-  if (score == null) return 'Quality —'
-  return `Quality ${score.toFixed(1)}${rank == null ? '' : ` · #${rank}`}`
-}
-
-function formatSpeed(entry: FallbackEntry): string {
-  const speed = entry.speed?.tokensPerSecond ?? entry.speedTokensPerSec
-  const rank = entry.speed?.rank ?? entry.speedRank
-  if (speed == null) return 'Speed —'
-  return `Speed ${speed.toFixed(1)} tok/s${rank == null ? '' : ` · #${rank}`}`
-}
-
-function metricDetails(entry: FallbackEntry): string {
-  const quality = entry.quality
-  const speed = entry.speed
-  const reliability = entry.reliability
-  const parts = [
-    quality?.source && `Quality: ${quality.source}`,
-    quality?.confidence != null && quality.confidence > 0 && `Quality confidence: ${(quality.confidence * 100).toFixed(0)}%`,
-    quality?.updatedAt && `Quality updated: ${quality.updatedAt}`,
-    quality?.status === 'stale' && 'Quality: stale',
-    speed?.source && `Speed: ${speed.source}`,
-    speed?.confidence != null && speed.confidence > 0 && `Speed confidence: ${(speed.confidence * 100).toFixed(0)}%`,
-    speed?.updatedAt && `Speed updated: ${speed.updatedAt}`,
-    speed?.status === 'stale' && 'Speed: stale',
-    reliability?.successRate != null && `Reliability: ${(reliability.successRate * 100).toFixed(1)}%`,
-    reliability?.sampleCount ? `Samples: ${reliability.sampleCount}` : undefined,
-  ].filter(Boolean)
-  return parts.join(' · ') || 'No ranking data available'
 }
 
 interface TokenUsageData {
@@ -155,77 +123,6 @@ function TokenUsageBar({ data }: { data: TokenUsageData }) {
   )
 }
 
-function SortableModelRow({
-  entry,
-  index,
-  onToggle,
-}: {
-  entry: FallbackEntry
-  index: number
-  onToggle: (modelDbId: number, enabled: boolean) => void
-}) {
-  const { t } = useTranslations()
-  const { attributes, listeners, setNodeRef, transform, transition, isDragging } = useSortable({
-    id: entry.modelDbId,
-  })
-
-  const style = {
-    transform: CSS.Transform.toString(transform),
-    transition,
-  }
-
-  return (
-    <div
-      ref={setNodeRef}
-      style={style}
-      className={`group flex items-center gap-3 px-4 py-3 bg-card ${isDragging ? 'opacity-50' : ''} ${entry.enabled ? '' : 'opacity-50'}`}
-    >
-      <button
-        {...attributes}
-        {...listeners}
-        className="cursor-grab active:cursor-grabbing text-muted-foreground/50 hover:text-foreground transition-colors"
-        aria-label={t('fallback.dragToReorder')}
-      >
-        <svg width="14" height="14" viewBox="0 0 24 24" fill="currentColor">
-          <circle cx="9" cy="6" r="1.5" /><circle cx="15" cy="6" r="1.5" />
-          <circle cx="9" cy="12" r="1.5" /><circle cx="15" cy="12" r="1.5" />
-          <circle cx="9" cy="18" r="1.5" /><circle cx="15" cy="18" r="1.5" />
-        </svg>
-      </button>
-      <span className="text-xs font-mono text-muted-foreground w-5 tabular-nums">{index + 1}</span>
-      <div className="flex-1 min-w-0">
-        <div className="flex items-center gap-2 flex-wrap">
-          <span className="font-medium text-sm">{entry.displayName}</span>
-          <span className="text-xs text-muted-foreground">{entry.platform}</span>
-          {entry.penalty > 0 && (
-            <span className="text-xs text-amber-600 dark:text-amber-400">
-              {t('fallback.penalty', { count: entry.penalty })}
-            </span>
-          )}
-        </div>
-        <div className="flex gap-3 mt-0.5 text-xs text-muted-foreground tabular-nums">
-          <span title={metricDetails(entry)}>{formatQuality(entry)}</span>
-          <span title={metricDetails(entry)}>{formatSpeed(entry)}</span>
-          {entry.reliability?.successRate != null && (
-            <span title={metricDetails(entry)}>
-              {t('fallback.reliability', { rate: (entry.reliability.successRate * 100).toFixed(1) })}
-            </span>
-          )}
-          {!!entry.rpmLimit && <span>{t('fallback.rpm', { count: entry.rpmLimit })}</span>}
-          {!!entry.rpdLimit && <span>{t('fallback.rpd', { count: entry.rpdLimit })}</span>}
-          {entry.monthlyTokenBudget && (
-            <span>{t('fallback.tokensPerMonth', { count: entry.monthlyTokenBudget })}</span>
-          )}
-        </div>
-      </div>
-      <Switch
-        checked={entry.enabled}
-        onCheckedChange={(checked) => onToggle(entry.modelDbId, checked)}
-      />
-    </div>
-  )
-}
-
 export default function FallbackPage() {
   const { t } = useTranslations()
   const queryClient = useQueryClient()
@@ -278,6 +175,8 @@ export default function FallbackPage() {
   const allEntries = localEntries ?? entries
   const configuredEntries = allEntries.filter(e => e.keyCount > 0)
   const displayEntries = filterEntries(configuredEntries, filters)
+  // Speed bars are scaled against the fastest visible entry so they compare.
+  const maxSpeed = Math.max(0, ...displayEntries.map(e => speedOf(e) ?? 0))
   const unconfiguredPlatforms = [...new Set(allEntries.filter(e => e.keyCount === 0).map(e => e.platform))]
 
   const sensors = useSensors(
@@ -356,6 +255,10 @@ export default function FallbackPage() {
       />
 
       <div className="space-y-6">
+        <FallbackStats entries={configuredEntries} />
+
+        <ChainPreview entries={configuredEntries} />
+
         {flash && (
           <div
             className={
@@ -407,10 +310,11 @@ export default function FallbackPage() {
                   strategy={verticalListSortingStrategy}
                 >
                   {displayEntries.map((entry, index) => (
-                    <SortableModelRow
+                    <SortableFallbackRow
                       key={entry.modelDbId}
                       entry={entry}
                       index={index}
+                      maxSpeed={maxSpeed}
                       onToggle={handleToggle}
                     />
                   ))}

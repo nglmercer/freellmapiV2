@@ -13,7 +13,91 @@ use serde_json::{json, Value};
 
 use crate::db::connection::db;
 use crate::routes::ranking_json;
+use crate::services::model_metadata::facts::{facts_for, source_status, ModelFacts};
 use crate::services::router::{get_all_penalties, route_availability};
+
+/// Quality and speed as the chain shows them. The legacy ranking columns win
+/// when they hold a value; otherwise the registry's value for the deployment
+/// fills the gap, with its source, confidence, and timestamp.
+struct Filled {
+    quality: Option<f64>,
+    quality_source: Option<String>,
+    quality_confidence: Option<f64>,
+    quality_updated_at: Option<String>,
+    speed: Option<f64>,
+    speed_source: Option<String>,
+    speed_confidence: Option<f64>,
+    speed_updated_at: Option<String>,
+}
+
+impl Filled {
+    fn new(r: &FallbackItem, facts: Option<&ModelFacts>) -> Self {
+        let legacy_speed = ranking_json::effective_speed(
+            r.ewma_output_tps.or(r.observed_speed_tps),
+            r.external_speed_tps,
+            r.speed_tokens_per_sec,
+        );
+        let registry_quality = facts.and_then(|f| f.quality.as_ref());
+        let registry_speed = facts.and_then(|f| f.speed.as_ref());
+
+        let (quality, quality_source, quality_confidence, quality_updated_at) =
+            match (r.intelligence_score, registry_quality) {
+                (Some(score), _) => (
+                    Some(score),
+                    r.quality_source
+                        .clone()
+                        .or_else(|| r.ranking_source.clone()),
+                    r.quality_confidence,
+                    r.quality_updated_at
+                        .clone()
+                        .or_else(|| r.last_ranked_at.clone()),
+                ),
+                (None, Some(fact)) => (
+                    Some(fact.value),
+                    Some(fact.source.clone()),
+                    Some(fact.confidence),
+                    Some(fact.fetched_at.clone()),
+                ),
+                (None, None) => (None, None, None, None),
+            };
+
+        let (speed, speed_source, speed_confidence, speed_updated_at) =
+            match (legacy_speed, registry_speed) {
+                (Some(tps), _) => (
+                    Some(tps),
+                    if r.ewma_output_tps.is_some() {
+                        Some("local-observed".to_string())
+                    } else {
+                        r.speed_source.clone().or_else(|| r.ranking_source.clone())
+                    },
+                    r.ewma_output_tps_confidence.or(r.speed_confidence),
+                    r.performance_updated_at
+                        .clone()
+                        .or_else(|| r.observed_speed_updated_at.clone())
+                        .or_else(|| r.external_speed_updated_at.clone())
+                        .or_else(|| r.last_ranked_at.clone()),
+                ),
+                (None, Some(fact)) => (
+                    Some(fact.value),
+                    Some(fact.source.clone()),
+                    Some(fact.confidence),
+                    Some(fact.fetched_at.clone()),
+                ),
+                (None, None) => (None, None, None, None),
+            };
+
+        Self {
+            quality,
+            quality_source,
+            quality_confidence,
+            quality_updated_at,
+            speed,
+            speed_source,
+            speed_confidence,
+            speed_updated_at,
+        }
+    }
+}
 
 pub fn router() -> axum::Router {
     use axum::routing::{get, post, put};
@@ -108,7 +192,7 @@ fn fallback_item_from_row(row: &rusqlite::Row<'_>) -> rusqlite::Result<FallbackI
 }
 
 async fn get_fallback() -> Response {
-    let (rows, key_counts, availability_by_model) = {
+    let (rows, key_counts, availability_by_model, facts, aa_status) = {
         let conn = db().lock().await;
         let rows: Vec<FallbackItem> = conn
             .prepare(
@@ -153,7 +237,13 @@ async fn get_fallback() -> Response {
                 (row.model_db_id, availability)
             })
             .collect();
-        (rows, key_counts, availability_by_model)
+        let targets: Vec<(i64, Option<i64>)> = rows
+            .iter()
+            .map(|r| (r.model_db_id, r.canonical_model_id))
+            .collect();
+        let facts = facts_for(&conn, &targets).unwrap_or_default();
+        let aa_status = source_status(&conn, "artificial-analysis").ok().flatten();
+        (rows, key_counts, availability_by_model, facts, aa_status)
     };
 
     let key_count_map: HashMap<String, i64> = key_counts.into_iter().collect();
@@ -161,20 +251,22 @@ async fn get_fallback() -> Response {
         .into_iter()
         .map(|p| (p.model_db_id, (p.count, p.penalty)))
         .collect();
+    let filled: Vec<Filled> = rows
+        .iter()
+        .map(|r| Filled::new(r, facts.get(&r.model_db_id)))
+        .collect();
+
     let balanced_scores: HashMap<i64, f64> = crate::services::rankings::routing::score_candidates(
         &rows
             .iter()
-            .map(|row| {
+            .zip(&filled)
+            .map(|(row, f)| {
                 let (_, penalty) = penalty_map.get(&row.model_db_id).copied().unwrap_or((0, 0));
                 crate::services::rankings::routing::RoutingCandidate {
                     model_db_id: row.model_db_id,
                     manual_priority: row.manual_priority.unwrap_or(row.priority),
-                    quality: row.intelligence_score,
-                    speed: ranking_json::effective_speed(
-                        row.ewma_output_tps.or(row.observed_speed_tps),
-                        row.external_speed_tps,
-                        row.speed_tokens_per_sec,
-                    ),
+                    quality: f.quality,
+                    speed: f.speed,
                     reliability: crate::services::rankings::routing::reliability_score(
                         row.success_count,
                         row.sample_count,
@@ -195,40 +287,39 @@ async fn get_fallback() -> Response {
 
     let data: Vec<Value> = rows
         .iter()
-        .map(|r| {
+        .zip(&filled)
+        .map(|(r, f)| {
             let (hits, penalty) = penalty_map.get(&r.model_db_id).copied().unwrap_or((0, 0));
-            let effective_speed = ranking_json::effective_speed(
-                r.ewma_output_tps.or(r.observed_speed_tps),
-                r.external_speed_tps,
-                r.speed_tokens_per_sec,
-            );
-            let quality_source = r.quality_source.as_deref().or(r.ranking_source.as_deref());
-            let speed_source = if r.ewma_output_tps.is_some() {
-                Some("local-observed")
-            } else {
-                r.speed_source.as_deref().or(r.ranking_source.as_deref())
-            };
             let quality = ranking_json::quality(
-                r.intelligence_score,
+                f.quality,
                 r.intelligence_rank,
-                quality_source,
-                r.quality_confidence,
-                r.quality_updated_at
-                    .as_deref()
-                    .or(r.last_ranked_at.as_deref()),
+                f.quality_source.as_deref(),
+                f.quality_confidence,
+                f.quality_updated_at.as_deref(),
             );
             let speed = ranking_json::speed(
-                effective_speed,
+                f.speed,
                 r.speed_rank,
-                speed_source,
-                r.ewma_output_tps_confidence.or(r.speed_confidence),
-                r.performance_updated_at
-                    .as_deref()
-                    .or(r.observed_speed_updated_at.as_deref())
-                    .or(r.external_speed_updated_at.as_deref())
-                    .or(r.last_ranked_at.as_deref()),
+                f.speed_source.as_deref(),
+                f.speed_confidence,
+                f.speed_updated_at.as_deref(),
                 r.sample_count,
             );
+            // Why a value is missing, so the UI can say what would fill it.
+            let quality_state = if f.quality.is_some() {
+                "available"
+            } else if aa_status.as_deref() == Some("notConfigured") {
+                "needs_source"
+            } else {
+                "no_data"
+            };
+            let speed_state = if f.speed.is_some() {
+                "available"
+            } else if r.sample_count == 0 {
+                "awaiting_requests"
+            } else {
+                "no_data"
+            };
             json!({
                 "modelDbId": r.model_db_id,
                 "priority": r.priority,
@@ -242,25 +333,31 @@ async fn get_fallback() -> Response {
                 "displayName": r.display_name,
                 "intelligenceRank": quality["rank"],
                 "speedRank": speed["rank"],
-                "intelligenceScore": r.intelligence_score,
-                "speedTokensPerSec": effective_speed,
+                "intelligenceScore": f.quality,
+                "speedTokensPerSec": f.speed,
                 "rankingSource": r.ranking_source,
                 "lastRankedAt": r.last_ranked_at,
                 "quality": quality,
                 "speed": speed,
+                "qualityState": quality_state,
+                "speedState": speed_state,
+                "metrics": facts
+                    .get(&r.model_db_id)
+                    .map(ModelFacts::to_json)
+                    .unwrap_or(Value::Null),
                 "reliability": ranking_json::reliability(
                     r.success_count,
                     r.sample_count,
                     r.rate_limit_count,
                 ),
                 "rankingConfidence": ranking_json::overall_confidence(
-                    r.quality_confidence,
-                    r.ewma_output_tps_confidence.or(r.speed_confidence),
+                    f.quality_confidence,
+                    f.speed_confidence,
                     r.ranking_confidence,
                 ),
-                "ranked": effective_speed.is_some() || r.intelligence_score.is_some(),
-                "qualityRanked": r.intelligence_score.is_some(),
-                "speedRanked": effective_speed.is_some(),
+                "ranked": f.quality.is_some() || f.speed.is_some(),
+                "qualityRanked": f.quality.is_some(),
+                "speedRanked": f.speed.is_some(),
                 "locallyMeasured": r.sample_count > 0,
                 "routing": {
                     "balancedScore": balanced_scores.get(&r.model_db_id).copied(),

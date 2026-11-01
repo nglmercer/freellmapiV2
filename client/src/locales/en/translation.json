@@ -279,7 +279,67 @@
       "speedRanked": "{{count}} speed-ranked",
       "localMeasured": "{{count}} locally measured",
       "unranked": "{{count}} unranked"
-    }
+    },
+    "stats": {
+      "inChain": "In chain",
+      "enabled": "Enabled",
+      "qualityScored": "Quality scored",
+      "speedMeasured": "Speed measured",
+      "freeCount": "{{count}} free"
+    },
+    "preview": {
+      "title": "Next up",
+      "hint": "Requests try these in order",
+      "empty": "No enabled models. Enable at least one to route requests.",
+      "noScores": "No scores yet"
+    },
+    "metrics": {
+      "quality": "Quality",
+      "speed": "Speed",
+      "reliability": "Reliability",
+      "context": "Context",
+      "price": "Price per 1M",
+      "ttft": "Time to first token",
+      "latency": "Latency",
+      "coding": "Coding score",
+      "capabilities": "Capabilities"
+    },
+    "state": {
+      "needsSource": "Needs ARTIFICIAL_ANALYSIS_API_KEY on the server to load benchmark scores",
+      "awaitingRequests": "Measured after the first request",
+      "noData": "No data yet",
+      "noSamples": "No requests yet"
+    },
+    "details": {
+      "show": "Show details",
+      "hide": "Hide details",
+      "performance": "Performance",
+      "pricingContext": "Pricing and context",
+      "sources": "Sources",
+      "sampleCount": "Measured requests",
+      "size": "Size",
+      "budget": "Budget",
+      "confidence": "Confidence",
+      "updated": "Updated",
+      "rateLimitHits": "Rate-limit hits",
+      "noCapabilities": "No capability data yet"
+    },
+    "tier": {
+      "free": "Free",
+      "paid": "Paid"
+    },
+    "capability": {
+      "tools": "Tools",
+      "vision": "Vision",
+      "reasoning": "Reasoning",
+      "structured_output": "Structured output",
+      "audio_input": "Audio input",
+      "video_input": "Video input",
+      "json_mode": "JSON mode",
+      "streaming": "Streaming"
+    },
+    "enable": "Enable model",
+    "disable": "Disable model"
   },
   "analytics": {
     "title": "Analytics",
@@ -457,7 +517,26 @@
     "ttft": "Observed TTFT",
     "price": "Input price / 1M tokens",
     "reliability": "Reliability",
-    "details": "Metrics and local performance"
+    "details": "Metrics and local performance",
+    "stats": {
+      "models": "Models",
+      "deployments": "Deployments",
+      "providers": "Providers",
+      "withQuality": "With quality score",
+      "onPage": "{{count}} on this page",
+      "free": "{{count}} free",
+      "comparing": "Comparing {{count}} of {{max}}",
+      "clearComparison": "Clear comparison"
+    },
+    "noMetrics": "No metrics synced yet",
+    "hints": {
+      "quality": "Needs a benchmark source (Sources tab)",
+      "speed": "Measured after requests or from a source",
+      "context": "No context data yet"
+    },
+    "disabled": "Disabled",
+    "range": "Showing {{from}}–{{to}} of {{total}}",
+    "page": "Page {{page}} of {{pages}}"
   },
   "auth": {
     "createTitle": "Create the owner account",
