@@ -1,7 +1,7 @@
 //! Benchmark-source credentials set from the dashboard.
 //!
 //! The Artificial Analysis key is stored encrypted in the settings table, the
-//! same way provider keys are, so no `.env` file is needed. A copy lives in
+//! same way provider keys are, so no configuration file is needed. A copy lives in
 //! memory so synchronous callers can check it. `ARTIFICIAL_ANALYSIS_API_KEY`
 //! remains an optional override for deployments that prefer the environment.
 

@@ -89,13 +89,13 @@ Each job is written to SQLite before the provider is called.
 
 ## Configuration
 
-Set these as environment variables, or in `.env`, which is still read today:
+Set these in `config.toml` (see `config.example.toml`):
 
-| Variable | Default | Purpose |
+| Setting | Default | Purpose |
 | --- | --- | --- |
-| `V1_MAX_BODY_BYTES` | 20 MiB | Request body limit for `/v1` chat and embeddings. |
-| `V1_MEDIA_MAX_BODY_BYTES` | 64 MiB | Request body limit for audio, image, and video routes. |
-| `MEDIA_MAX_CONCURRENCY` | 16 | Upstream media calls in flight at once. |
+| `limits.v1_max_body_bytes` | 20 MiB | Request body limit for `/v1` chat and embeddings. |
+| `limits.v1_media_max_body_bytes` | 64 MiB | Request body limit for audio, image, and video routes. |
+| `media.max_concurrency` | 16 | Upstream media calls in flight at once. |
 
 Dashboard and control routes keep a 1 MiB limit.
 
@@ -125,5 +125,7 @@ These make real calls and are off by default:
 ```sh
 FREELLMAPI_LIVE_TESTS=1 GROQ_API_KEY=... cargo test -p server --test provider_smoke -- --ignored
 ```
+
+The live tests read their keys from the environment, not from `config.toml`.
 
 They check that a key is accepted. They do not check audio, image or video output.

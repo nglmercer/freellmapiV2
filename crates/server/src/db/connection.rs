@@ -31,8 +31,8 @@ fn default_db_path(root: &Path) -> PathBuf {
 pub const BUSY_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(60);
 
 pub fn db_path() -> String {
-    if let Some(p) = crate::env::env_string("DB_PATH") {
-        return p;
+    if let Some(p) = &crate::config::get().database.path {
+        return p.to_string_lossy().into_owned();
     }
     let override_path = DB_PATH_OVERRIDE.lock().unwrap().clone();
     override_path.unwrap_or_else(|| {

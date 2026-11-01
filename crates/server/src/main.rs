@@ -1,9 +1,9 @@
+use server::config;
 use server::db;
-use server::env;
 
 #[tokio::main]
 async fn main() {
-    env::init();
+    config::init();
     server::logger::init();
 
     db::init_db(None).expect("failed to initialize database");
@@ -24,8 +24,8 @@ async fn main() {
     server::services::video_jobs::spawn_sweeper();
     let app = server::app::create_app();
 
-    let port = env::get_port();
-    let bind_address = env::get_bind_address();
+    let port = config::get().server.port;
+    let bind_address = config::get().server.bind_address.clone();
     let listener = tokio::net::TcpListener::bind((bind_address.as_str(), port))
         .await
         .expect("failed to bind port");

@@ -2,6 +2,7 @@
 
 pub mod app;
 pub mod auth;
+pub mod config;
 pub mod db;
 pub mod env;
 pub mod error;
@@ -19,19 +20,18 @@ pub mod crypto;
 pub mod logger {
     use tracing_subscriber::{fmt, EnvFilter};
 
-    /// Initializes tracing. `RUST_LOG` is preferred, with `LOG_LEVEL` kept as
-    /// a backwards-compatible alias; `LOG_ENABLED=false` disables logging.
+    /// Initializes tracing from `[logging]` in config.toml. `enabled = false`
+    /// turns logging off; `level` takes a `tracing` filter string.
     pub fn init() {
-        let enabled = std::env::var("LOG_ENABLED")
-            .map(|v| v != "false")
-            .unwrap_or(true);
-        let filter = if !enabled {
+        let logging = &crate::config::get().logging;
+        let filter = if !logging.enabled {
             EnvFilter::new("off")
         } else {
-            let level = std::env::var("RUST_LOG")
-                .or_else(|_| std::env::var("LOG_LEVEL"))
-                .map(|v| v.to_lowercase())
-                .unwrap_or_else(|_| "warn".to_string());
+            let level = logging
+                .level
+                .clone()
+                .unwrap_or_else(|| "warn".to_string())
+                .to_lowercase();
             EnvFilter::try_new(&level).unwrap_or_else(|_| EnvFilter::new("warn"))
         };
         let _ = fmt::Subscriber::builder()

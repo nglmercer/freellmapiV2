@@ -184,20 +184,42 @@ struct Launcher {
 }
 
 impl Launcher {
+    /// Writes the non-secret server settings for this launch to `config.toml`
+    /// in the data directory. Secrets are never written here.
+    fn write_config(&self, port: u16) -> Result<PathBuf, Box<dyn Error>> {
+        use toml::Value;
+        let mut server = toml::Table::new();
+        server.insert("port".into(), Value::Integer(i64::from(port)));
+        server.insert("bind_address".into(), Value::String("127.0.0.1".into()));
+        server.insert(
+            "static_dir".into(),
+            Value::String(self.static_dir.display().to_string()),
+        );
+        let mut database = toml::Table::new();
+        database.insert(
+            "path".into(),
+            Value::String(self.data_dir.join("freeapi.db").display().to_string()),
+        );
+        let mut root = toml::Table::new();
+        root.insert("server".into(), Value::Table(server));
+        root.insert("database".into(), Value::Table(database));
+        let path = self.data_dir.join("config.toml");
+        std::fs::write(&path, toml::to_string(&root)?)?;
+        Ok(path)
+    }
+
     fn start(&mut self) -> Result<(), Box<dyn Error>> {
         if self.server.is_some() {
             return Ok(());
         }
 
         let port = free_port()?;
+        let config_path = self.write_config(port)?;
         let mut command = Command::new(&self.server_binary);
         command
             .current_dir(&self.data_dir)
-            .env("BIND_ADDRESS", "127.0.0.1")
-            .env("PORT", port.to_string())
-            .env("DB_PATH", self.data_dir.join("freeapi.db"))
+            .env("FREELLMAPI_CONFIG", &config_path)
             .env("FREELLMAPI_CONFIG_DIR", &self.data_dir)
-            .env("STATIC_DIR", &self.static_dir)
             .stdout(Stdio::inherit())
             .stderr(Stdio::inherit());
 

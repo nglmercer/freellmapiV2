@@ -9,37 +9,25 @@ use tower_http::cors::{AllowOrigin, CorsLayer};
 use tower_http::limit::RequestBodyLimitLayer;
 use tower_http::services::{ServeDir, ServeFile};
 
-/// Serve the built client from `client/dist`, or from `STATIC_DIR` when set.
+/// Serve the built client from `client/dist`, or from `server.static_dir`.
 fn dist_dir() -> PathBuf {
-    if let Some(p) = crate::env::env_string("STATIC_DIR") {
-        return PathBuf::from(p);
+    if let Some(dir) = &crate::config::get().server.static_dir {
+        return dir.clone();
     }
     crate::env::project_root().join("client/dist")
 }
 
 /// Limit for dashboard, auth and control-plane JSON bodies.
 const CONTROL_BODY_LIMIT: usize = 1024 * 1024;
-/// Default limit for `/v1` request bodies, which may carry base64 media.
-const DEFAULT_V1_BODY_LIMIT: usize = 20 * 1024 * 1024;
-
-/// Default limit for audio uploads (`/v1/audio/*`), in bytes.
-const DEFAULT_V1_MEDIA_BODY_LIMIT: usize = 64 * 1024 * 1024;
-
-/// Audio upload limit in bytes, overridable with `V1_MEDIA_MAX_BODY_BYTES`.
-fn v1_media_body_limit() -> usize {
-    crate::env::env_string("V1_MEDIA_MAX_BODY_BYTES")
-        .and_then(|s| s.parse::<usize>().ok())
-        .filter(|&n| n > 0)
-        .unwrap_or(DEFAULT_V1_MEDIA_BODY_LIMIT)
+/// `/v1` chat body limit in bytes (`limits.v1_max_body_bytes`).
+fn v1_body_limit() -> usize {
+    crate::config::get().limits.v1_max_body_bytes
 }
 
-/// `/v1` body limit in bytes, overridable with `V1_MAX_BODY_BYTES`.
-/// Invalid or zero values fall back to the default.
-fn v1_body_limit() -> usize {
-    crate::env::env_string("V1_MAX_BODY_BYTES")
-        .and_then(|s| s.parse::<usize>().ok())
-        .filter(|&n| n > 0)
-        .unwrap_or(DEFAULT_V1_BODY_LIMIT)
+/// `/v1` audio, image and video body limit in bytes
+/// (`limits.v1_media_max_body_bytes`).
+fn v1_media_body_limit() -> usize {
+    crate::config::get().limits.v1_media_max_body_bytes
 }
 
 pub fn create_app() -> axum::Router {
@@ -153,20 +141,16 @@ fn dashboard_cors() -> CorsLayer {
         ])
         .allow_credentials(true);
 
-    let origins = crate::env::env_string("DASHBOARD_ORIGINS")
-        .into_iter()
-        .flat_map(|value| {
-            value
-                .split(',')
-                .map(str::trim)
-                .map(str::to_owned)
-                .collect::<Vec<_>>()
-        })
+    let origins = crate::config::get()
+        .dashboard
+        .origins
+        .iter()
+        .map(|origin| origin.trim().to_owned())
         .filter(|origin| !origin.is_empty() && *origin != "*")
         .filter_map(|origin| match origin.parse::<HeaderValue>() {
             Ok(value) => Some(value),
             Err(error) => {
-                tracing::warn!(%error, "Ignoring invalid DASHBOARD_ORIGINS entry");
+                tracing::warn!(%error, "Ignoring invalid dashboard.origins entry");
                 None
             }
         })

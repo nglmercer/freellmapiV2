@@ -11,7 +11,7 @@
 //!   `x-api-key: <key>`. A dashboard session is also accepted so the built-in
 //!   playground works without a key.
 //!
-//! No `.env` file is required. The signing secret comes from
+//! No configuration file is required. The signing secret comes from
 //! `BETTER_AUTH_SECRET` when set, otherwise it is generated once and kept in
 //! the SQLite `settings` table, like the provider-key encryption key.
 
@@ -223,15 +223,14 @@ fn trusted_origins() -> Vec<String> {
         .iter()
         .map(|origin| origin.to_string())
         .collect();
-    if let Some(extra) = crate::env::env_string("DASHBOARD_ORIGINS") {
-        origins.extend(
-            extra
-                .split(',')
-                .map(str::trim)
-                .filter(|origin| !origin.is_empty() && *origin != "*")
-                .map(str::to_owned),
-        );
-    }
+    origins.extend(
+        crate::config::get()
+            .dashboard
+            .origins
+            .iter()
+            .map(|origin| origin.trim().to_owned())
+            .filter(|origin| !origin.is_empty() && origin.as_str() != "*"),
+    );
     origins
 }
 

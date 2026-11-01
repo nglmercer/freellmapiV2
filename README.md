@@ -102,23 +102,36 @@ cargo run -p server
 
 ## Configuration
 
-No `.env` file is required. Every setting is optional and has a default.
+No configuration file is required. Every setting is optional and has a default,
+so a release build runs as is.
 
-- `PORT` — HTTP port; defaults to `3001`.
-- `BIND_ADDRESS` — listen address; defaults to `127.0.0.1`. Set `0.0.0.0` only when the deployment intentionally exposes the service.
-- `ENCRYPTION_KEY` — optional 64 hexadecimal characters (32 bytes) for AES-256-GCM provider-key encryption. When unset, a random key is generated on first start and stored in the database.
-- `BETTER_AUTH_SECRET` — optional secret (at least 32 characters) that signs dashboard sessions and hashes API keys. When unset, a random secret is generated on first start and stored in the database.
-- `DASHBOARD_ORIGINS` — optional comma-separated browser-origin allowlist for cross-origin dashboard requests. Same-origin use needs no setting. `localhost:5173` and `127.0.0.1:5173` are always trusted for the Vite dev server.
-- `ARTIFICIAL_ANALYSIS_API_KEY` — optional override for the Artificial Analysis key. Normally set it from the dashboard (Configure providers → Benchmarks) instead; the dashboard value takes precedence.
-- `ARTIFICIAL_ANALYSIS_URL` — optional endpoint override for Pro/commercial or compatible deployments.
-- `DB_PATH` — explicit SQLite database path.
-- `STATIC_DIR` — directory containing the built client assets.
-- `RUST_LOG` — tracing filter, for example `info,tower_http=debug`.
+Non-secret settings live in `config.toml` in the project root, or in the file
+named by `FREELLMAPI_CONFIG`. Copy [`config.example.toml`](config.example.toml)
+as a starting point. Sections:
 
-A `.env` file in the project root is loaded when present, but none is needed.
-Provider keys and the benchmark key are added in the dashboard's **Configure
-providers** wizard and stored encrypted in the database. See `.env.example` for
-the optional settings.
+- `[server]`: `port` (default `3001`), `bind_address` (default `127.0.0.1`; set `0.0.0.0` only when the deployment intentionally exposes the service), `static_dir`.
+- `[database]`: `path` (default `data/freeapi.db`, or the legacy `server/data/freeapi.db` when that file already exists).
+- `[logging]`: `enabled`, `level` (a `tracing` filter such as `info,tower_http=debug`).
+- `[dashboard]`: `origins`, an allowlist for cross-origin dashboard requests.
+- `[limits]`: `v1_max_body_bytes` and `v1_media_max_body_bytes`.
+- `[media]`: `max_concurrency`.
+- `[sources]`: `huggingface_metadata_repos`, `artificial_analysis_url`.
+
+Unknown keys are rejected, so a typo stops startup with a message that names the
+field. The file never holds secrets.
+
+Secrets are never read from `config.toml`. They are managed in the dashboard or
+stored encrypted in the database:
+
+- Provider API keys and the benchmark (Artificial Analysis) key are added in
+  **Configure providers**.
+- The provider-key encryption key and the session/auth signing secret are generated
+  on first start and stored in the database.
+
+Two environment variables remain for secrets and launcher plumbing:
+`BETTER_AUTH_SECRET` (optional signing secret, at least 32 characters) and
+`FREELLMAPI_SHUTDOWN_TOKEN` (set by the desktop launcher). The Vite dev server
+still reads `PORT` for its proxy target.
 
 ### Accounts and API keys
 
@@ -141,7 +154,7 @@ Authentication uses [Better Auth for Rust](https://github.com/nglmercer/better-a
 
 ### Database compatibility
 
-Existing provider keys and models are preserved. When `DB_PATH` is not set, the server first uses an existing legacy database at `server/data/freeapi.db`; if it does not exist, it creates the new default at `data/freeapi.db`. Runtime state is stored as `runtime-state.json` beside the selected database. The migration creates missing tables and columns in place and is idempotent; it does not reset or recreate an existing database.
+Existing provider keys and models are preserved. When `database.path` is not set in `config.toml`, the server first uses an existing legacy database at `server/data/freeapi.db`; if it does not exist, it creates the new default at `data/freeapi.db`. Runtime state is stored as `runtime-state.json` beside the selected database. The migration creates missing tables and columns in place and is idempotent; it does not reset or recreate an existing database.
 
 The authentication change is not backward compatible. The old `ADMIN_API_KEY` and the unified proxy key are no longer read. After upgrading, open the dashboard, create the owner account, and create new API keys for your clients.
 
