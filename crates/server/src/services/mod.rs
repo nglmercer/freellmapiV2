@@ -12,3 +12,4 @@ pub mod router;
 pub mod shutdown;
 pub mod state_persistence;
 pub mod telemetry;
+pub mod video_jobs;

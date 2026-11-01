@@ -106,6 +106,7 @@ pub fn create_app() -> axum::Router {
     // Audio uploads and speech requests get a larger, separate limit.
     let media_limit = v1_media_body_limit();
     let media_routes = routes::media::v1_router()
+        .merge(routes::videos::v1_router())
         .layer(middleware::from_fn(crate::auth::require_api_access))
         .layer(RequestBodyLimitLayer::new(media_limit))
         .layer(DefaultBodyLimit::max(media_limit));

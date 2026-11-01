@@ -239,6 +239,22 @@ fn create_tables(sqlite: &Connection) -> rusqlite::Result<()> {
       updated_at TEXT NOT NULL DEFAULT (datetime('now'))
     );
 
+    -- Durable asynchronous video jobs. Local ids are stable across restarts;
+    -- `remote_id` is the provider's job id once it has accepted the request.
+    CREATE TABLE IF NOT EXISTS video_jobs (
+      id TEXT PRIMARY KEY,
+      idempotency_key TEXT UNIQUE,
+      platform TEXT,
+      model_id TEXT NOT NULL,
+      key_id INTEGER,
+      remote_id TEXT,
+      status TEXT NOT NULL,
+      error TEXT,
+      created_at TEXT NOT NULL,
+      updated_at TEXT NOT NULL,
+      expires_at TEXT
+    );
+
     -- Explicit, user-declared list of models that serve a non-chat operation.
     -- Nothing is hardcoded: a row exists only when the user adds it.
     CREATE TABLE IF NOT EXISTS media_models (

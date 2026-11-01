@@ -21,6 +21,7 @@ async fn main() {
         .expect("failed to start authentication");
 
     server::services::state_persistence::restore_runtime_state();
+    server::services::video_jobs::spawn_sweeper();
     let app = server::app::create_app();
 
     let port = env::get_port();
