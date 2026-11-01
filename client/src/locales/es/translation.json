@@ -9,7 +9,9 @@
       "fallback": "Cadena de fallback",
       "analytics": "Analíticas"
     },
-    "initialSetup": "Configuración inicial"
+    "initialSetup": "Configuración inicial",
+    "pageLoadError": "No se pudo cargar esta página. Puede estar desactualizada tras una actualización.",
+    "reload": "Recargar"
   },
   "common": {
     "cancel": "Cancelar",

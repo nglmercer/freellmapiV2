@@ -1,14 +1,10 @@
-import { useMemo, useState, type FormEvent, type ReactNode } from 'react'
+import { useMemo, useState, type FormEvent } from 'react'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { BarChart3, Check, ChevronLeft, ChevronRight, CircleAlert, CircleCheck, KeyRound, Layers } from 'lucide-react'
 import { useTranslations } from '@/hooks/useTranslations'
 import { apiFetch, ApiError } from '@/lib/api'
 import { PLATFORMS, platformInfo, type PlatformInfo } from '@/lib/platforms'
-import {
-  ProviderWizardContext,
-  type WizardStart,
-  type WizardStep,
-} from '@/lib/provider-wizard-context'
+import type { WizardStart, WizardStep } from '@/lib/provider-wizard-context'
 import {
   Dialog,
   DialogDescription,
@@ -32,34 +28,7 @@ function errorText(error: unknown, fallback: string): string {
   return fallback
 }
 
-/** Owns the wizard's open state so any page can open it. */
-export function ProviderWizardProvider({ children }: { children: ReactNode }) {
-  const [start, setStart] = useState<WizardStart | null>(null)
-  const api = useMemo(
-    () => ({
-      open: (next: WizardStart = {}) =>
-        setStart({
-          step: next.step ?? (next.platform ? 'key' : 'providers'),
-          platform: next.platform,
-        }),
-    }),
-    [],
-  )
-  return (
-    <ProviderWizardContext.Provider value={api}>
-      {children}
-      {start && (
-        <ProviderWizard
-          key={`${start.step}-${start.platform ?? ''}`}
-          start={start}
-          onClose={() => setStart(null)}
-        />
-      )}
-    </ProviderWizardContext.Provider>
-  )
-}
-
-function ProviderWizard({ start, onClose }: { start: WizardStart; onClose: () => void }) {
+export function ProviderWizard({ start, onClose }: { start: WizardStart; onClose: () => void }) {
   const { t } = useTranslations()
   const queryClient = useQueryClient()
   const [step, setStep] = useState<WizardStep>(start.step ?? 'providers')

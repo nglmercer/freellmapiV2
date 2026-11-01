@@ -1,6 +1,6 @@
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 import { BrowserRouter } from 'react-router-dom'
-import { ProviderWizardProvider } from '@/components/provider-wizard'
+import { ProviderWizardProvider } from '@/components/provider-wizard-provider'
 import { AccountGate } from '@/app/AccountGate'
 import { AppLayout } from '@/app/AppLayout'
 

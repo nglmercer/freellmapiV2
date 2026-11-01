@@ -1,9 +1,11 @@
-import { useEffect } from 'react'
+import { lazy, Suspense, useEffect } from 'react'
 import { Navigate, useLocation } from 'react-router-dom'
 import { useQuery, useQueryClient } from '@tanstack/react-query'
 import { ApiError, UNAUTHORIZED_EVENT, apiFetch, type AccountStatus } from '@/lib/api'
 import { useTranslations } from '@/hooks/useTranslations'
-import { AuthPanel } from './AuthPanel'
+
+// Only shown to signed-out visitors, so signed-in sessions never download it.
+const AuthPanel = lazy(() => import('./AuthPanel').then((m) => ({ default: m.AuthPanel })))
 
 interface SetupStatus {
   isSetup: boolean
@@ -65,7 +67,11 @@ export function AccountGate({ children }: { children: React.ReactNode }) {
     return <CenteredMessage text="Loading…" />
   }
   if (setup.isError && setup.error instanceof ApiError && setup.error.status === 401) {
-    return <AuthPanel hasAccount={account.data.hasAccount} />
+    return (
+      <Suspense fallback={<CenteredMessage text="Loading…" />}>
+        <AuthPanel hasAccount={account.data.hasAccount} />
+      </Suspense>
+    )
   }
   if (setup.isError) {
     return <CenteredMessage text={t('auth.unreachable')} />
