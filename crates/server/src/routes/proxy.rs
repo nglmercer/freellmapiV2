@@ -181,7 +181,10 @@ pub async fn chat_completions(body: Bytes) -> Response {
     let stream = data.stream.unwrap_or(false);
     let n = data.n.unwrap_or(1);
     let messages_raw = raw.get("messages").cloned().unwrap_or(json!([]));
-    let messages = normalize_messages(&messages_raw);
+    let messages = match normalize_messages(&messages_raw) {
+        Ok(m) => m,
+        Err(e) => return e.json(),
+    };
 
     let options = CompletionOptions::from_request(&data);
     let estimated_input_tokens = estimate_input_tokens(&messages);

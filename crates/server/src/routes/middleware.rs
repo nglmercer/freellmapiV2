@@ -84,20 +84,37 @@ fn content_errors(content: &Value, allow_null: bool, path: &str, errors: &mut Ve
                     ));
                     continue;
                 };
-                if obj.get("type").and_then(|t| t.as_str()).is_none() {
+                let Some(part_type) = obj.get("type").and_then(|t| t.as_str()) else {
                     errors.push(format!(
                         "{path}[{i}].type: Expected string, received undefined"
                     ));
-                }
-                if let Some(t) = obj.get("text") {
-                    if !t.is_null() && t.as_str().is_none() {
-                        errors.push(format!("{path}[{i}].text: Expected string"));
+                    continue;
+                };
+                // Other part types (audio, video, file, ...) are kept intact and
+                // checked against the target provider's capabilities later, so
+                // they are not rejected here.
+                match part_type {
+                    "text" => {
+                        if obj.get("text").and_then(|t| t.as_str()).is_none() {
+                            errors.push(format!("{path}[{i}].text: Expected string"));
+                        }
                     }
-                }
-                if let Some(iu) = obj.get("image_url") {
-                    if !iu.is_null() {
-                        req_str_min1(iu, "url", errors);
-                    }
+                    "image_url" => match obj.get("image_url") {
+                        Some(Value::Object(iu)) => match iu.get("url").and_then(|u| u.as_str()) {
+                            Some(url) => {
+                                if let Err(e) = crate::media::validate_image_url(url) {
+                                    errors.push(format!("{path}[{i}].image_url.url: {e}"));
+                                }
+                            }
+                            None => errors.push(format!(
+                                "{path}[{i}].image_url.url: Expected string, received undefined"
+                            )),
+                        },
+                        _ => errors.push(format!(
+                            "{path}[{i}].image_url: Expected object, received undefined"
+                        )),
+                    },
+                    _ => {}
                 }
             }
         }
@@ -517,56 +534,64 @@ pub fn malformed_json() -> Response {
 
 // ---- normalizeContent / normalizeMessages ----
 
-fn normalize_content(content: &Value) -> MessageContent {
+/// A part that is exactly `{ "type": "text", "text": "<string>" }` and carries
+/// no provider-specific fields. Only arrays made entirely of such parts are
+/// collapsed into a plain string; anything else is kept as parts.
+fn is_plain_text_part(part: &Value) -> bool {
+    let Some(obj) = part.as_object() else {
+        return false;
+    };
+    obj.get("type").and_then(|t| t.as_str()) == Some("text")
+        && obj.get("text").and_then(|t| t.as_str()).is_some()
+        && obj.keys().all(|k| k == "type" || k == "text")
+}
+
+/// Converts message content without dropping any part. Parts that cannot be
+/// represented as `ContentPart` are reported as errors, never skipped.
+fn normalize_content(content: &Value) -> Result<MessageContent, String> {
     match content {
-        Value::String(s) => MessageContent::Text(s.clone()),
+        Value::String(s) => Ok(MessageContent::Text(s.clone())),
         Value::Array(parts) => {
-            let has_images = parts.iter().any(|p| {
-                let t = p.get("type").and_then(|x| x.as_str());
-                t == Some("image_url") || t == Some("image")
-            });
-            if has_images {
-                let parsed: Vec<ContentPart> = parts
+            if parts.iter().all(is_plain_text_part) {
+                let joined = parts
                     .iter()
-                    .filter_map(|p| serde_json::from_value(p.clone()).ok())
-                    .collect();
-                return MessageContent::Parts(parsed);
+                    .filter_map(|p| p.get("text").and_then(|t| t.as_str()))
+                    .collect::<Vec<_>>()
+                    .join(" ");
+                return Ok(if joined.is_empty() {
+                    MessageContent::Null(())
+                } else {
+                    MessageContent::Text(joined)
+                });
             }
-            let text: Vec<String> = parts
+            let parsed = parts
                 .iter()
-                .filter_map(|p| {
-                    if p.get("type").and_then(|x| x.as_str()) == Some("text") {
-                        p.get("text")
-                            .and_then(|t| t.as_str())
-                            .map(|s| s.to_string())
-                    } else {
-                        None
-                    }
+                .enumerate()
+                .map(|(i, p)| {
+                    serde_json::from_value::<ContentPart>(p.clone())
+                        .map_err(|e| format!("content[{i}]: {e}"))
                 })
-                .collect();
-            let joined = text.join(" ");
-            if joined.is_empty() {
-                MessageContent::Null(())
-            } else {
-                MessageContent::Text(joined)
-            }
+                .collect::<Result<Vec<_>, _>>()?;
+            Ok(MessageContent::Parts(parsed))
         }
-        _ => MessageContent::Null(()),
+        _ => Ok(MessageContent::Null(())),
     }
 }
 
 /// `normalizeMessages(messages)` — takes the RAW parsed JSON messages array
-/// and returns normalized chat messages.
-pub fn normalize_messages(raw: &Value) -> Vec<ChatMessage> {
+/// and returns normalized chat messages. Fails rather than dropping content.
+pub fn normalize_messages(raw: &Value) -> Result<Vec<ChatMessage>, ValidationError> {
     let list: Vec<Value> = raw.as_array().cloned().unwrap_or_default();
     list.into_iter()
-        .map(|m| {
+        .enumerate()
+        .map(|(idx, m)| {
             let role = m
                 .get("role")
                 .and_then(|r| r.as_str())
                 .unwrap_or("")
                 .to_string();
-            let content = normalize_content(m.get("content").unwrap_or(&Value::Null));
+            let content = normalize_content(m.get("content").unwrap_or(&Value::Null))
+                .map_err(|e| ValidationError(vec![format!("messages[{idx}].{e}")]))?;
             let name = m
                 .get("name")
                 .and_then(|n| n.as_str())
@@ -594,14 +619,14 @@ pub fn normalize_messages(raw: &Value) -> Vec<ChatMessage> {
             } else {
                 None
             };
-            ChatMessage {
+            Ok(ChatMessage {
                 role,
                 content,
                 name,
                 tool_call_id,
                 tool_calls,
                 extra: serde_json::Map::new(),
-            }
+            })
         })
         .collect()
 }
@@ -646,7 +671,7 @@ mod tests {
         let raw = serde_json::json!([
             { "role": "user", "content": [ { "type": "text", "text": "a" }, { "type": "text", "text": "b" } ] }
         ]);
-        let msgs = normalize_messages(&raw);
+        let msgs = normalize_messages(&raw).unwrap();
         assert_eq!(msgs[0].content.as_text().unwrap(), "a b");
     }
 
@@ -655,8 +680,148 @@ mod tests {
         let raw = serde_json::json!([
             { "role": "user", "content": [ { "type": "text", "text": "a" }, { "type": "image_url", "image_url": { "url": "http://x/y.png" } } ] }
         ]);
-        let msgs = normalize_messages(&raw);
+        let msgs = normalize_messages(&raw).unwrap();
         assert!(matches!(msgs[0].content, MessageContent::Parts(_)));
+    }
+
+    const PNG_DATA_URL: &str = "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNkYPhfDwAChwGA60e6kgAAAABJRU5ErkJggg==";
+
+    #[test]
+    fn normalize_multimodal_only_message_keeps_every_part() {
+        let raw = serde_json::json!([{
+            "role": "user",
+            "content": [ { "type": "image_url", "image_url": { "url": PNG_DATA_URL } } ]
+        }]);
+        assert!(validate_chat_body_value(&serde_json::json!({
+            "model": "m", "messages": raw.clone()
+        }))
+        .is_ok());
+        let msgs = normalize_messages(&raw).unwrap();
+        match &msgs[0].content {
+            MessageContent::Parts(parts) => {
+                assert_eq!(parts.len(), 1);
+                assert_eq!(parts[0].r#type, "image_url");
+                assert_eq!(parts[0].image_url.as_ref().unwrap().url, PNG_DATA_URL);
+            }
+            other => panic!("expected parts, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn normalize_audio_part_is_not_dropped() {
+        // Previously a text+audio array collapsed to its text and the audio was lost.
+        let raw = serde_json::json!([{
+            "role": "user",
+            "content": [
+                { "type": "text", "text": "transcribe this" },
+                { "type": "input_audio", "input_audio": { "data": "AAAA", "format": "wav" } }
+            ]
+        }]);
+        let msgs = normalize_messages(&raw).unwrap();
+        match &msgs[0].content {
+            MessageContent::Parts(parts) => {
+                assert_eq!(parts.len(), 2);
+                assert_eq!(parts[1].r#type, "input_audio");
+                // Provider-specific fields survive the round trip.
+                let ser = serde_json::to_value(&parts[1]).unwrap();
+                assert_eq!(ser["input_audio"]["format"], "wav");
+            }
+            other => panic!("expected parts, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn normalize_video_only_message_is_kept() {
+        let raw = serde_json::json!([{
+            "role": "user",
+            "content": [{ "type": "video_url", "video_url": { "url": "https://x.test/v.mp4" } }]
+        }]);
+        let msgs = normalize_messages(&raw).unwrap();
+        assert!(matches!(&msgs[0].content, MessageContent::Parts(p) if p.len() == 1));
+    }
+
+    #[test]
+    fn normalize_plain_text_parts_still_collapse() {
+        let raw = serde_json::json!([{
+            "role": "user",
+            "content": [ { "type": "text", "text": "a" }, { "type": "text", "text": "b" } ]
+        }]);
+        let msgs = normalize_messages(&raw).unwrap();
+        assert_eq!(msgs[0].content.as_text(), Some("a b"));
+    }
+
+    #[test]
+    fn normalize_text_part_with_extra_fields_is_kept_as_parts() {
+        let raw = serde_json::json!([{
+            "role": "user",
+            "content": [{ "type": "text", "text": "a", "cache_control": { "type": "ephemeral" } }]
+        }]);
+        let msgs = normalize_messages(&raw).unwrap();
+        match &msgs[0].content {
+            MessageContent::Parts(parts) => {
+                let ser = serde_json::to_value(&parts[0]).unwrap();
+                assert_eq!(ser["cache_control"]["type"], "ephemeral");
+            }
+            other => panic!("expected parts, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn validation_rejects_malformed_image_part() {
+        // A string where an object is required used to be silently dropped.
+        let body = serde_json::json!({
+            "model": "m",
+            "messages": [{ "role": "user", "content": [
+                { "type": "text", "text": "hi" },
+                { "type": "image_url", "image_url": "https://x.test/a.png" }
+            ]}]
+        });
+        let err = validate_chat_body_value(&body).unwrap_err();
+        assert!(err.message().contains("messages[0].content[1].image_url"));
+    }
+
+    #[test]
+    fn validation_rejects_bad_image_urls_and_mime_mismatch() {
+        let bad = [
+            "ftp://x.test/a.png",
+            "data:image/png,AAAA",
+            "data:image/bmp;base64,Qk0=",
+            "data:image/png;base64,/9j/4AAQSkZJRg==",
+        ];
+        for url in bad {
+            let body = serde_json::json!({
+                "model": "m",
+                "messages": [{ "role": "user", "content": [
+                    { "type": "image_url", "image_url": { "url": url } }
+                ]}]
+            });
+            assert!(
+                validate_chat_body_value(&body).is_err(),
+                "expected rejection for {url}"
+            );
+        }
+    }
+
+    #[test]
+    fn validation_rejects_text_part_without_text() {
+        let body = serde_json::json!({
+            "model": "m",
+            "messages": [{ "role": "user", "content": [{ "type": "text" }] }]
+        });
+        assert!(validate_chat_body_value(&body).is_err());
+    }
+
+    #[test]
+    fn validation_accepts_mixed_text_image_audio() {
+        let body = serde_json::json!({
+            "model": "m",
+            "messages": [{ "role": "user", "content": [
+                { "type": "text", "text": "describe" },
+                { "type": "image_url", "image_url": { "url": PNG_DATA_URL, "detail": "low" } },
+                { "type": "input_audio", "input_audio": { "data": "AAAA", "format": "mp3" } }
+            ]}]
+        });
+        assert!(validate_chat_body_value(&body).is_ok());
     }
 
     #[test]
@@ -685,7 +850,7 @@ mod tests {
     #[test]
     fn normalize_basic_user_message() {
         let raw = serde_json::json!([{ "role": "user", "content": "Hello" }]);
-        let result = normalize_messages(&raw);
+        let result = normalize_messages(&raw).unwrap();
         assert_eq!(result.len(), 1);
         assert_eq!(result[0].role, "user");
         assert_eq!(result[0].content.as_text(), Some("Hello"));
@@ -694,7 +859,7 @@ mod tests {
     #[test]
     fn normalize_preserves_system_messages() {
         let raw = serde_json::json!([{ "role": "system", "content": "You are a bot." }]);
-        let result = normalize_messages(&raw);
+        let result = normalize_messages(&raw).unwrap();
         assert_eq!(result[0].role, "system");
         assert_eq!(result[0].content.as_text(), Some("You are a bot."));
     }
@@ -702,7 +867,7 @@ mod tests {
     #[test]
     fn normalize_null_content_assistant() {
         let raw = serde_json::json!([{ "role": "assistant", "content": null }]);
-        let result = normalize_messages(&raw);
+        let result = normalize_messages(&raw).unwrap();
         assert!(result[0].content.is_null());
     }
 
@@ -713,7 +878,7 @@ mod tests {
             "content": "Calling tool...",
             "tool_calls": [{ "id": "call_1", "type": "function", "function": { "name": "get_weather", "arguments": "{}" } }],
         }]);
-        let result = normalize_messages(&raw);
+        let result = normalize_messages(&raw).unwrap();
         let tcs = result[0].tool_calls.as_ref().unwrap();
         assert_eq!(tcs.len(), 1);
         assert_eq!(tcs[0].id, "call_1");
@@ -723,14 +888,14 @@ mod tests {
     fn normalize_preserves_tool_call_id() {
         let raw =
             serde_json::json!([{ "role": "tool", "content": "Sunny", "tool_call_id": "call_1" }]);
-        let result = normalize_messages(&raw);
+        let result = normalize_messages(&raw).unwrap();
         assert_eq!(result[0].tool_call_id.as_deref(), Some("call_1"));
     }
 
     #[test]
     fn normalize_preserves_name_field() {
         let raw = serde_json::json!([{ "role": "user", "content": "Hi", "name": "Alice" }]);
-        let result = normalize_messages(&raw);
+        let result = normalize_messages(&raw).unwrap();
         assert_eq!(result[0].name.as_deref(), Some("Alice"));
     }
 
@@ -742,7 +907,7 @@ mod tests {
             { "role": "assistant", "content": "Hi there", "tool_calls": [] },
             { "role": "user", "content": "How are you?" },
         ]);
-        let result = normalize_messages(&raw);
+        let result = normalize_messages(&raw).unwrap();
         assert_eq!(result.len(), 4);
     }
 

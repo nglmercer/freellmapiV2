@@ -1,5 +1,6 @@
 //! HTTP application construction and static-asset serving.
 
+use axum::extract::DefaultBodyLimit;
 use axum::http::{header, HeaderValue, Method};
 use axum::routing::{any, get, post};
 use axum::Json;
@@ -14,6 +15,20 @@ fn dist_dir() -> PathBuf {
         return PathBuf::from(p);
     }
     crate::env::project_root().join("client/dist")
+}
+
+/// Limit for dashboard, auth and control-plane JSON bodies.
+const CONTROL_BODY_LIMIT: usize = 1024 * 1024;
+/// Default limit for `/v1` request bodies, which may carry base64 media.
+const DEFAULT_V1_BODY_LIMIT: usize = 20 * 1024 * 1024;
+
+/// `/v1` body limit in bytes, overridable with `V1_MAX_BODY_BYTES`.
+/// Invalid or zero values fall back to the default.
+fn v1_body_limit() -> usize {
+    crate::env::env_string("V1_MAX_BODY_BYTES")
+        .and_then(|s| s.parse::<usize>().ok())
+        .filter(|&n| n > 0)
+        .unwrap_or(DEFAULT_V1_BODY_LIMIT)
 }
 
 pub fn create_app() -> axum::Router {
@@ -51,7 +66,10 @@ pub fn create_app() -> axum::Router {
         .fallback(|| async { axum::http::StatusCode::NOT_FOUND })
         .layer(middleware::from_fn(crate::auth::require_api_access));
 
-    axum::Router::new()
+    // Control-plane and dashboard routes keep the small 1 MB limit. The
+    // OpenAI-compatible `/v1` routes get their own, configurable limit below
+    // because chat payloads can embed base64 media.
+    let control = axum::Router::new()
         // Health check
         .route(
             "/api/ping",
@@ -70,9 +88,18 @@ pub fn create_app() -> axum::Router {
         // sits outside the session-only admin router.
         .route("/api/shutdown", post(routes::shutdown::request_shutdown))
         .nest("/api", admin_routes)
-        .nest("/v1", proxy_routes)
+        .layer(RequestBodyLimitLayer::new(CONTROL_BODY_LIMIT));
+
+    let v1_limit = v1_body_limit();
+    axum::Router::new()
+        .merge(control)
+        .nest(
+            "/v1",
+            proxy_routes
+                .layer(RequestBodyLimitLayer::new(v1_limit))
+                .layer(DefaultBodyLimit::max(v1_limit)),
+        )
         .layer(dashboard_cors())
-        .layer(RequestBodyLimitLayer::new(1024 * 1024)) // 1MB, like bodyLimit
         .fallback_service(
             // Serve client static files — SPA fallback included (paths
             // without an extension rewrite to /index.html).
