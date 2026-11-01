@@ -118,8 +118,7 @@ impl ModelMetadataSource for CatalogSource {
                 !hf_repos().is_empty()
             } else {
                 self.0 != "artificial-analysis"
-                    || crate::env::env_string("ARTIFICIAL_ANALYSIS_API_KEY")
-                        .is_some_and(|s| !s.trim().is_empty())
+                    || crate::services::integrations::artificial_analysis_configured()
             },
         }
     }
@@ -164,7 +163,7 @@ async fn fetch_from(
         if source.0 == "artificial-analysis" {
             req = req.header(
                 "x-api-key",
-                crate::env::env_string("ARTIFICIAL_ANALYSIS_API_KEY").unwrap_or_default(),
+                crate::services::integrations::artificial_analysis_key().unwrap_or_default(),
             );
             if page > 1 {
                 req = req.query(&[("page", page)]);

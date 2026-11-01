@@ -150,7 +150,7 @@ impl ArtificialAnalysisProvider {
     pub fn from_env() -> Self {
         Self {
             url: endpoint_url(crate::env::env_string("ARTIFICIAL_ANALYSIS_URL")),
-            api_key: crate::env::env_string("ARTIFICIAL_ANALYSIS_API_KEY"),
+            api_key: crate::services::integrations::artificial_analysis_key(),
         }
     }
 
@@ -171,7 +171,7 @@ impl RankingSourceProvider for ArtificialAnalysisProvider {
     async fn fetch(&self) -> Result<Vec<ExternalBenchmark>, RankingError> {
         let Some(api_key) = self.api_key.as_deref().filter(|key| !key.trim().is_empty()) else {
             return Err(RankingError::NotConfigured(
-                "ARTIFICIAL_ANALYSIS_API_KEY is not configured".to_string(),
+                "Artificial Analysis key is not configured".to_string(),
             ));
         };
 

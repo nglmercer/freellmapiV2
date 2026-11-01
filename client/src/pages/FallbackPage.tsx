@@ -20,7 +20,9 @@ import { apiFetch } from '@/lib/api'
 import { Button } from '@/components/ui/button'
 import { PageHeader } from '@/components/page-header'
 import { ControlsPanel } from '@/components/fallback-controls'
-import { FallbackStats } from '@/components/fallback-stats'
+import { SummaryStats } from '@/components/summary-stats'
+import { useProviderWizard } from '@/lib/provider-wizard-context'
+import { hasQuality, hasSpeed } from '@/components/fallback-filters'
 import { ChainPreview } from '@/components/fallback-chain-preview'
 import { SortableFallbackRow } from '@/components/fallback-row'
 import { speedOf } from '@/components/fallback-format'
@@ -129,6 +131,8 @@ export default function FallbackPage() {
   const [localEntries, setLocalEntries] = useState<FallbackEntry[] | null>(null)
   const [filters, setFilters] = useState<FallbackFilters>(EMPTY_FILTERS)
   const [flash, setFlash] = useState<{ tone: 'success' | 'error'; message: string } | null>(null)
+  const [showUnconfigured, setShowUnconfigured] = useState(false)
+  const wizard = useProviderWizard()
 
   function showFlash(tone: 'success' | 'error', message: string) {
     setFlash({ tone, message })
@@ -173,11 +177,15 @@ export default function FallbackPage() {
   })
 
   const allEntries = localEntries ?? entries
+  // Only providers with an enabled key take part in the chain by default.
   const configuredEntries = allEntries.filter(e => e.keyCount > 0)
-  const displayEntries = filterEntries(configuredEntries, filters)
+  const unconfiguredEntries = allEntries.filter(e => e.keyCount === 0)
+  const displayEntries = filterEntries(
+    showUnconfigured ? allEntries : configuredEntries,
+    filters,
+  )
   // Speed bars are scaled against the fastest visible entry so they compare.
   const maxSpeed = Math.max(0, ...displayEntries.map(e => speedOf(e) ?? 0))
-  const unconfiguredPlatforms = [...new Set(allEntries.filter(e => e.keyCount === 0).map(e => e.platform))]
 
   const sensors = useSensors(
     useSensor(PointerSensor),
@@ -243,19 +251,52 @@ export default function FallbackPage() {
         title={t('fallback.title')}
         description={t('fallback.description')}
         actions={
-          <Button
-            variant="outline"
-            size="sm"
-            onClick={() => syncMutation.mutate()}
-            disabled={syncMutation.isPending}
-          >
-            {syncMutation.isPending ? t('fallback.syncing') : t('fallback.sync')}
-          </Button>
+          <>
+            <Button size="sm" onClick={() => wizard.open()}>
+              {t('fallback.configureProviders')}
+            </Button>
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={() => syncMutation.mutate()}
+              disabled={syncMutation.isPending}
+            >
+              {syncMutation.isPending ? t('fallback.syncing') : t('fallback.sync')}
+            </Button>
+          </>
         }
       />
 
       <div className="space-y-6">
-        <FallbackStats entries={configuredEntries} />
+        <SummaryStats
+          items={[
+            {
+              label: t('fallback.stats.inChain'),
+              value: configuredEntries.length,
+              detail: t('fallback.stats.freeCount', { count: configuredEntries.filter(e => e.freeTier).length }),
+            },
+            {
+              label: t('fallback.stats.enabled'),
+              value: configuredEntries.filter(e => e.enabled).length,
+              detail: `${configuredEntries.length ? Math.round((configuredEntries.filter(e => e.enabled).length / configuredEntries.length) * 100) : 0}%`,
+              ratio: configuredEntries.length ? configuredEntries.filter(e => e.enabled).length / configuredEntries.length : 0,
+            },
+            {
+              label: t('fallback.stats.qualityScored'),
+              value: configuredEntries.filter(hasQuality).length,
+              detail: `${configuredEntries.length ? Math.round((configuredEntries.filter(hasQuality).length / configuredEntries.length) * 100) : 0}%`,
+              ratio: configuredEntries.length ? configuredEntries.filter(hasQuality).length / configuredEntries.length : 0,
+              tone: 'quality',
+            },
+            {
+              label: t('fallback.stats.speedMeasured'),
+              value: configuredEntries.filter(hasSpeed).length,
+              detail: `${configuredEntries.length ? Math.round((configuredEntries.filter(hasSpeed).length / configuredEntries.length) * 100) : 0}%`,
+              ratio: configuredEntries.length ? configuredEntries.filter(hasSpeed).length / configuredEntries.length : 0,
+              tone: 'speed',
+            },
+          ]}
+        />
 
         <ChainPreview entries={configuredEntries} />
 
@@ -279,17 +320,34 @@ export default function FallbackPage() {
           onFlash={showFlash}
         />
 
+        {unconfiguredEntries.length > 0 && (
+          <div className="flex flex-wrap items-center justify-between gap-3 rounded-lg border border-dashed px-4 py-3">
+            <p className="text-sm text-muted-foreground">
+              {t('fallback.unconfiguredNote', {
+                count: unconfiguredEntries.length,
+                platforms: [...new Set(unconfiguredEntries.map(e => e.platform))].join(', '),
+              })}
+            </p>
+            <Button variant="outline" size="sm" onClick={() => setShowUnconfigured(v => !v)}>
+              {showUnconfigured
+                ? t('fallback.hideUnconfigured')
+                : t('fallback.showUnconfigured', { count: unconfiguredEntries.length })}
+            </Button>
+          </div>
+        )}
+
         {tokenUsage && tokenUsage.totalBudget > 0 && (
           <TokenUsageBar data={tokenUsage} />
         )}
 
         {isLoading ? (
           <p className="text-sm text-muted-foreground">{t('fallback.loading')}</p>
-        ) : configuredEntries.length === 0 ? (
-          <div className="rounded-lg border border-dashed p-8 text-center">
+        ) : configuredEntries.length === 0 && !showUnconfigured ? (
+          <div className="space-y-4 rounded-lg border border-dashed p-8 text-center">
             <p className="text-sm text-muted-foreground">
               {t('fallback.emptyState')}
             </p>
+            <Button onClick={() => wizard.open()}>{t('fallback.configureProviders')}</Button>
           </div>
         ) : displayEntries.length === 0 ? (
           <div className="rounded-lg border border-dashed p-8 text-center">
@@ -333,11 +391,7 @@ export default function FallbackPage() {
               </div>
             )}
 
-            {unconfiguredPlatforms.length > 0 && (
-              <p className="text-xs text-muted-foreground">
-                {t('fallback.hiddenPlatforms', { platforms: unconfiguredPlatforms.join(', ') })}
-              </p>
-            )}
+
           </>
         )}
       </div>

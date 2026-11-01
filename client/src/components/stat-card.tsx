@@ -10,8 +10,8 @@ export function StatCard({
   tone = 'neutral',
 }: {
   label: string
-  value: number
-  detail: string
+  value: number | string
+  detail?: string
   ratio?: number
   tone?: MeterTone
 }) {

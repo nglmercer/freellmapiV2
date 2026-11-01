@@ -109,14 +109,16 @@ No `.env` file is required. Every setting is optional and has a default.
 - `ENCRYPTION_KEY` — optional 64 hexadecimal characters (32 bytes) for AES-256-GCM provider-key encryption. When unset, a random key is generated on first start and stored in the database.
 - `BETTER_AUTH_SECRET` — optional secret (at least 32 characters) that signs dashboard sessions and hashes API keys. When unset, a random secret is generated on first start and stored in the database.
 - `DASHBOARD_ORIGINS` — optional comma-separated browser-origin allowlist for cross-origin dashboard requests. Same-origin use needs no setting. `localhost:5173` and `127.0.0.1:5173` are always trusted for the Vite dev server.
-- `ARTIFICIAL_ANALYSIS_API_KEY` — optional Artificial Analysis Data API key. The default endpoint is the Free integration at `/api/v2/language/models/free`.
+- `ARTIFICIAL_ANALYSIS_API_KEY` — optional override for the Artificial Analysis key. Normally set it from the dashboard (Configure providers → Benchmarks) instead; the dashboard value takes precedence.
 - `ARTIFICIAL_ANALYSIS_URL` — optional endpoint override for Pro/commercial or compatible deployments.
 - `DB_PATH` — explicit SQLite database path.
 - `STATIC_DIR` — directory containing the built client assets.
 - `RUST_LOG` — tracing filter, for example `info,tower_http=debug`.
 
-A `.env` file in the project root is loaded when present, so these variables can
-also be kept there. See `.env.example` for the list. Never commit real keys.
+A `.env` file in the project root is loaded when present, but none is needed.
+Provider keys and the benchmark key are added in the dashboard's **Configure
+providers** wizard and stored encrypted in the database. See `.env.example` for
+the optional settings.
 
 ### Accounts and API keys
 

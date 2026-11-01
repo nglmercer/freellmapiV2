@@ -175,7 +175,8 @@
       "copyLink": "Copy link",
       "copied": "Copied",
       "dismiss": "Done"
-    }
+    },
+    "configureProviders": "Configure providers"
   },
   "fallback": {
     "title": "Fallback chain",
@@ -188,7 +189,7 @@
     "enableFree": "Enable free",
     "disableFree": "Disable free",
     "loading": "Loading…",
-    "emptyState": "No models available. Add API keys on the Keys page first.",
+    "emptyState": "No providers are configured yet. Add a key to start routing requests.",
     "dragToReorder": "Drag to reorder",
     "tokenBudget": {
       "title": "Monthly token budget",
@@ -305,7 +306,7 @@
       "capabilities": "Capabilities"
     },
     "state": {
-      "needsSource": "Needs ARTIFICIAL_ANALYSIS_API_KEY on the server to load benchmark scores",
+      "needsSource": "Add an Artificial Analysis key in Configure providers to load benchmark scores",
       "awaitingRequests": "Measured after the first request",
       "noData": "No data yet",
       "noSamples": "No requests yet"
@@ -322,7 +323,8 @@
       "confidence": "Confidence",
       "updated": "Updated",
       "rateLimitHits": "Rate-limit hits",
-      "noCapabilities": "No capability data yet"
+      "noCapabilities": "No capability data yet",
+      "summary": "Details"
     },
     "tier": {
       "free": "Free",
@@ -339,7 +341,13 @@
       "streaming": "Streaming"
     },
     "enable": "Enable model",
-    "disable": "Disable model"
+    "disable": "Disable model",
+    "configureProviders": "Configure providers",
+    "notConfigured": "Not configured",
+    "configure": "Configure {{provider}}",
+    "unconfiguredNote": "{{count}} entries are hidden because their provider has no key: {{platforms}}.",
+    "showUnconfigured": "Show {{count}} unconfigured",
+    "hideUnconfigured": "Hide unconfigured"
   },
   "analytics": {
     "title": "Analytics",
@@ -536,7 +544,9 @@
     },
     "disabled": "Disabled",
     "range": "Showing {{from}}–{{to}} of {{total}}",
-    "page": "Page {{page}} of {{pages}}"
+    "page": "Page {{page}} of {{pages}}",
+    "addBenchmarkKey": "Add benchmark key",
+    "priceShort": "Price in / out per 1M"
   },
   "auth": {
     "createTitle": "Create the owner account",
@@ -562,5 +572,57 @@
     "signOut": "Sign out",
     "failed": "Something went wrong. Try again.",
     "unreachable": "Cannot reach the server."
+  },
+  "wizard": {
+    "title": "Configure providers",
+    "description": "Add a key for each provider you use. Keys are encrypted and stored in this server, so no .env file is needed.",
+    "steps": {
+      "providers": "Provider",
+      "key": "Key",
+      "benchmarks": "Benchmarks"
+    },
+    "search": "Search providers",
+    "configured": "Configured",
+    "available": "Available",
+    "configuredBadge": "Configured",
+    "keyCount_one": "{{count}} key",
+    "keyCount_other": "{{count}} keys",
+    "noKey": "Not configured",
+    "anonymousShort": "No key needed",
+    "anonymousNote": "This provider works without a key. Enable it to let requests use it.",
+    "enable": "Enable provider",
+    "apiKey": "API key",
+    "keyPlaceholder": "Paste the API key",
+    "accountId": "Account ID",
+    "accountIdPlaceholder": "Cloudflare account ID",
+    "label": "Label (optional)",
+    "labelPlaceholder": "e.g. personal, work",
+    "showKey": "Show key",
+    "hideKey": "Hide key",
+    "storedNote": "Stored encrypted on this server.",
+    "save": "Save key",
+    "saving": "Saving…",
+    "saved": "Saved. The provider now takes part in routing.",
+    "removed": "Key removed.",
+    "failed": "Something went wrong. Try again.",
+    "existingKeys": "Keys for this provider",
+    "noKeysYet": "No keys yet.",
+    "remove": "Remove",
+    "back": "Back",
+    "next": "Next",
+    "done": "Done",
+    "benchmark": {
+      "title": "Artificial Analysis",
+      "configured": "Configured",
+      "notConfigured": "Not configured",
+      "description": "Supplies quality and speed benchmarks for the fallback chain and the model catalog. Optional, but without it those columns stay empty.",
+      "keyLabel": "Artificial Analysis API key",
+      "placeholder": "Paste the API key",
+      "saved": "Saved. Refresh benchmark sources to load scores.",
+      "removed": "Benchmark key removed.",
+      "refresh": "Refresh benchmark sources",
+      "refreshing": "Refreshing…",
+      "refreshed": "Refresh started. Scores appear when the source responds."
+    }
   }
 }

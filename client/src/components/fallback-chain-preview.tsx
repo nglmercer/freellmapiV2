@@ -1,5 +1,6 @@
 import { useTranslations } from '@/hooks/useTranslations'
 import type { FallbackEntry } from '../../../shared/types'
+import { KeyValueSummary } from './key-value-summary'
 import { qualityOf, speedOf } from './fallback-format'
 
 /** The next models a request would try, in priority order. */
@@ -23,17 +24,19 @@ export function ChainPreview({ entries }: { entries: FallbackEntry[] }) {
             return (
               <li
                 key={entry.modelDbId}
-                className="min-w-[11rem] flex-1 rounded-md border bg-background px-3 py-2"
+                className="min-w-[11rem] flex-1 space-y-1.5 rounded-md border bg-background px-3 py-2"
               >
                 <div className="flex items-center gap-2">
                   <span className="font-mono text-xs tabular-nums text-muted-foreground">{index + 1}</span>
                   <span className="truncate text-sm font-medium">{entry.displayName}</span>
                 </div>
-                <div className="mt-1 flex flex-wrap gap-x-3 font-mono text-xs tabular-nums text-muted-foreground">
-                  {quality != null && <span>Q {quality.toFixed(1)}</span>}
-                  {speed != null && <span>{speed.toFixed(1)} tok/s</span>}
-                  {quality == null && speed == null && <span>{t('fallback.preview.noScores')}</span>}
-                </div>
+                <KeyValueSummary
+                  emptyLabel={t('fallback.preview.noScores')}
+                  items={[
+                    { label: 'Q', value: quality != null ? quality.toFixed(1) : null },
+                    { label: t('fallback.metrics.speed'), value: speed != null ? `${speed.toFixed(1)} tok/s` : null },
+                  ]}
+                />
               </li>
             )
           })}

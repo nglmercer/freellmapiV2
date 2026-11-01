@@ -12,7 +12,9 @@ import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { PageHeader } from '@/components/page-header'
 import { SimpleLineChart } from '@/components/charts/SimpleLineChart'
-import { StatCard } from '@/components/stat-card'
+import { SummaryStats } from '@/components/summary-stats'
+import { Disclosure } from '@/components/disclosure'
+import { useProviderWizard } from '@/lib/provider-wizard-context'
 import { ModelCard } from '@/components/model-card'
 import { ModelFilters } from '@/components/model-filters'
 import { DEFAULT_CATALOG_FILTERS, type CatalogFilters } from '@/components/catalog-filter-state'
@@ -110,16 +112,16 @@ function MetricTable({ metrics }: { metrics: MetadataMetric[] }) {
     </div>
   )
 }
+/** Mounts the detail (and its requests) only when the disclosure opens. */
 function LazyModelDetail({ id }: { id: number }) {
   const { t } = useTranslations()
-  const [open, setOpen] = useState(false)
   return (
-    <details onToggle={(e) => setOpen(e.currentTarget.open)}>
-      <summary className="text-xs cursor-pointer py-2">
-        {t('metadata.details')}
-      </summary>
-      {open && <ModelDetail id={id} />}
-    </details>
+    <Disclosure
+      summary={<span className="text-xs text-muted-foreground">{t('metadata.details')}</span>}
+      summaryClassName="py-2"
+    >
+      <ModelDetail id={id} />
+    </Disclosure>
   )
 }
 function ModelDetail({ id }: { id: number }) {
@@ -193,12 +195,12 @@ function ModelDetail({ id }: { id: number }) {
       </div>
       <MetricTable metrics={detail.data.metrics} />
       {detail.data.candidates?.some((c) => !c.selected) && (
-        <details>
-          <summary className="text-xs cursor-pointer">
-            {t('metadata.candidates')}
-          </summary>
+        <Disclosure
+          summary={<span className="text-xs text-muted-foreground">{t('metadata.candidates')}</span>}
+          summaryClassName="py-2"
+        >
           <MetricTable metrics={detail.data.candidates} />
-        </details>
+        </Disclosure>
       )}
       <div className="grid gap-2 sm:grid-cols-3">
         {detail.data.windows.map((w) => (
@@ -327,6 +329,7 @@ function Comparison({ ids }: { ids: number[] }) {
 }
 function SourceControls() {
   const { t } = useTranslations()
+  const wizard = useProviderWizard()
   const cache = useQueryClient()
   const query = useQuery<MetadataSource[]>({
     queryKey: ['metadata-sources'],
@@ -400,10 +403,20 @@ function SourceControls() {
               />
               {s.attribution}
             </label>
-            <p className="text-xs">
+            <p className="flex flex-wrap items-center gap-2 text-xs">
               {s.status} ·{' '}
               {t(
                 s.configured ? 'metadata.configured' : 'metadata.notConfigured',
+              )}
+              {!s.configured && s.id === 'artificial-analysis' && (
+                <Button
+                  variant="outline"
+                  size="sm"
+                  className="h-6 text-xs"
+                  onClick={() => wizard.open({ step: 'benchmarks' })}
+                >
+                  {t('metadata.addBenchmarkKey')}
+                </Button>
               )}
             </p>
             <p className="text-xs text-muted-foreground">
@@ -581,7 +594,18 @@ function MatchReview() {
 }
 function MatchAudit({ id }: { id: number }) {
   const { t } = useTranslations()
-  const [open, setOpen] = useState(false)
+  return (
+    <Disclosure
+      summary={<span className="text-xs text-muted-foreground">{t('metadata.audit')}</span>}
+      summaryClassName="py-2"
+    >
+      <MatchAuditList id={id} />
+    </Disclosure>
+  )
+}
+
+/** Fetched only while the audit disclosure is open. */
+function MatchAuditList({ id }: { id: number }) {
   const query = useQuery<{
     data: {
       id: number
@@ -592,15 +616,10 @@ function MatchAudit({ id }: { id: number }) {
     }[]
   }>({
     queryKey: ['metadata-audit', id],
-    enabled: open,
     queryFn: () => apiFetch(`/api/metadata/matches/${id}/audit`),
   })
   return (
-    <details
-      className="text-xs"
-      onToggle={(e) => setOpen(e.currentTarget.open)}
-    >
-      <summary className="cursor-pointer">{t('metadata.audit')}</summary>
+    <div className="text-xs">
       {query.error && <p role="alert">{query.error.message}</p>}
       <ul>
         {query.data?.data.map((a) => (
@@ -610,9 +629,10 @@ function MatchAudit({ id }: { id: number }) {
           </li>
         ))}
       </ul>
-    </details>
+    </div>
   )
 }
+
 function Simulator() {
   const { t } = useTranslations()
   const [strategy, setStrategy] = useState('balanced')
@@ -735,10 +755,12 @@ function Simulator() {
           {t('metadata.simulate')}
         </Button>
       </div>
-      <details className="border rounded p-3">
-        <summary className="text-sm cursor-pointer">
-          {t('metadata.advanced')}
-        </summary>
+      <Disclosure
+        className="rounded-md border"
+        summary={<span className="text-sm">{t('metadata.advanced')}</span>}
+        summaryClassName="px-3 py-2"
+      >
+        <div className="p-3">
         <div className="flex flex-wrap gap-3 py-3">
           <label className="text-xs">
             {t('metadata.maxCost')}
@@ -790,7 +812,8 @@ function Simulator() {
           <span className="text-xs ml-3">{t('metadata.saved')}</span>
         )}
         {save.error && <p role="alert">{save.error.message}</p>}
-      </details>
+        </div>
+      </Disclosure>
       {mutation.error && <p role="alert">{mutation.error.message}</p>}
       {mutation.data && (
         <p className="text-sm">
@@ -894,30 +917,14 @@ export default function ModelExplorerPage() {
       {tab === 'simulator' && <Simulator />}
       {tab === 'explorer' && (
         <>
-          <div className="grid grid-cols-2 gap-3 lg:grid-cols-4">
-            <StatCard
-              label={t('metadata.stats.models')}
-              value={total}
-              detail={t('metadata.stats.onPage', { count: pageModels.length })}
-            />
-            <StatCard
-              label={t('metadata.stats.deployments')}
-              value={deployments.length}
-              detail={t('metadata.stats.free', { count: freeCount })}
-            />
-            <StatCard
-              label={t('metadata.stats.providers')}
-              value={providers}
-              detail={t('metadata.stats.onPage', { count: pageModels.length })}
-            />
-            <StatCard
-              label={t('metadata.stats.withQuality')}
-              value={qualityCount}
-              detail={`${Math.round(qualityShare * 100)}%`}
-              ratio={qualityShare}
-              tone="quality"
-            />
-          </div>
+          <SummaryStats
+            items={[
+              { label: t('metadata.stats.models'), value: total, detail: t('metadata.stats.onPage', { count: pageModels.length }) },
+              { label: t('metadata.stats.deployments'), value: deployments.length, detail: t('metadata.stats.free', { count: freeCount }) },
+              { label: t('metadata.stats.providers'), value: providers, detail: t('metadata.stats.onPage', { count: pageModels.length }) },
+              { label: t('metadata.stats.withQuality'), value: qualityCount, detail: `${Math.round(qualityShare * 100)}%`, ratio: qualityShare, tone: 'quality' },
+            ]}
+          />
 
           <ModelFilters
             value={filters}

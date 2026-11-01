@@ -182,10 +182,23 @@ async fn disable_all_flips_every_model_to_disabled() {
     }
 }
 
-/// POST /api/models/enable-all flips every model to enabled=1.
+/// POST /api/models/enable-all enables only providers that have a key.
 #[tokio::test]
-async fn enable_all_flips_every_model_to_enabled() {
+async fn enable_all_enables_only_configured_providers() {
     let app = common::setup().await;
+    {
+        let conn = server::db::db().lock().await;
+        conn.execute("UPDATE models SET enabled = 0", []).unwrap();
+    }
+    let key = common::post_json(
+        &app.app,
+        "/api/keys",
+        &app.api_key,
+        json!({ "platform": "google", "key": "AIzaTestKey123456789" }),
+    )
+    .await;
+    common::expect_status(&key, StatusCode::CREATED);
+
     let res = common::post_json(
         &app.app,
         "/api/models/enable-all",
@@ -200,8 +213,8 @@ async fn enable_all_flips_every_model_to_enabled() {
     let list = common::get(&app.app, "/api/models").await;
     let models = list.body.as_array().expect("models array");
     for m in models {
-        assert_eq!(m["enabled"], json!(true));
-        assert_eq!(m["fallbackEnabled"], json!(true));
+        let expected = m["platform"] == json!("google");
+        assert_eq!(m["enabled"], json!(expected), "{} on {}", m["modelId"], m["platform"]);
     }
 }
 

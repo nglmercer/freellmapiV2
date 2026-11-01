@@ -175,7 +175,8 @@
       "copyLink": "Copiar enlace",
       "copied": "Copiado",
       "dismiss": "Listo"
-    }
+    },
+    "configureProviders": "Configurar proveedores"
   },
   "fallback": {
     "title": "Cadena de fallback",
@@ -188,7 +189,7 @@
     "enableFree": "Habilitar gratuitos",
     "disableFree": "Deshabilitar gratuitos",
     "loading": "Cargando…",
-    "emptyState": "No hay modelos disponibles. Añade claves API en la página Claves primero.",
+    "emptyState": "Aún no hay proveedores configurados. Añade una clave para empezar a enrutar peticiones.",
     "dragToReorder": "Arrastra para reordenar",
     "tokenBudget": {
       "title": "Presupuesto mensual de tokens",
@@ -305,7 +306,7 @@
       "capabilities": "Capacidades"
     },
     "state": {
-      "needsSource": "Requiere ARTIFICIAL_ANALYSIS_API_KEY en el servidor para cargar puntuaciones",
+      "needsSource": "Añade una clave de Artificial Analysis en Configurar proveedores para cargar las puntuaciones",
       "awaitingRequests": "Se mide tras la primera petición",
       "noData": "Sin datos aún",
       "noSamples": "Sin peticiones aún"
@@ -322,7 +323,8 @@
       "confidence": "Confianza",
       "updated": "Actualizado",
       "rateLimitHits": "Límites alcanzados",
-      "noCapabilities": "Sin datos de capacidades aún"
+      "noCapabilities": "Sin datos de capacidades aún",
+      "summary": "Detalles"
     },
     "tier": {
       "free": "Gratis",
@@ -339,7 +341,13 @@
       "streaming": "Streaming"
     },
     "enable": "Activar modelo",
-    "disable": "Desactivar modelo"
+    "disable": "Desactivar modelo",
+    "configureProviders": "Configurar proveedores",
+    "notConfigured": "Sin configurar",
+    "configure": "Configurar {{provider}}",
+    "unconfiguredNote": "{{count}} entradas están ocultas porque su proveedor no tiene clave: {{platforms}}.",
+    "showUnconfigured": "Mostrar {{count}} sin configurar",
+    "hideUnconfigured": "Ocultar sin configurar"
   },
   "analytics": {
     "title": "Analíticas",
@@ -535,7 +543,9 @@
     },
     "disabled": "Desactivado",
     "range": "Mostrando {{from}}–{{to}} de {{total}}",
-    "page": "Página {{page}} de {{pages}}"
+    "page": "Página {{page}} de {{pages}}",
+    "addBenchmarkKey": "Añadir clave de benchmarks",
+    "priceShort": "Precio entrada / salida por 1M"
   },
   "auth": {
     "createTitle": "Crear la cuenta de propietario",
@@ -561,5 +571,57 @@
     "signOut": "Cerrar sesión",
     "failed": "Algo salió mal. Inténtalo de nuevo.",
     "unreachable": "No se puede conectar con el servidor."
+  },
+  "wizard": {
+    "title": "Configurar proveedores",
+    "description": "Añade una clave por cada proveedor que uses. Las claves se cifran y guardan en este servidor; no hace falta un archivo .env.",
+    "steps": {
+      "providers": "Proveedor",
+      "key": "Clave",
+      "benchmarks": "Benchmarks"
+    },
+    "search": "Buscar proveedores",
+    "configured": "Configurados",
+    "available": "Disponibles",
+    "configuredBadge": "Configurado",
+    "keyCount_one": "{{count}} clave",
+    "keyCount_other": "{{count}} claves",
+    "noKey": "Sin configurar",
+    "anonymousShort": "No requiere clave",
+    "anonymousNote": "Este proveedor funciona sin clave. Actívalo para que las peticiones lo usen.",
+    "enable": "Activar proveedor",
+    "apiKey": "Clave de API",
+    "keyPlaceholder": "Pega la clave de API",
+    "accountId": "ID de cuenta",
+    "accountIdPlaceholder": "ID de cuenta de Cloudflare",
+    "label": "Etiqueta (opcional)",
+    "labelPlaceholder": "p. ej. personal, trabajo",
+    "showKey": "Mostrar clave",
+    "hideKey": "Ocultar clave",
+    "storedNote": "Guardada cifrada en este servidor.",
+    "save": "Guardar clave",
+    "saving": "Guardando…",
+    "saved": "Guardada. El proveedor ya participa en el enrutamiento.",
+    "removed": "Clave eliminada.",
+    "failed": "Algo salió mal. Inténtalo de nuevo.",
+    "existingKeys": "Claves de este proveedor",
+    "noKeysYet": "Aún no hay claves.",
+    "remove": "Eliminar",
+    "back": "Atrás",
+    "next": "Siguiente",
+    "done": "Listo",
+    "benchmark": {
+      "title": "Artificial Analysis",
+      "configured": "Configurado",
+      "notConfigured": "Sin configurar",
+      "description": "Aporta puntuaciones de calidad y velocidad para la cadena de fallback y el catálogo. Es opcional, pero sin ella esas columnas quedan vacías.",
+      "keyLabel": "Clave de API de Artificial Analysis",
+      "placeholder": "Pega la clave de API",
+      "saved": "Guardada. Actualiza las fuentes de benchmarks para cargar las puntuaciones.",
+      "removed": "Clave de benchmarks eliminada.",
+      "refresh": "Actualizar fuentes de benchmarks",
+      "refreshing": "Actualizando…",
+      "refreshed": "Actualización iniciada. Las puntuaciones aparecen cuando la fuente responde."
+    }
   }
 }

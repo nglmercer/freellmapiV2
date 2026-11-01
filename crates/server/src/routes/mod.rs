@@ -5,6 +5,7 @@ pub mod analytics;
 pub mod completions;
 pub mod fallback;
 pub mod health;
+pub mod integrations;
 pub mod keys;
 pub mod middleware;
 pub mod models;

@@ -369,6 +369,9 @@ async fn get_fallback() -> Response {
                 "monthlyTokenBudget": r.monthly_token_budget,
                 "freeTier": r.free_tier != 0,
                 "keyCount": key_count_map.get(&r.platform).copied().unwrap_or(0),
+                // Enabled keys exist for this provider. Unconfigured entries
+                // cannot serve requests and are shown disabled.
+                "configured": key_count_map.get(&r.platform).copied().unwrap_or(0) > 0,
             })
         })
         .collect();
