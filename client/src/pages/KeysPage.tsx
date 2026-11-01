@@ -8,26 +8,11 @@ import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
 import { PageHeader } from '@/components/page-header'
+import { PLATFORMS } from '@/lib/platforms'
+import { useProviderWizard } from '@/lib/provider-wizard-context'
 import { useTranslations } from '@/hooks/useTranslations'
 import type { ApiKey, Platform } from '../../../shared/types'
 
-const PLATFORMS: { value: Platform; label: string }[] = [
-  { value: 'google', label: 'Google AI Studio' },
-  { value: 'groq', label: 'Groq' },
-  { value: 'cerebras', label: 'Cerebras' },
-  { value: 'sambanova', label: 'SambaNova' },
-  { value: 'nvidia', label: 'NVIDIA NIM' },
-  { value: 'mistral', label: 'Mistral' },
-  { value: 'openrouter', label: 'OpenRouter' },
-  { value: 'github', label: 'GitHub Models' },
-  { value: 'cohere', label: 'Cohere' },
-  { value: 'cloudflare', label: 'Cloudflare Workers AI' },
-  { value: 'zhipu', label: 'Zhipu AI (Z.ai)' },
-  { value: 'ollama', label: 'Ollama Cloud' },
-  { value: 'kilo', label: 'Kilo Gateway (anon ok)' },
-  { value: 'pollinations', label: 'Pollinations (anon ok)' },
-  { value: 'llm7', label: 'LLM7 (anon ok)' },
-]
 
 const statusDot: Record<string, string> = {
   healthy: 'bg-emerald-500',
@@ -62,6 +47,7 @@ interface HealthData {
 
 export default function KeysPage() {
   const { t } = useTranslations()
+  const wizard = useProviderWizard()
   const queryClient = useQueryClient()
   const [platform, setPlatform] = useState<Platform | ''>('')
   const [apiKey, setApiKey] = useState('')
@@ -154,11 +140,16 @@ export default function KeysPage() {
         title={t('keys.title')}
         description={t('keys.description')}
         actions={
-          keys.length > 0 && (
-            <Button variant="outline" size="sm" onClick={() => checkAll.mutate()} disabled={checkAll.isPending}>
-              {checkAll.isPending ? t('keys.checking') : t('keys.checkAll')}
+          <>
+            <Button size="sm" onClick={() => wizard.open()}>
+              {t('keys.configureProviders')}
             </Button>
-          )
+            {keys.length > 0 && (
+              <Button variant="outline" size="sm" onClick={() => checkAll.mutate()} disabled={checkAll.isPending}>
+                {checkAll.isPending ? t('keys.checking') : t('keys.checkAll')}
+              </Button>
+            )}
+          </>
         }
       />
 

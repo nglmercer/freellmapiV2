@@ -33,6 +33,7 @@ pub fn create_app() -> axum::Router {
         .nest("/analytics", routes::analytics::router())
         .nest("/health", routes::health::router())
         .nest("/settings", routes::settings::router())
+        .nest("/integrations", routes::integrations::router())
         .merge(routes::account::session_routes())
         .nest("/providers", routes::providers::router())
         .fallback(|| async { axum::http::StatusCode::NOT_FOUND })

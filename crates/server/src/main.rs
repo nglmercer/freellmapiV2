@@ -14,6 +14,8 @@ async fn main() {
     .await
     .expect("failed to run database migrations");
 
+    server::services::integrations::load_from_db().await;
+
     server::auth::start_with_file(&db::db_path())
         .await
         .expect("failed to start authentication");

@@ -1,11 +1,14 @@
-import { useState } from 'react'
 import { useSortable } from '@dnd-kit/sortable'
 import { CSS } from '@dnd-kit/utilities'
 import { useTranslations } from '@/hooks/useTranslations'
 import { Badge } from '@/components/ui/badge'
 import { Switch } from '@/components/ui/switch'
+import { Button } from '@/components/ui/button'
+import { Disclosure } from './disclosure'
+import { useProviderWizard } from '@/lib/provider-wizard-context'
+import { platformInfo } from '@/lib/platforms'
 import { cn } from '@/lib/utils'
-import type { FallbackEntry } from '../../../shared/types'
+import type { FallbackEntry, Platform } from '../../../shared/types'
 import { MetricMeter } from './metric-meter'
 import {
   compactNumber,
@@ -140,7 +143,10 @@ export function SortableFallbackRow({
   onToggle: (modelDbId: number, enabled: boolean) => void
 }) {
   const { t } = useTranslations()
-  const [expanded, setExpanded] = useState(false)
+  const wizard = useProviderWizard()
+  // An entry whose provider has no enabled key cannot serve requests.
+  const unconfigured = entry.configured === false
+  const providerName = platformInfo(entry.platform)?.label ?? entry.platform
   const { attributes, listeners, setNodeRef, transform, transition, isDragging } = useSortable({
     id: entry.modelDbId,
   })
@@ -157,7 +163,7 @@ export function SortableFallbackRow({
       className={cn(
         'bg-card transition-opacity',
         isDragging && 'opacity-50',
-        !entry.enabled && 'opacity-60',
+        (!entry.enabled || unconfigured) && 'opacity-60',
       )}
     >
       <div className="flex items-start gap-3 px-4 py-3">
@@ -182,6 +188,7 @@ export function SortableFallbackRow({
           <div className="flex flex-wrap items-center gap-2">
             <span className="truncate text-sm font-medium">{entry.displayName}</span>
             <Badge variant="secondary">{entry.platform}</Badge>
+            {unconfigured && <Badge variant="outline">{t('fallback.notConfigured')}</Badge>}
             <Badge variant={entry.freeTier ? 'outline' : 'secondary'}>
               {entry.freeTier ? t('fallback.tier.free') : t('fallback.tier.paid')}
             </Badge>
@@ -220,24 +227,28 @@ export function SortableFallbackRow({
           </div>
         </div>
 
-        <div className="flex shrink-0 flex-col items-end gap-3">
-          <Switch
-            checked={entry.enabled}
-            onCheckedChange={(checked) => onToggle(entry.modelDbId, checked)}
-            aria-label={entry.enabled ? t('fallback.disable') : t('fallback.enable')}
-          />
-          <button
-            type="button"
-            onClick={() => setExpanded((open) => !open)}
-            aria-expanded={expanded}
-            className="text-xs text-muted-foreground transition-colors hover:text-foreground"
-          >
-            {expanded ? t('fallback.details.hide') : t('fallback.details.show')}
-          </button>
+        <div className="flex shrink-0 flex-col items-end gap-2">
+          {unconfigured ? (
+            <Button variant="outline" size="sm" onClick={() => wizard.open({ platform: entry.platform as Platform })}>
+              {t('fallback.configure', { provider: providerName })}
+            </Button>
+          ) : (
+            <Switch
+              checked={entry.enabled}
+              onCheckedChange={(checked) => onToggle(entry.modelDbId, checked)}
+              aria-label={entry.enabled ? t('fallback.disable') : t('fallback.enable')}
+            />
+          )}
         </div>
       </div>
 
-      {expanded && <FallbackRowDetails entry={entry} t={t} />}
+      <Disclosure
+        className="px-4"
+        summaryClassName="px-0 py-2 pl-[4.5rem]"
+        summary={<span className="text-xs text-muted-foreground">{t('fallback.details.summary')}</span>}
+      >
+        <FallbackRowDetails entry={entry} t={t} />
+      </Disclosure>
     </div>
   )
 }

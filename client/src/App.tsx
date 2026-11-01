@@ -15,6 +15,7 @@ import {
 import { useTranslations } from '@/hooks/useTranslations'
 import { switchLanguage, getCurrentLanguage } from '@/i18n'
 import PageSkeleton from '@/components/PageSkeleton'
+import { ProviderWizardProvider } from '@/components/provider-wizard'
 
 const KeysPage = lazy(() => import('./pages/KeysPage'))
 const PlaygroundPage = lazy(() => import('./pages/PlaygroundPage'))
@@ -453,7 +454,9 @@ function App() {
     <QueryClientProvider client={queryClient}>
       <BrowserRouter basename={import.meta.env.BASE_URL}>
         <AccountGate>
-          <AppLayout />
+          <ProviderWizardProvider>
+            <AppLayout />
+          </ProviderWizardProvider>
         </AccountGate>
       </BrowserRouter>
     </QueryClientProvider>

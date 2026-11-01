@@ -128,6 +128,8 @@ export interface FallbackEntry {
   qualityState?: QualityState;
   /** Why speed is empty: it is measured after the first request, or has no data. */
   speedState?: SpeedState;
+  /** True when the provider has at least one enabled key. */
+  configured?: boolean;
   /** Registry facts for this deployment (context, price, capabilities, latency). */
   metrics?: FallbackMetrics | null;
 }

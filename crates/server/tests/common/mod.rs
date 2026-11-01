@@ -64,6 +64,7 @@ pub async fn setup() -> TestApp {
         server::db::run_migrations(&conn);
         seed_test_models(&conn);
     }
+    server::services::integrations::load_from_db().await;
     server::auth::start_in_memory()
         .await
         .expect("start authentication");

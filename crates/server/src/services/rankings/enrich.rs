@@ -1171,8 +1171,7 @@ async fn enrich_rankings_with_force(force: bool) -> EnrichResult {
     for provider in providers {
         let name = provider.name().to_string();
         let configured = name != "artificial-analysis"
-            || crate::env::env_string("ARTIFICIAL_ANALYSIS_API_KEY")
-                .is_some_and(|key| !key.trim().is_empty());
+            || crate::services::integrations::artificial_analysis_configured();
 
         if !force {
             let cached = {

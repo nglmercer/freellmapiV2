@@ -1096,8 +1096,7 @@ async fn rankings_status() -> Response {
 }
 
 async fn ranking_sources() -> Response {
-    let configured_aa = crate::env::env_string("ARTIFICIAL_ANALYSIS_API_KEY")
-        .is_some_and(|key| !key.trim().is_empty());
+    let configured_aa = crate::services::integrations::artificial_analysis_configured();
     let rows: Vec<Value> = {
         let conn = db().lock().await;
         conn.prepare(
@@ -1309,17 +1308,30 @@ async fn disable_all(bytes: Bytes) -> Response {
     .into_response()
 }
 
+/// Platforms with at least one enabled key. Bulk actions only ever enable
+/// models from these: a provider without a key cannot serve requests.
+const CONFIGURED_PLATFORMS: &str = "(SELECT DISTINCT platform FROM api_keys WHERE enabled = 1)";
+
 async fn enable_all(bytes: Bytes) -> Response {
     if let Err(resp) = parse_bulk_confirm(&bytes) {
         return *resp;
     }
     let (models_updated, fb_updated) = {
         let conn = db().lock().await;
-        let models_updated = match conn.execute("UPDATE models SET enabled = 1", []) {
+        let models_updated = match conn.execute(
+            &format!("UPDATE models SET enabled = 1 WHERE platform IN {CONFIGURED_PLATFORMS}"),
+            [],
+        ) {
             Ok(n) => n as i64,
             Err(e) => return crate::app::error_text(500, &e.to_string()),
         };
-        let fb_updated = match conn.execute("UPDATE fallback_config SET enabled = 1", []) {
+        let fb_updated = match conn.execute(
+            &format!(
+                "UPDATE fallback_config SET enabled = 1 WHERE model_db_id IN \
+                 (SELECT id FROM models WHERE platform IN {CONFIGURED_PLATFORMS})"
+            ),
+            [],
+        ) {
             Ok(n) => n as i64,
             Err(e) => return crate::app::error_text(500, &e.to_string()),
         };
@@ -1339,8 +1351,12 @@ async fn enable_free(bytes: Bytes) -> Response {
     }
     let (free_enabled, paid_disabled, fb_free_enabled, fb_paid_disabled) = {
         let conn = db().lock().await;
-        let free_enabled =
-            match conn.execute("UPDATE models SET enabled = 1 WHERE free_tier = 1", []) {
+        let free_enabled = match conn.execute(
+            &format!(
+                "UPDATE models SET enabled = 1 WHERE free_tier = 1 AND platform IN {CONFIGURED_PLATFORMS}"
+            ),
+            [],
+        ) {
                 Ok(n) => n as i64,
                 Err(e) => return crate::app::error_text(500, &e.to_string()),
             };
@@ -1351,7 +1367,9 @@ async fn enable_free(bytes: Bytes) -> Response {
             };
 
         let free_ids: Vec<i64> = conn
-            .prepare("SELECT id FROM models WHERE free_tier = 1")
+            .prepare(&format!(
+                "SELECT id FROM models WHERE free_tier = 1 AND platform IN {CONFIGURED_PLATFORMS}"
+            ))
             .ok()
             .and_then(|mut s| {
                 s.query_map([], |r| r.get::<_, i64>(0))
