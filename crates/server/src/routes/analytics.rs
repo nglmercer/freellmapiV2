@@ -19,6 +19,7 @@ pub fn router() -> axum::Router {
         .route("/by-platform", get(by_platform))
         .route("/timeline", get(timeline))
         .route("/error-distribution", get(error_distribution))
+        .route("/modalities", get(by_modality))
         .route("/errors", get(errors))
 }
 
@@ -206,6 +207,54 @@ async fn by_model(Query(params): Query<HashMap<String, String>>) -> Response {
 
     let data: Vec<Value> = rows.iter().map(|r| group_to_json(r, true)).collect();
     Json(json!(data)).into_response()
+}
+
+/// Usage per operation type (`chat`, `speech`, `transcription`, `translation`,
+/// `image_generation`, `image_edit`, `embeddings`, `video_generation`).
+/// Media operations have no verified price data, so no cost is estimated for
+/// them; `estimatedCostUsd` is null there.
+async fn by_modality(Query(params): Query<HashMap<String, String>>) -> Response {
+    let range = params
+        .get("range")
+        .cloned()
+        .unwrap_or_else(|| "7d".to_string());
+    let since = get_since_timestamp(&range);
+    let rows: Vec<Value> = {
+        let conn = db().lock().await;
+        let query = conn.prepare(
+            "SELECT modality, COUNT(*), \
+                    SUM(CASE WHEN status = 'success' THEN 1 ELSE 0 END) * 100.0 / COUNT(*), \
+                    AVG(latency_ms), SUM(input_tokens), SUM(output_tokens), \
+                    COUNT(DISTINCT platform), \
+                    SUM(CASE WHEN status != 'success' THEN 1 ELSE 0 END) \
+             FROM requests WHERE created_at >= ?1 \
+             GROUP BY modality ORDER BY COUNT(*) DESC",
+        );
+        match query {
+            Ok(mut stmt) => stmt
+                .query_map(rusqlite::params![since], |r| {
+                    let modality: String = r.get(0)?;
+                    let is_chat = modality == "chat";
+                    Ok(json!({
+                        "modality": modality,
+                        "requests": r.get::<_, i64>(1)?,
+                        "successRate": r.get::<_, Option<f64>>(2)?,
+                        "avgLatencyMs": r.get::<_, Option<f64>>(3)?,
+                        "inputTokens": r.get::<_, Option<i64>>(4)?.unwrap_or(0),
+                        "outputTokens": r.get::<_, Option<i64>>(5)?.unwrap_or(0),
+                        "platforms": r.get::<_, i64>(6)?,
+                        "failures": r.get::<_, i64>(7)?,
+                        "costTracked": is_chat,
+                        "estimatedCostUsd": Value::Null,
+                    }))
+                })
+                .ok()
+                .and_then(|it| it.collect::<rusqlite::Result<Vec<_>>>().ok())
+                .unwrap_or_default(),
+            Err(_) => Vec::new(),
+        }
+    };
+    Json(json!(rows)).into_response()
 }
 
 async fn by_platform(Query(params): Query<HashMap<String, String>>) -> Response {

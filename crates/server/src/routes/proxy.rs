@@ -1,9 +1,10 @@
 //! OpenAI-compatible proxy endpoints with resilient fallback retries.
 
-use std::collections::HashSet;
+use std::collections::{HashMap, HashSet};
 use std::time::Instant;
 
 use axum::body::Bytes;
+use axum::extract::Query;
 use axum::http::StatusCode;
 use axum::response::{IntoResponse, Response};
 use futures::future::join_all;
@@ -86,18 +87,27 @@ fn is_retryable_error(err: &ProviderError) -> bool {
 
 /// `GET /v1/models` — OpenAI-compatible /models endpoint (used by Hermes for
 /// metadata).
-pub async fn list_models() -> Response {
-    let rows: Vec<(String, String, String, Option<i64>)> = {
+/// `GET /v1/models`. Chat models are listed with their declared capabilities.
+/// `?capability=<name>` lists the declared models for a non-chat operation,
+/// for example `?capability=speech`.
+pub async fn list_models(Query(params): Query<HashMap<String, String>>) -> Response {
+    if let Some(name) = params.get("capability") {
+        return list_media_models(name).await;
+    }
+    let (rows, declared) = {
         let conn = db().lock().await;
-        conn.prepare(
-            "SELECT platform, model_id, display_name, context_window FROM models \
+        let declared = declared_media_capabilities(&conn);
+        let rows: Vec<(String, String, String, Option<i64>)> = conn
+            .prepare(
+                "SELECT platform, model_id, display_name, context_window FROM models \
              WHERE enabled = 1 ORDER BY intelligence_rank",
-        )
-        .and_then(|mut s| {
-            s.query_map([], |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?, r.get(3)?)))?
-                .collect::<rusqlite::Result<Vec<_>>>()
-        })
-        .unwrap_or_default()
+            )
+            .and_then(|mut s| {
+                s.query_map([], |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?, r.get(3)?)))?
+                    .collect::<rusqlite::Result<Vec<_>>>()
+            })
+            .unwrap_or_default();
+        (rows, declared)
     };
 
     let mut data = vec![json!({
@@ -107,8 +117,13 @@ pub async fn list_models() -> Response {
         "owned_by": "freellmapi",
         "name": "Auto (router picks the best available model)",
         "context_window": Value::Null,
+        "capabilities": ["chat"],
     })];
     for (platform, model_id, display_name, context_window) in rows {
+        let mut capabilities = vec!["chat".to_string()];
+        if let Some(extra) = declared.get(&(platform.clone(), model_id.clone())) {
+            capabilities.extend(extra.iter().cloned());
+        }
         data.push(json!({
             "id": model_id,
             "object": "model",
@@ -116,9 +131,75 @@ pub async fn list_models() -> Response {
             "owned_by": platform,
             "name": display_name,
             "context_window": context_window,
+            "capabilities": capabilities,
         }));
     }
 
+    axum::Json(json!({ "object": "list", "data": data })).into_response()
+}
+
+/// Declared non-chat capabilities per (platform, model_id).
+fn declared_media_capabilities(
+    conn: &rusqlite::Connection,
+) -> HashMap<(String, String), Vec<String>> {
+    let mut map: HashMap<(String, String), Vec<String>> = HashMap::new();
+    let Ok(mut stmt) = conn.prepare(
+        "SELECT platform, model_id, capability FROM media_models WHERE enabled = 1 \
+         ORDER BY capability",
+    ) else {
+        return map;
+    };
+    let rows = stmt.query_map([], |r| {
+        Ok((
+            r.get::<_, String>(0)?,
+            r.get::<_, String>(1)?,
+            r.get::<_, String>(2)?,
+        ))
+    });
+    if let Ok(rows) = rows {
+        for (platform, model_id, capability) in rows.flatten() {
+            map.entry((platform, model_id))
+                .or_default()
+                .push(capability);
+        }
+    }
+    map
+}
+
+async fn list_media_models(name: &str) -> Response {
+    let Some(capability) = crate::providers::Capability::parse(name) else {
+        return (
+            StatusCode::BAD_REQUEST,
+            axum::Json(json!({"error": {"message": format!("Unknown capability '{name}'"), "type": "invalid_request_error"}})),
+        )
+            .into_response();
+    };
+    let rows: Vec<(String, String)> = {
+        let conn = db().lock().await;
+        conn.prepare(
+            "SELECT platform, model_id FROM media_models WHERE capability = ?1 AND enabled = 1 \
+             ORDER BY priority, id",
+        )
+        .and_then(|mut s| {
+            s.query_map(rusqlite::params![capability.as_str()], |r| {
+                Ok((r.get(0)?, r.get(1)?))
+            })?
+            .collect::<rusqlite::Result<Vec<_>>>()
+        })
+        .unwrap_or_default()
+    };
+    let data: Vec<Value> = rows
+        .into_iter()
+        .map(|(platform, model_id)| {
+            json!({
+                "id": model_id,
+                "object": "model",
+                "created": 0,
+                "owned_by": platform,
+                "capabilities": [capability.as_str()],
+            })
+        })
+        .collect();
     axum::Json(json!({ "object": "list", "data": data })).into_response()
 }
 

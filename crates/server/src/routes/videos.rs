@@ -12,7 +12,9 @@ use serde_json::{json, Value};
 use crate::db::connection::db;
 use crate::providers::capabilities::unsupported;
 use crate::providers::Capability;
-use crate::services::media::{candidates, provider_error_status, run_with_fallback};
+use crate::services::media::{
+    candidates, provider_error_status, record_media_request, run_with_fallback,
+};
 use crate::services::video_jobs::{self, to_json};
 
 const MAX_PROMPT_CHARS: usize = 4000;
@@ -108,6 +110,8 @@ pub async fn create_video(headers: HeaderMap, body: Bytes) -> Response {
     // Record the job before any paid call, so a crash after acceptance leaves
     // a trace that recovery can find.
     let job_id = new_job_id();
+    let started = std::time::Instant::now();
+    let first = cands.first().cloned();
     let created = video_jobs::now();
     {
         let conn = db().lock().await;
@@ -144,6 +148,13 @@ pub async fn create_video(headers: HeaderMap, body: Bytes) -> Response {
     match result {
         Ok((upstream, winner)) => {
             let conn = db().lock().await;
+            record_media_request(
+                &conn,
+                &winner,
+                "success",
+                started.elapsed().as_millis() as i64,
+                None,
+            );
             let expires = if upstream.status == "completed" {
                 Some(video_jobs::expiry_from_now())
             } else {
@@ -171,6 +182,15 @@ pub async fn create_video(headers: HeaderMap, body: Bytes) -> Response {
         }
         Err(err) => {
             let conn = db().lock().await;
+            if let Some(attempted) = first.as_ref() {
+                record_media_request(
+                    &conn,
+                    attempted,
+                    "error",
+                    started.elapsed().as_millis() as i64,
+                    Some(&err.message),
+                );
+            }
             if err.status.is_some() {
                 // Explicit rejection: the provider did not create a job, so the
                 // record is removed and the same key may be retried.

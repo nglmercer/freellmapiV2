@@ -16,6 +16,7 @@ use crate::providers::{get_provider_with_conn, Capability, Provider, ProviderErr
 
 #[derive(Clone)]
 pub struct MediaCandidate {
+    pub capability: Capability,
     pub provider: Arc<dyn Provider>,
     pub platform: String,
     pub model_id: String,
@@ -84,6 +85,7 @@ pub fn candidates(
         for (key_id, encrypted, iv, tag) in rows {
             if let Ok(api_key) = decrypt(&encrypted, &iv, &tag) {
                 out.push(MediaCandidate {
+                    capability,
                     provider: provider.clone(),
                     platform: platform.clone(),
                     model_id: model_id.to_string(),
@@ -192,14 +194,15 @@ pub fn record_media_request(
     error: Option<&str>,
 ) {
     let _ = conn.execute(
-        "INSERT INTO requests (platform, model_id, status, latency_ms, error) \
-         VALUES (?1, ?2, ?3, ?4, ?5)",
+        "INSERT INTO requests (platform, model_id, status, latency_ms, error, modality) \
+         VALUES (?1, ?2, ?3, ?4, ?5, ?6)",
         rusqlite::params![
             candidate.platform,
             candidate.model_id,
             status,
             latency_ms,
-            error
+            error,
+            candidate.capability.as_str()
         ],
     );
 }
@@ -275,6 +278,7 @@ mod tests {
 
     fn candidate(platform: &str) -> MediaCandidate {
         MediaCandidate {
+            capability: Capability::Speech,
             provider: Arc::new(NoopProvider),
             platform: platform.to_string(),
             model_id: "m".to_string(),
