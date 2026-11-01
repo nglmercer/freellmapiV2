@@ -568,7 +568,7 @@
     "coding": "Programación",
     "speed": "Velocidad observada",
     "ttft": "TTFT observado",
-    "price": "Precio de entrada / 1M tokens",
+    "price": "Precio entrada / salida por 1M",
     "reliability": "Fiabilidad",
     "details": "Métricas y rendimiento local",
     "stats": {
@@ -579,7 +579,8 @@
       "onPage": "{{count}} en esta página",
       "free": "{{count}} gratis",
       "comparing": "Comparando {{count}} de {{max}}",
-      "clearComparison": "Limpiar comparación"
+      "clearComparison": "Limpiar comparación",
+      "addSource": "Añade una fuente de benchmarks"
     },
     "noMetrics": "Aún no hay métricas sincronizadas",
     "hints": {
@@ -591,7 +592,33 @@
     "range": "Mostrando {{from}}–{{to}} de {{total}}",
     "page": "Página {{page}} de {{pages}}",
     "addBenchmarkKey": "Añadir clave de benchmarks",
-    "priceShort": "Precio entrada / salida por 1M"
+    "priceShort": "Entrada / salida por 1M",
+    "pagination": "Paginación",
+    "selectUpTo": "Selecciona hasta {{max}} despliegues para comparar.",
+    "compareSelected": "Comparar selección",
+    "compareTitle": "Comparar despliegues",
+    "compareMin": "Selecciona al menos dos despliegues para comparar.",
+    "removeCompare": "Quitar {{label}} de la comparación",
+    "limitReached": "Se alcanzó el límite de {{max}} para comparar",
+    "emptyFiltered": "Ningún modelo coincide con los filtros actuales.",
+    "retry": "Reintentar",
+    "capabilities": "Capacidades",
+    "evidence": "Evidencia",
+    "localPerformance": "Rendimiento local",
+    "windowLabel": "Últimos {{minutes}} min",
+    "noCapabilityData": "Aún no hay datos de capacidades",
+    "chips": {
+      "query": "Búsqueda: {{value}}",
+      "provider": "Proveedor: {{value}}",
+      "capability": "Capacidad: {{value}}",
+      "context": "Contexto ≥ {{value}}"
+    },
+    "filters": {
+      "title": "Filtros",
+      "active": "{{count}} activos",
+      "clearAll": "Limpiar todo",
+      "remove": "Quitar filtro {{label}}"
+    }
   },
   "auth": {
     "createTitle": "Crear la cuenta de propietario",
