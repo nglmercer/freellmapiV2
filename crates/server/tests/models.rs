@@ -214,7 +214,13 @@ async fn enable_all_enables_only_configured_providers() {
     let models = list.body.as_array().expect("models array");
     for m in models {
         let expected = m["platform"] == json!("google");
-        assert_eq!(m["enabled"], json!(expected), "{} on {}", m["modelId"], m["platform"]);
+        assert_eq!(
+            m["enabled"],
+            json!(expected),
+            "{} on {}",
+            m["modelId"],
+            m["platform"]
+        );
     }
 }
 

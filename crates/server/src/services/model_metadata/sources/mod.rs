@@ -239,15 +239,16 @@ async fn fetch_from(
                     .is_some_and(|n| n > page)
             });
         if source.0 != "artificial-analysis" || !more {
-            let mut seen = std::collections::HashSet::new();
-            if all.iter().any(|o| {
-                !seen.insert((
-                    o.source_model_id.clone(),
-                    o.metric.clone(),
-                    o.benchmark_version.clone(),
-                ))
-            }) {
-                return Err(MetadataError::new("duplicateIdentity"));
+            // One feed can name the same model twice (LiteLLM strips provider
+            // prefixes, so "openai/x" and "x" collide). Keep one entry instead of
+            // rejecting the whole source.
+            let dropped = dedupe_identities(&mut all);
+            if dropped > 0 {
+                tracing::info!(
+                    source = source.0,
+                    dropped,
+                    "duplicate metadata identities ignored"
+                );
             }
             return Ok(FetchResult {
                 observations: Some(all),
@@ -358,6 +359,21 @@ impl Builder {
         }
     }
 }
+/// Removes repeated (model, metric, version) observations, keeping the first
+/// one in parse order (feed order for JSON maps). Returns how many were dropped.
+pub fn dedupe_identities(observations: &mut Vec<MetadataObservation>) -> usize {
+    let mut seen = std::collections::HashSet::new();
+    let before = observations.len();
+    observations.retain(|o| {
+        seen.insert((
+            o.source_model_id.clone(),
+            o.metric.clone(),
+            o.benchmark_version.clone(),
+        ))
+    });
+    before - observations.len()
+}
+
 pub fn parse(source: &str, data: &Value) -> Result<Vec<MetadataObservation>, MetadataError> {
     let mut result = Vec::new();
     let mut add = |provider: Option<&str>, id: &str, m: &Value| -> Result<(), MetadataError> {
@@ -803,5 +819,34 @@ mod http_tests {
         };
         assert_eq!(error.status, "timeout");
         task.abort();
+    }
+}
+
+#[cfg(test)]
+mod dedupe_tests {
+    use super::*;
+
+    #[test]
+    fn litellm_prefix_collisions_keep_the_first_entry() {
+        // Both entries are provider "openai" and strip to the same model id.
+        let data = serde_json::json!({
+            "openai/gpt-x": { "litellm_provider": "openai", "max_input_tokens": 1000 },
+            "gpt-x": { "litellm_provider": "openai", "max_input_tokens": 2000 },
+            "other": { "litellm_provider": "openai", "max_input_tokens": 3000 },
+        });
+        let mut rows = parse("litellm", &data).expect("parse");
+        let total = rows.len();
+        let dropped = dedupe_identities(&mut rows);
+        assert!(dropped > 0, "the two gpt-x entries must collide");
+        assert_eq!(rows.len() + dropped, total);
+        let gpt_x: Vec<_> = rows
+            .iter()
+            .filter(|o| o.source_model_id.ends_with("gpt-x") && o.metric == "context.input")
+            .collect();
+        assert_eq!(gpt_x.len(), 1, "one observation per identity");
+        assert!(matches!(
+            gpt_x[0].value,
+            MetricValue::Number(v) if v == 1000.0 || v == 2000.0
+        ));
     }
 }

@@ -1,9 +1,22 @@
 import { useState } from 'react'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { apiFetch } from '@/lib/api'
+import { useTranslations } from '@/hooks/useTranslations'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
-import { useTranslations } from '@/hooks/useTranslations'
+import { Label } from '@/components/ui/label'
+import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table'
+import {
+  Dialog,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogPopup,
+  DialogTitle,
+} from '@/components/ui/dialog'
+import { ConfirmDialog } from '@/components/confirm-dialog'
+import { SecretDialog } from '@/components/secret-view'
+import { formatDate } from '@/components/fallback-format'
 
 interface ApiKeyRecord {
   id: string
@@ -13,22 +26,14 @@ interface ApiKeyRecord {
   created_at: number
 }
 
-function endpointBase(): string {
-  return import.meta.env.DEV
-    ? `http://${window.location.hostname}:${__SERVER_PORT__}/v1`
-    : `${window.location.origin}/v1`
-}
-
-/**
- * Lists, creates and revokes the signed-in owner's API keys for the proxy.
- * A full key is returned only once, at creation, so it is shown until dismissed.
- */
+/** Dashboard-issued keys for the OpenAI-compatible API. */
 export function ApiKeysPanel() {
   const { t } = useTranslations()
   const queryClient = useQueryClient()
+  const [createOpen, setCreateOpen] = useState(false)
   const [name, setName] = useState('')
-  const [newKey, setNewKey] = useState<string | null>(null)
-  const [copied, setCopied] = useState(false)
+  const [issued, setIssued] = useState<string | null>(null)
+  const [revokeId, setRevokeId] = useState<string | null>(null)
 
   const keys = useQuery<{ api_keys: ApiKeyRecord[] }>({
     queryKey: ['api-keys'],
@@ -41,9 +46,10 @@ export function ApiKeysPanel() {
         method: 'POST',
         body: JSON.stringify({ name: keyName }),
       }),
-    onSuccess: data => {
-      setNewKey(data.key)
+    onSuccess: (data) => {
+      setCreateOpen(false)
       setName('')
+      setIssued(data.key)
       queryClient.invalidateQueries({ queryKey: ['api-keys'] })
     },
   })
@@ -51,100 +57,125 @@ export function ApiKeysPanel() {
   const revoke = useMutation({
     mutationFn: (id: string) =>
       apiFetch('/api/auth/api-key/revoke', { method: 'POST', body: JSON.stringify({ id }) }),
-    onSuccess: () => queryClient.invalidateQueries({ queryKey: ['api-keys'] }),
+    onSuccess: () => {
+      setRevokeId(null)
+      queryClient.invalidateQueries({ queryKey: ['api-keys'] })
+    },
   })
 
-  const baseUrl = endpointBase()
-  const example = newKey ?? 'YOUR_API_KEY'
-  const active = (keys.data?.api_keys ?? []).filter(key => !key.revoked)
-
-  function submit(event: React.FormEvent) {
-    event.preventDefault()
-    const trimmed = name.trim()
-    if (trimmed) create.mutate(trimmed)
-  }
-
-  function copy() {
-    if (!newKey) return
-    navigator.clipboard.writeText(newKey)
-    setCopied(true)
-    setTimeout(() => setCopied(false), 1500)
-  }
+  const active = (keys.data?.api_keys ?? []).filter((key) => !key.revoked)
 
   return (
-    <div className="space-y-5">
-      <form onSubmit={submit} className="flex items-center gap-2">
-        <Input
-          value={name}
-          onChange={event => setName(event.target.value)}
-          placeholder={t('keys.apiKeys.namePlaceholder')}
-          aria-label={t('keys.apiKeys.namePlaceholder')}
-          maxLength={100}
-        />
-        <Button type="submit" disabled={!name.trim() || create.isPending}>
-          {create.isPending ? t('keys.apiKeys.creating') : t('keys.apiKeys.create')}
+    <div className="space-y-4">
+      <div className="flex flex-wrap items-center justify-between gap-3">
+        <p className="text-sm text-muted-foreground">
+          {t('keys.apiKeys.count', { count: active.length })}
+        </p>
+        <Button size="sm" onClick={() => setCreateOpen(true)}>
+          {t('keys.apiKeys.create')}
         </Button>
-      </form>
-      {create.isError && (
-        <p className="text-sm text-destructive">{t('keys.apiKeys.error')}</p>
-      )}
+      </div>
 
-      {newKey && (
-        <div className="rounded-md border border-amber-500/50 bg-amber-500/5 p-4 space-y-3">
-          <div>
-            <p className="text-sm font-medium">{t('keys.apiKeys.newKeyTitle')}</p>
-            <p className="text-xs text-muted-foreground mt-0.5">{t('keys.apiKeys.newKeyDescription')}</p>
-          </div>
-          <div className="flex items-center gap-2">
-            <code className="flex-1 font-mono text-xs bg-muted px-3 py-2 rounded-md select-all break-all">
-              {newKey}
-            </code>
-            <Button variant="outline" size="sm" onClick={copy}>
-              {copied ? t('keys.apiKeys.copied') : t('keys.apiKeys.copy')}
-            </Button>
-            <Button variant="ghost" size="sm" onClick={() => setNewKey(null)}>
-              {t('keys.apiKeys.dismiss')}
-            </Button>
-          </div>
+      {active.length === 0 ? (
+        <div className="rounded-md border border-dashed p-6 text-center text-sm text-muted-foreground">
+          {t('keys.apiKeys.empty')}
+        </div>
+      ) : (
+        <div className="overflow-hidden rounded-md border">
+          <Table>
+            <TableHeader>
+              <TableRow>
+                <TableHead>{t('keys.apiKeys.name')}</TableHead>
+                <TableHead>{t('keys.apiKeys.prefix')}</TableHead>
+                <TableHead>{t('keys.apiKeys.created')}</TableHead>
+                <TableHead className="text-right">
+                  <span className="sr-only">{t('keys.apiKeys.actions')}</span>
+                </TableHead>
+              </TableRow>
+            </TableHeader>
+            <TableBody>
+              {active.map((key) => (
+                <TableRow key={key.id}>
+                  <TableCell className="font-medium">{key.name}</TableCell>
+                  <TableCell>
+                    <code className="font-mono text-xs text-muted-foreground">{key.prefix}…</code>
+                  </TableCell>
+                  <TableCell className="tabular-nums text-muted-foreground">
+                    {formatDate(new Date(key.created_at * 1000).toISOString())}
+                  </TableCell>
+                  <TableCell className="text-right">
+                    <Button variant="ghost" size="sm" onClick={() => setRevokeId(key.id)}>
+                      {t('keys.apiKeys.revoke')}
+                    </Button>
+                  </TableCell>
+                </TableRow>
+              ))}
+            </TableBody>
+          </Table>
         </div>
       )}
 
-      {active.length === 0 ? (
-        <p className="text-sm text-muted-foreground">{t('keys.apiKeys.empty')}</p>
-      ) : (
-        <ul className="divide-y rounded-md border">
-          {active.map(key => (
-            <li key={key.id} className="flex items-center gap-3 px-4 py-2.5 text-sm">
-              <span className="font-medium truncate">{key.name}</span>
-              <code className="font-mono text-xs text-muted-foreground">{key.prefix}…</code>
-              <span className="ml-auto text-xs text-muted-foreground tabular-nums">
-                {new Date(key.created_at * 1000).toLocaleDateString()}
-              </span>
-              <Button
-                variant="ghost"
-                size="sm"
-                onClick={() => revoke.mutate(key.id)}
-                disabled={revoke.isPending}
-              >
-                {t('keys.apiKeys.revoke')}
+      <Dialog open={createOpen} onOpenChange={setCreateOpen}>
+        <DialogPopup>
+          <DialogHeader>
+            <DialogTitle>{t('keys.apiKeys.createTitle')}</DialogTitle>
+            <DialogDescription>{t('keys.apiKeys.createDescription')}</DialogDescription>
+          </DialogHeader>
+          <form
+            className="space-y-4"
+            onSubmit={(event) => {
+              event.preventDefault()
+              const trimmed = name.trim()
+              if (trimmed) create.mutate(trimmed)
+            }}
+          >
+            <div className="space-y-1.5">
+              <Label htmlFor="api-key-name">{t('keys.apiKeys.name')}</Label>
+              <Input
+                id="api-key-name"
+                value={name}
+                onChange={(event) => setName(event.target.value)}
+                placeholder={t('keys.apiKeys.namePlaceholder')}
+                maxLength={100}
+                autoFocus
+              />
+            </div>
+            {create.isError && (
+              <p role="alert" className="text-sm text-destructive">{t('keys.apiKeys.error')}</p>
+            )}
+            <DialogFooter>
+              <Button type="button" variant="outline" onClick={() => setCreateOpen(false)}>
+                {t('keys.cancel')}
               </Button>
-            </li>
-          ))}
-        </ul>
+              <Button type="submit" disabled={!name.trim() || create.isPending}>
+                {create.isPending ? t('keys.apiKeys.creating') : t('keys.apiKeys.create')}
+              </Button>
+            </DialogFooter>
+          </form>
+        </DialogPopup>
+      </Dialog>
+
+      {issued && (
+        <SecretDialog
+          open
+          onOpenChange={(open) => !open && setIssued(null)}
+          title={t('keys.apiKeys.newKeyTitle')}
+          description={t('keys.apiKeys.newKeyDescription')}
+          secret={issued}
+          note={t('keys.apiKeys.newKeyDescription')}
+        />
       )}
 
-      <div className="grid grid-cols-[auto_1fr] gap-x-4 gap-y-1.5 text-xs">
-        <span className="text-muted-foreground">{t('keys.apiKeys.baseUrl')}</span>
-        <code className="font-mono">{baseUrl}</code>
-        <span className="text-muted-foreground">{t('keys.apiKeys.endpoint')}</span>
-        <code className="font-mono">/chat/completions</code>
-      </div>
-      <pre className="text-xs font-mono bg-muted p-3 rounded-md overflow-x-auto whitespace-pre-wrap">
-{`curl ${baseUrl}/chat/completions \\
-  -H "Authorization: Bearer ${example}" \\
-  -H "Content-Type: application/json" \\
-  -d '{"model": "gemini-2.0-flash", "messages": [{"role": "user", "content": "Hello!"}]}'`}
-      </pre>
+      <ConfirmDialog
+        open={revokeId !== null}
+        onOpenChange={(open) => !open && setRevokeId(null)}
+        title={t('keys.apiKeys.revokeTitle')}
+        description={t('keys.apiKeys.revokeDescription')}
+        confirmLabel={t('keys.apiKeys.revoke')}
+        variant="danger"
+        busy={revoke.isPending}
+        onConfirm={() => revokeId && revoke.mutate(revokeId)}
+      />
     </div>
   )
 }

@@ -25,6 +25,11 @@ fn default_db_path(root: &Path) -> PathBuf {
     }
 }
 
+/// How long a connection waits for a write lock held by another connection.
+/// A metadata ingest holds the lock for one long transaction; writers should
+/// wait for it to finish rather than fail with "database is locked".
+pub const BUSY_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(60);
+
 pub fn db_path() -> String {
     if let Some(p) = crate::env::env_string("DB_PATH") {
         return p;
@@ -61,7 +66,7 @@ pub fn init_db(path: Option<&str>) -> rusqlite::Result<()> {
     // Better Auth keeps its own connection to this file; wait for its writes
     // instead of failing with "database is locked".
     sqlite
-        .busy_timeout(std::time::Duration::from_secs(5))
+        .busy_timeout(crate::db::connection::BUSY_TIMEOUT)
         .expect("failed to set SQLite busy timeout");
     if !is_memory {
         sqlite.execute_batch("PRAGMA journal_mode = WAL").ok();

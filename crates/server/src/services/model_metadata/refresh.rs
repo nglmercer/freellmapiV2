@@ -103,12 +103,17 @@ async fn refresh_source(source: Box<dyn ModelMetadataSource>, force: bool) -> Sy
                     }
                     r
                 }
-                Err(_) => SyncResult {
-                    source: def.id.into(),
-                    status: "persistenceFailed".into(),
-                    error: Some("persistenceFailed".into()),
-                    ..Default::default()
-                },
+                Err(error) => {
+                    // Keep the database reason: a bare status hides whether the
+                    // cause is a lock timeout, a constraint, or something else.
+                    tracing::error!(source = def.id, %error, "metadata ingestion failed");
+                    SyncResult {
+                        source: def.id.into(),
+                        status: "persistenceFailed".into(),
+                        error: Some(error.to_string()),
+                        ..Default::default()
+                    }
+                }
             }
         }
         Err(e) => {
@@ -137,7 +142,14 @@ async fn refresh_source(source: Box<dyn ModelMetadataSource>, force: bool) -> Sy
         }
     };
     if result.status == "persistenceFailed" {
-        let _=conn.execute("UPDATE metadata_sources SET status='persistenceFailed',last_failure=?1,last_error='persistenceFailed' WHERE id=?2",params![chrono::Utc::now().to_rfc3339(),def.id]);
+        let reason = result
+            .error
+            .clone()
+            .unwrap_or_else(|| "persistenceFailed".into());
+        let _ = conn.execute(
+            "UPDATE metadata_sources SET status='persistenceFailed',last_failure=?1,last_error=?2 WHERE id=?3",
+            params![chrono::Utc::now().to_rfc3339(), reason, def.id],
+        );
     }
     result.duration_ms = timer.elapsed().as_millis() as u64;
     let _=conn.execute("INSERT INTO metadata_sync_runs(source,started_at,completed_at,status,summary_json) VALUES(?1,?2,?3,?4,?5)",params![def.id,started.to_rfc3339(),chrono::Utc::now().to_rfc3339(),result.status,serde_json::to_string(&result).unwrap_or_default()]);
@@ -172,7 +184,7 @@ async fn persist_off_runtime(
     if let Some(path) = path {
         tokio::task::spawn_blocking(move || {
             let mut conn = rusqlite::Connection::open(path)?;
-            conn.busy_timeout(std::time::Duration::from_secs(5))?;
+            conn.busy_timeout(crate::db::connection::BUSY_TIMEOUT)?;
             conn.execute_batch("PRAGMA foreign_keys=ON")?;
             persistence::ingest(&mut conn, source, &rows)
         })
