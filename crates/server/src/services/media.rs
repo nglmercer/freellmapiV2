@@ -6,7 +6,9 @@
 //! never switches output formats or feature sets.
 
 use std::future::Future;
-use std::sync::Arc;
+use std::sync::{Arc, OnceLock};
+
+use tokio::sync::{Semaphore, SemaphorePermit};
 
 use rusqlite::Connection;
 
@@ -148,6 +150,23 @@ pub fn may_fall_back(err: &ProviderError, ambiguous_ok: bool) -> bool {
     }
 }
 
+/// Default number of media calls allowed in flight at once.
+const DEFAULT_MAX_CONCURRENT_MEDIA: usize = 16;
+
+/// Process-wide bound on concurrent upstream media calls
+/// (`MEDIA_MAX_CONCURRENCY`, default 16). A permit is held only while a call
+/// is being made, so a streamed response does not occupy a slot afterwards.
+fn permits() -> &'static Semaphore {
+    static PERMITS: OnceLock<Semaphore> = OnceLock::new();
+    PERMITS.get_or_init(|| {
+        let max = crate::env::env_string("MEDIA_MAX_CONCURRENCY")
+            .and_then(|s| s.parse::<usize>().ok())
+            .filter(|&n| n > 0)
+            .unwrap_or(DEFAULT_MAX_CONCURRENT_MEDIA);
+        Semaphore::new(max)
+    })
+}
+
 /// Runs `op` against candidates in order. Returns the first success, or the
 /// last error when no candidate could complete the operation.
 pub async fn run_with_fallback<T, F, Fut>(
@@ -159,6 +178,10 @@ where
     F: FnMut(MediaCandidate) -> Fut,
     Fut: Future<Output = Result<T, ProviderError>>,
 {
+    let _permit: SemaphorePermit<'static> = permits()
+        .acquire()
+        .await
+        .map_err(|_| ProviderError::new("media concurrency limiter is closed"))?;
     let mut last: Option<ProviderError> = None;
     for candidate in candidates {
         let winner = candidate.clone();
