@@ -1,3 +1,4 @@
+import { RefreshCw } from 'lucide-react'
 import { useState } from 'react'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import type {
@@ -362,8 +363,9 @@ function SourceControls() {
         title={t('metadata.sources')}
         description={t('sources.description')}
         action={
-          <Button disabled={sync.isPending} onClick={() => sync.mutate()}>
-            {sync.isPending ? t('metadata.loading') : t('metadata.refresh')}
+          <Button variant="outline" size="sm" disabled={sync.isPending} onClick={() => sync.mutate()}>
+            <RefreshCw className={sync.isPending ? 'size-4 animate-spin' : 'size-4'} aria-hidden />
+            {t('metadata.refresh')}
           </Button>
         }
       >
@@ -372,7 +374,7 @@ function SourceControls() {
             {failure.message}
           </p>
         )}
-        <div className="grid gap-4 lg:grid-cols-2">
+        <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-3">
           {query.data?.map((source) => (
             <SourceCard
               key={source.id}

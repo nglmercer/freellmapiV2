@@ -619,7 +619,7 @@
   },
   "wizard": {
     "title": "Configure providers",
-    "description": "Add a key for each provider you use. Keys are encrypted and stored in this server, so no .env file is needed.",
+    "description": "Keys are encrypted and stored on this server.",
     "steps": {
       "providers": "Provider",
       "key": "Key",
@@ -659,7 +659,7 @@
       "title": "Artificial Analysis",
       "configured": "Configured",
       "notConfigured": "Not configured",
-      "description": "Supplies quality and speed benchmarks for the fallback chain and the model catalog. Optional, but without it those columns stay empty.",
+      "description": "Quality and speed scores for the chain and catalog. Optional.",
       "keyLabel": "Artificial Analysis API key",
       "placeholder": "Paste the API key",
       "saved": "Saved. Refresh benchmark sources to load scores.",
@@ -667,7 +667,10 @@
       "refresh": "Refresh benchmark sources",
       "refreshing": "Refreshing…",
       "refreshed": "Refresh started. Scores appear when the source responds."
-    }
+    },
+    "add": "Add a key",
+    "noMatch": "No provider matches.",
+    "removeKey": "Remove key"
   },
   "sources": {
     "description": "Where quality, speed, context and price data come from. Turn a source off to stop fetching it.",
@@ -708,6 +711,7 @@
       "fetched": "Fetched",
       "matched": "Matched",
       "changed": "Changed"
-    }
+    },
+    "intervalTitle": "Refresh interval"
   }
 }

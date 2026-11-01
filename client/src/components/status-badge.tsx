@@ -1,5 +1,7 @@
+import type { LucideIcon } from 'lucide-react'
 import type { ReactNode } from 'react'
 import { cn } from '@/lib/utils'
+import { Tooltip } from './tooltip'
 
 export type Tone = 'success' | 'warning' | 'danger' | 'info' | 'muted'
 
@@ -40,5 +42,28 @@ export function StatusBadge({
       <span className={cn('size-1.5 rounded-full', dotClass[tone])} aria-hidden />
       {children}
     </span>
+  )
+}
+
+/** Icon-only status: the label appears on hover and is the accessible name. */
+export function StatusIcon({
+  tone = 'muted',
+  icon: Icon,
+  label,
+}: {
+  tone?: Tone
+  icon: LucideIcon
+  label: string
+}) {
+  return (
+    <Tooltip label={label}>
+      <span
+        role="img"
+        aria-label={label}
+        className={cn('inline-flex size-6 items-center justify-center rounded-full border', toneClass[tone])}
+      >
+        <Icon className="size-3.5" aria-hidden />
+      </span>
+    </Tooltip>
   )
 }

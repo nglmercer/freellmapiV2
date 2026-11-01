@@ -14,6 +14,8 @@ import {
   DialogTitle,
 } from '@/components/ui/dialog'
 import { StatusBadge } from '@/components/status-badge'
+import { IconButton } from '@/components/icon-button'
+import { RefreshCw, Trash2 } from 'lucide-react'
 import { keyStatusTone } from '@/lib/source-status'
 import { formatDate } from '@/components/fallback-format'
 import type { ApiKey } from '../../../shared/types'
@@ -120,18 +122,8 @@ function KeyRow({
             {t('keys.replace')}
           </Button>
         )}
-        <Button variant="ghost" size="sm" onClick={onCheck} disabled={busy}>
-          {t('keys.check')}
-        </Button>
-        <Button
-          variant="ghost"
-          size="sm"
-          className="text-muted-foreground hover:text-destructive"
-          onClick={onRemove}
-          disabled={busy}
-        >
-          {t('keys.remove')}
-        </Button>
+        <IconButton label={t('keys.check')} icon={RefreshCw} busy={busy} onClick={onCheck} />
+        <IconButton label={t('keys.remove')} icon={Trash2} tone="danger" disabled={busy} onClick={onRemove} />
       </div>
     </div>
   )
