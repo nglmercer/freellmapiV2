@@ -7,9 +7,16 @@ import type {
 } from '@freellmapi/shared'
 import { apiFetch } from '@/lib/api'
 import { useTranslations } from '@/hooks/useTranslations'
+import { cn } from '@/lib/utils'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
+import { PageHeader } from '@/components/page-header'
 import { SimpleLineChart } from '@/components/charts/SimpleLineChart'
+import { StatCard } from '@/components/stat-card'
+import { ModelCard } from '@/components/model-card'
+import { ModelFilters } from '@/components/model-filters'
+import { DEFAULT_CATALOG_FILTERS, type CatalogFilters } from '@/components/catalog-filter-state'
+import { summarize } from '@/components/catalog-metrics'
 
 type Page = { data: MetadataModel[]; total: number }
 type Match = {
@@ -809,191 +816,178 @@ function Simulator() {
     </section>
   )
 }
+const PAGE_SIZE = 25
+const MAX_COMPARE = 4
+
 export default function ModelExplorerPage() {
   const { t } = useTranslations()
   const [tab, setTab] = useState('explorer')
-  const [query, setQuery] = useState('')
-  const [provider, setProvider] = useState('')
-  const [capability, setCapability] = useState('')
-  const [free, setFree] = useState(false)
-  const [context, setContext] = useState('')
-  const [sort, setSort] = useState('name')
+  const [filters, setFilters] = useState<CatalogFilters>(DEFAULT_CATALOG_FILTERS)
   const [offset, setOffset] = useState(0)
   const [selected, setSelected] = useState<number[]>([])
   const params = new URLSearchParams({
-    query,
-    provider,
-    capability,
-    sort,
-    limit: '25',
+    query: filters.query,
+    provider: filters.provider,
+    capability: filters.capability,
+    sort: filters.sort,
+    limit: String(PAGE_SIZE),
     offset: String(offset),
-    ...(free ? { free: 'true' } : {}),
-    ...(context ? { minContext: context } : {}),
+    ...(filters.free ? { free: 'true' } : {}),
+    ...(filters.context ? { minContext: filters.context } : {}),
   })
   const models = useQuery<Page>({
     queryKey: ['metadata-explorer', params.toString()],
     queryFn: () => apiFetch(`/api/metadata/explorer?${params}`),
     enabled: tab === 'explorer',
   })
-  function change(action: () => void) {
-    action()
+
+  function updateFilters(patch: Partial<CatalogFilters>) {
+    setFilters((current) => ({ ...current, ...patch }))
     setOffset(0)
   }
+
+  function toggleSelected(id: number, checked: boolean) {
+    setSelected((current) =>
+      checked ? [...current, id] : current.filter((value) => value !== id),
+    )
+  }
+
+  const pageModels = models.data?.data ?? []
+  const deployments = pageModels.flatMap((m) => m.deployments)
+  const summaries = deployments.map(summarize)
+  const maxSpeed = Math.max(0, ...summaries.map((s) => s.speed ?? 0))
+  const total = models.data?.total ?? 0
+  const pages = Math.max(1, Math.ceil(total / PAGE_SIZE))
+  const page = Math.floor(offset / PAGE_SIZE) + 1
+  const providers = new Set(deployments.map((d) => d.provider)).size
+  const freeCount = deployments.filter((d) => d.freeTier).length
+  const qualityCount = summaries.filter((s) => s.quality != null).length
+  const qualityShare = deployments.length > 0 ? qualityCount / deployments.length : 0
+
   return (
     <div className="space-y-6">
-      <div>
-        <h1 className="text-xl font-semibold">{t('metadata.title')}</h1>
-        <p className="text-sm text-muted-foreground mt-1">
-          {t('metadata.description')}
-        </p>
-      </div>
-      <nav aria-label={t('metadata.title')} className="flex gap-2 flex-wrap">
-        {['explorer', 'sources', 'matches', 'simulator'].map((s) => (
-          <Button
-            key={s}
-            variant={tab === s ? 'default' : 'outline'}
-            onClick={() => setTab(s)}
-          >
-            {t(`metadata.${s}`)}
-          </Button>
-        ))}
-      </nav>
+      <PageHeader
+        title={t('metadata.title')}
+        description={t('metadata.description')}
+        actions={
+          <nav aria-label={t('metadata.title')} className="inline-flex flex-wrap gap-0.5 rounded-md border bg-muted/40 p-0.5">
+            {['explorer', 'sources', 'matches', 'simulator'].map((s) => (
+              <button
+                key={s}
+                type="button"
+                aria-pressed={tab === s}
+                onClick={() => setTab(s)}
+                className={cn(
+                  'rounded px-3 py-1.5 text-sm transition-colors',
+                  tab === s ? 'bg-background font-medium shadow-sm' : 'text-muted-foreground hover:text-foreground',
+                )}
+              >
+                {t(`metadata.${s}`)}
+              </button>
+            ))}
+          </nav>
+        }
+      />
+
       {tab === 'sources' && <SourceControls />}
       {tab === 'matches' && <MatchReview />}
       {tab === 'simulator' && <Simulator />}
       {tab === 'explorer' && (
         <>
-          <div className="grid gap-2 grid-cols-2 md:grid-cols-3">
-            <Input
-              className="col-span-2 md:col-span-1"
-              aria-label={t('metadata.search')}
-              placeholder={t('metadata.search')}
-              value={query}
-              onChange={(e) => change(() => setQuery(e.target.value))}
+          <div className="grid grid-cols-2 gap-3 lg:grid-cols-4">
+            <StatCard
+              label={t('metadata.stats.models')}
+              value={total}
+              detail={t('metadata.stats.onPage', { count: pageModels.length })}
             />
-            <Input
-              aria-label={t('metadata.provider')}
-              placeholder={t('metadata.provider')}
-              value={provider}
-              onChange={(e) => change(() => setProvider(e.target.value))}
+            <StatCard
+              label={t('metadata.stats.deployments')}
+              value={deployments.length}
+              detail={t('metadata.stats.free', { count: freeCount })}
             />
-            <select
-              aria-label={t('metadata.capability')}
-              className={selectClass}
-              value={capability}
-              onChange={(e) => change(() => setCapability(e.target.value))}
-            >
-              <option value="">{t('metadata.anyCapability')}</option>
-              {['tools', 'vision', 'reasoning', 'structured_output'].map(
-                (s) => (
-                  <option key={s}>{s}</option>
-                ),
-              )}
-            </select>
-            <Input
-              type="number"
-              min={0}
-              aria-label={t('metadata.minContext')}
-              placeholder={t('metadata.minContext')}
-              value={context}
-              onChange={(e) => change(() => setContext(e.target.value))}
+            <StatCard
+              label={t('metadata.stats.providers')}
+              value={providers}
+              detail={t('metadata.stats.onPage', { count: pageModels.length })}
             />
-            <select
-              aria-label={t('metadata.sort')}
-              className={selectClass}
-              value={sort}
-              onChange={(e) => change(() => setSort(e.target.value))}
-            >
-              {[
-                'name',
-                'quality',
-                'coding',
-                'speed',
-                'ttft',
-                'price',
-                'reliability',
-                'context',
-                'recency',
-              ].map((s) => (
-                <option key={s} value={s}>
-                  {t(`metadata.${s}`)}
-                </option>
-              ))}
-            </select>
-            <label className="text-sm flex items-center gap-2">
-              <input
-                type="checkbox"
-                checked={free}
-                onChange={(e) => change(() => setFree(e.target.checked))}
-              />
-              {t('metadata.free')}
-            </label>
+            <StatCard
+              label={t('metadata.stats.withQuality')}
+              value={qualityCount}
+              detail={`${Math.round(qualityShare * 100)}%`}
+              ratio={qualityShare}
+              tone="quality"
+            />
           </div>
-          {models.isLoading && <p>{t('metadata.loading')}</p>}
-          {models.error && <p role="alert">{models.error.message}</p>}
-          {models.data?.data.length === 0 && (
-            <p className="text-muted-foreground">{t('metadata.empty')}</p>
+
+          <ModelFilters
+            value={filters}
+            onChange={updateFilters}
+            onClear={() => updateFilters(DEFAULT_CATALOG_FILTERS)}
+          />
+
+          {selected.length > 0 && (
+            <section className="space-y-3 rounded-lg border bg-card p-4">
+              <div className="flex flex-wrap items-center justify-between gap-2">
+                <h2 className="text-sm font-medium">
+                  {t('metadata.stats.comparing', { count: selected.length, max: MAX_COMPARE })}
+                </h2>
+                <Button variant="ghost" size="sm" onClick={() => setSelected([])}>
+                  {t('metadata.stats.clearComparison')}
+                </Button>
+              </div>
+              <Comparison ids={selected} />
+            </section>
           )}
-          <Comparison ids={selected} />
-          <div className="space-y-3">
-            {models.data?.data.map((m) => (
-              <details className="border rounded-md p-4" key={m.key}>
-                <summary className="cursor-pointer font-medium text-sm">
-                  {m.name}{' '}
-                  <span className="text-muted-foreground font-normal">
-                    · {m.deployments.length} {t('metadata.deployments')} ·{' '}
-                    {m.key}
-                  </span>
-                </summary>
-                <div className="mt-3 space-y-3">
-                  {m.deployments.map((d) => (
-                    <div key={d.id} className="border-t pt-3">
-                      <div className="flex items-center gap-2 text-sm">
-                        <input
-                          aria-label={`${t('metadata.compare')} ${d.modelId}`}
-                          type="checkbox"
-                          checked={selected.includes(d.id)}
-                          disabled={
-                            selected.length >= 4 && !selected.includes(d.id)
-                          }
-                          onChange={(e) =>
-                            setSelected((s) =>
-                              e.target.checked
-                                ? [...s, d.id]
-                                : s.filter((id) => id !== d.id),
-                            )
-                          }
-                        />
-                        <span className="font-medium">{d.provider}</span>
-                        <span className="text-muted-foreground break-all">
-                          {d.modelId} · #{d.id}
-                        </span>
-                      </div>
-                      <LazyModelDetail id={d.id} />
-                    </div>
-                  ))}
-                </div>
-              </details>
+
+          {models.isLoading && <p className="text-sm text-muted-foreground">{t('metadata.loading')}</p>}
+          {models.error && <p role="alert" className="text-sm text-destructive">{models.error.message}</p>}
+          {!models.isLoading && !models.error && pageModels.length === 0 && (
+            <div className="rounded-lg border border-dashed p-8 text-center">
+              <p className="text-sm text-muted-foreground">{t('metadata.empty')}</p>
+            </div>
+          )}
+
+          <div className="grid gap-3">
+            {pageModels.map((m) => (
+              <ModelCard
+                key={m.key}
+                model={m}
+                selected={selected}
+                limitReached={selected.length >= MAX_COMPARE}
+                maxSpeed={maxSpeed}
+                onSelect={toggleSelected}
+                renderDetails={(id) => <LazyModelDetail id={id} />}
+              />
             ))}
           </div>
-          <div className="flex justify-between items-center gap-3">
-            <Button
-              variant="outline"
-              disabled={!offset}
-              onClick={() => setOffset(Math.max(0, offset - 25))}
-            >
-              {t('metadata.previous')}
-            </Button>
-            <span className="text-xs">
-              {models.data?.total ?? 0} {t('metadata.models')}
-            </span>
-            <Button
-              variant="outline"
-              disabled={offset + 25 >= (models.data?.total ?? 0)}
-              onClick={() => setOffset(offset + 25)}
-            >
-              {t('metadata.next')}
-            </Button>
+
+          <div className="flex flex-wrap items-center justify-between gap-3 border-t pt-4">
+            <p className="text-xs tabular-nums text-muted-foreground">
+              {t('metadata.range', {
+                from: total === 0 ? 0 : offset + 1,
+                to: Math.min(offset + PAGE_SIZE, total),
+                total,
+              })}
+            </p>
+            <div className="flex items-center gap-2">
+              <Button
+                variant="outline"
+                size="sm"
+                disabled={!offset}
+                onClick={() => setOffset(Math.max(0, offset - PAGE_SIZE))}
+              >
+                {t('metadata.previous')}
+              </Button>
+              <span className="text-xs tabular-nums">{t('metadata.page', { page, pages })}</span>
+              <Button
+                variant="outline"
+                size="sm"
+                disabled={offset + PAGE_SIZE >= total}
+                onClick={() => setOffset(offset + PAGE_SIZE)}
+              >
+                {t('metadata.next')}
+              </Button>
+            </div>
           </div>
         </>
       )}

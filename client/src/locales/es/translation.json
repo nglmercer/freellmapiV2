@@ -279,7 +279,67 @@
       "speedRanked": "{{count}} con velocidad",
       "localMeasured": "{{count}} medidos localmente",
       "unranked": "{{count}} sin ranking"
-    }
+    },
+    "stats": {
+      "inChain": "En la cadena",
+      "enabled": "Activados",
+      "qualityScored": "Con calidad",
+      "speedMeasured": "Con velocidad medida",
+      "freeCount": "{{count}} gratis"
+    },
+    "preview": {
+      "title": "Siguientes",
+      "hint": "Las peticiones prueban estos en orden",
+      "empty": "No hay modelos activados. Activa al menos uno para enrutar peticiones.",
+      "noScores": "Sin puntuaciones aún"
+    },
+    "metrics": {
+      "quality": "Calidad",
+      "speed": "Velocidad",
+      "reliability": "Fiabilidad",
+      "context": "Contexto",
+      "price": "Precio por 1M",
+      "ttft": "Tiempo al primer token",
+      "latency": "Latencia",
+      "coding": "Puntuación de código",
+      "capabilities": "Capacidades"
+    },
+    "state": {
+      "needsSource": "Requiere ARTIFICIAL_ANALYSIS_API_KEY en el servidor para cargar puntuaciones",
+      "awaitingRequests": "Se mide tras la primera petición",
+      "noData": "Sin datos aún",
+      "noSamples": "Sin peticiones aún"
+    },
+    "details": {
+      "show": "Ver detalles",
+      "hide": "Ocultar detalles",
+      "performance": "Rendimiento",
+      "pricingContext": "Precio y contexto",
+      "sources": "Fuentes",
+      "sampleCount": "Peticiones medidas",
+      "size": "Tamaño",
+      "budget": "Presupuesto",
+      "confidence": "Confianza",
+      "updated": "Actualizado",
+      "rateLimitHits": "Límites alcanzados",
+      "noCapabilities": "Sin datos de capacidades aún"
+    },
+    "tier": {
+      "free": "Gratis",
+      "paid": "De pago"
+    },
+    "capability": {
+      "tools": "Herramientas",
+      "vision": "Visión",
+      "reasoning": "Razonamiento",
+      "structured_output": "Salida estructurada",
+      "audio_input": "Entrada de audio",
+      "video_input": "Entrada de vídeo",
+      "json_mode": "Modo JSON",
+      "streaming": "Streaming"
+    },
+    "enable": "Activar modelo",
+    "disable": "Desactivar modelo"
   },
   "analytics": {
     "title": "Analíticas",
@@ -456,7 +516,26 @@
     "ttft": "TTFT observado",
     "price": "Precio de entrada / 1M tokens",
     "reliability": "Fiabilidad",
-    "details": "Métricas y rendimiento local"
+    "details": "Métricas y rendimiento local",
+    "stats": {
+      "models": "Modelos",
+      "deployments": "Despliegues",
+      "providers": "Proveedores",
+      "withQuality": "Con puntuación de calidad",
+      "onPage": "{{count}} en esta página",
+      "free": "{{count}} gratis",
+      "comparing": "Comparando {{count}} de {{max}}",
+      "clearComparison": "Limpiar comparación"
+    },
+    "noMetrics": "Aún no hay métricas sincronizadas",
+    "hints": {
+      "quality": "Requiere una fuente de benchmarks (pestaña Fuentes)",
+      "speed": "Se mide tras las peticiones o desde una fuente",
+      "context": "Aún no hay datos de contexto"
+    },
+    "disabled": "Desactivado",
+    "range": "Mostrando {{from}}–{{to}} de {{total}}",
+    "page": "Página {{page}} de {{pages}}"
   },
   "auth": {
     "createTitle": "Crear la cuenta de propietario",

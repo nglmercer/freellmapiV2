@@ -1,4 +1,5 @@
 //! Additive model intelligence registry. Legacy ranking DTOs remain intact.
+pub mod facts;
 pub mod matching;
 pub mod metrics;
 pub mod persistence;
