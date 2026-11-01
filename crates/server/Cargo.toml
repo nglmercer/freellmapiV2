@@ -7,6 +7,10 @@ description = "FreeLLMAPI — OpenAI-compatible proxy over free-tier providers"
 default-run = "server"
 
 [[bin]]
+name = "freellmapi-cli"
+path = "src/bin/freellmapi_cli.rs"
+
+[[bin]]
 name = "freellmapi-tray"
 path = "src/bin/freellmapi_tray.rs"
 required-features = ["desktop-tray"]
@@ -48,6 +52,8 @@ sha1 = "0.10"
 sha2 = "0.10"
 async-stream = "0.3"
 toml = "0.8"
+clap = { version = "4", features = ["derive", "env"] }
+base64 = "0.22"
 dirs = { version = "6", optional = true }
 libc = { version = "0.2", optional = true }
 open = { version = "5.4", optional = true }
