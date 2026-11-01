@@ -255,10 +255,12 @@ pub struct CustomProviderRow {
     pub enabled: i64,
     pub created_at: String,
     pub updated_at: String,
+    /// JSON array of non-chat capability names, e.g. `["speech"]`.
+    pub capabilities: Option<String>,
 }
 
 pub const CUSTOM_PROVIDER_COLS: &str =
-    "id, name, base_url, timeout_ms, extra_headers, enabled, created_at, updated_at";
+    "id, name, base_url, timeout_ms, extra_headers, enabled, created_at, updated_at, capabilities";
 
 impl CustomProviderRow {
     pub fn from_row(row: &Row<'_>) -> rusqlite::Result<Self> {
@@ -271,6 +273,7 @@ impl CustomProviderRow {
             enabled: row.get::<_, i64>(5).unwrap_or(1),
             created_at: row.get(6)?,
             updated_at: row.get(7)?,
+            capabilities: opt_text::<String>(row, 8)?,
         })
     }
 }

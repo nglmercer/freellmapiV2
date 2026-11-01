@@ -8,6 +8,7 @@ pub mod cohere;
 pub mod custom;
 pub mod google;
 pub mod openai_compat;
+mod openai_media;
 
 use std::collections::HashMap;
 use std::sync::{Arc, OnceLock};
@@ -51,11 +52,22 @@ fn builtins() -> &'static HashMap<String, Arc<dyn Provider>> {
         // Google - unique Gemini API format
         register(Arc::new(GoogleProvider::new()));
 
-        // Groq - OpenAI-compatible
-        register(openai_compat(
-            "groq",
-            "Groq",
-            "https://api.groq.com/openai/v1",
+        // Groq - OpenAI-compatible; Whisper speech-to-text and speech output
+        // on the same endpoint. Models must still be declared explicitly.
+        register(Arc::new(
+            OpenAICompatProvider::new(OpenAICompatOptions {
+                platform: "groq".to_string(),
+                name: "Groq".to_string(),
+                base_url: "https://api.groq.com/openai/v1".to_string(),
+                extra_headers: Vec::new(),
+                validate_url: None,
+                timeout_ms: 15000,
+            })
+            .with_capabilities(CapabilitySet::of(&[
+                Capability::Speech,
+                Capability::Transcription,
+                Capability::Translation,
+            ])),
         ));
 
         // Cerebras - OpenAI-compatible

@@ -7,6 +7,7 @@ pub mod fallback;
 pub mod health;
 pub mod integrations;
 pub mod keys;
+pub mod media;
 pub mod middleware;
 pub mod models;
 pub mod providers;

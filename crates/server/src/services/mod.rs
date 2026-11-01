@@ -2,6 +2,7 @@
 
 pub mod health;
 pub mod integrations;
+pub mod media;
 pub mod model_metadata;
 pub mod model_sync;
 pub mod pricing;

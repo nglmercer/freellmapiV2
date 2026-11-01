@@ -5,7 +5,7 @@ use serde_json::json;
 use tokio::sync::mpsc;
 
 use super::base::{normalize_choices, send_request, ChunkReceiver, Provider, ProviderError};
-use super::capabilities::{Capability, CapabilitySet};
+use super::capabilities::{Capability, CapabilitySet, SpeechProvider, TranscriptionProvider};
 use crate::types::{ChatCompletionChunk, ChatCompletionResponse, ChatMessage, CompletionOptions};
 
 /// Generic provider for platforms that use an OpenAI-compatible API.
@@ -113,7 +113,7 @@ impl OpenAICompatProvider {
         Ok(res)
     }
 
-    async fn error_from_response(res: reqwest::Response, name: &str) -> ProviderError {
+    pub(super) async fn error_from_response(res: reqwest::Response, name: &str) -> ProviderError {
         let status = res.status().as_u16();
         let text = res.text().await.unwrap_or_default();
         let message = serde_json::from_str::<serde_json::Value>(&text)
@@ -137,6 +137,18 @@ impl Provider for OpenAICompatProvider {
 
     fn capabilities(&self) -> CapabilitySet {
         self.capabilities.clone()
+    }
+
+    fn speech(&self) -> Option<&dyn SpeechProvider> {
+        self.capabilities
+            .contains(Capability::Speech)
+            .then_some(self as &dyn SpeechProvider)
+    }
+
+    fn transcription(&self) -> Option<&dyn TranscriptionProvider> {
+        (self.capabilities.contains(Capability::Transcription)
+            || self.capabilities.contains(Capability::Translation))
+        .then_some(self as &dyn TranscriptionProvider)
     }
 
     fn name(&self) -> String {

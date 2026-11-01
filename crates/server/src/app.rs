@@ -22,6 +22,17 @@ const CONTROL_BODY_LIMIT: usize = 1024 * 1024;
 /// Default limit for `/v1` request bodies, which may carry base64 media.
 const DEFAULT_V1_BODY_LIMIT: usize = 20 * 1024 * 1024;
 
+/// Default limit for audio uploads (`/v1/audio/*`), in bytes.
+const DEFAULT_V1_MEDIA_BODY_LIMIT: usize = 64 * 1024 * 1024;
+
+/// Audio upload limit in bytes, overridable with `V1_MEDIA_MAX_BODY_BYTES`.
+fn v1_media_body_limit() -> usize {
+    crate::env::env_string("V1_MEDIA_MAX_BODY_BYTES")
+        .and_then(|s| s.parse::<usize>().ok())
+        .filter(|&n| n > 0)
+        .unwrap_or(DEFAULT_V1_MEDIA_BODY_LIMIT)
+}
+
 /// `/v1` body limit in bytes, overridable with `V1_MAX_BODY_BYTES`.
 /// Invalid or zero values fall back to the default.
 fn v1_body_limit() -> usize {
@@ -49,6 +60,7 @@ pub fn create_app() -> axum::Router {
         .nest("/health", routes::health::router())
         .nest("/settings", routes::settings::router())
         .nest("/integrations", routes::integrations::router())
+        .nest("/media-models", routes::media::admin_router())
         .merge(routes::account::session_routes())
         .nest("/providers", routes::providers::router())
         .fallback(|| async { axum::http::StatusCode::NOT_FOUND })
@@ -91,13 +103,21 @@ pub fn create_app() -> axum::Router {
         .layer(RequestBodyLimitLayer::new(CONTROL_BODY_LIMIT));
 
     let v1_limit = v1_body_limit();
+    // Audio uploads and speech requests get a larger, separate limit.
+    let media_limit = v1_media_body_limit();
+    let media_routes = routes::media::v1_router()
+        .layer(middleware::from_fn(crate::auth::require_api_access))
+        .layer(RequestBodyLimitLayer::new(media_limit))
+        .layer(DefaultBodyLimit::max(media_limit));
+
     axum::Router::new()
         .merge(control)
         .nest(
             "/v1",
             proxy_routes
                 .layer(RequestBodyLimitLayer::new(v1_limit))
-                .layer(DefaultBodyLimit::max(v1_limit)),
+                .layer(DefaultBodyLimit::max(v1_limit))
+                .merge(media_routes),
         )
         .layer(dashboard_cors())
         .fallback_service(
