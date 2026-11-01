@@ -74,6 +74,7 @@ export function AppLayout() {
           <Brand />
           <nav className="flex items-center gap-4 ml-4 overflow-x-auto max-w-full order-3 sm:order-0">
             <NavItem to="/playground" preloadPage={pageLoaders.playground}>{t('app.nav.playground')}</NavItem>
+            <NavItem to="/media" preloadPage={pageLoaders.media}>{t('app.nav.media')}</NavItem>
             <NavItem to="/keys" preloadPage={pageLoaders.keys}>{t('app.nav.keys')}</NavItem>
             <NavItem to="/fallback" preloadPage={pageLoaders.fallback}>{t('app.nav.fallback')}</NavItem>
             <NavItem to="/models" preloadPage={pageLoaders.models}>{t('metadata.explorer')}</NavItem>
@@ -94,6 +95,7 @@ export function AppLayout() {
               <Route path="/providers" element={<pages.providers />} />
               <Route path="/providers/:id/models" element={<pages.providerModels />} />
               <Route path="/playground" element={<pages.playground />} />
+              <Route path="/media" element={<pages.media />} />
               <Route path="/keys" element={<pages.keys />} />
               <Route path="/fallback" element={<pages.fallback />} />
               <Route path="/models" element={<pages.models />} />

@@ -10,6 +10,8 @@ import type { FallbackEntry } from '../../../shared/types'
 interface ChatMessage {
   role: 'user' | 'assistant'
   content: string
+  /** Optional image attached to a user message, as a data URL. */
+  image?: string
   meta?: {
     platform?: string
     model?: string
@@ -18,14 +20,28 @@ interface ChatMessage {
   }
 }
 
+const MAX_ATTACHMENT_BYTES = 5 * 1024 * 1024
+
+/** Plain string for text-only messages; content parts when an image is attached. */
+function toContent(m: ChatMessage): string | Array<Record<string, unknown>> {
+  if (!m.image) return m.content
+  const parts: Array<Record<string, unknown>> = []
+  if (m.content) parts.push({ type: 'text', text: m.content })
+  parts.push({ type: 'image_url', image_url: { url: m.image } })
+  return parts
+}
+
 export default function PlaygroundPage() {
   const { t } = useTranslations()
   const [messages, setMessages] = useState<ChatMessage[]>([])
   const [input, setInput] = useState('')
   const [loading, setLoading] = useState(false)
   const [selectedModel, setSelectedModel] = useState<string>('auto')
+  const [attachedImage, setAttachedImage] = useState<string | null>(null)
+  const [attachError, setAttachError] = useState<string | null>(null)
   const messagesEndRef = useRef<HTMLDivElement>(null)
   const inputRef = useRef<HTMLTextAreaElement>(null)
+  const fileRef = useRef<HTMLInputElement>(null)
 
   const { data: fallbackEntries = [] } = useQuery<FallbackEntry[]>({
     queryKey: ['fallback'],
@@ -40,12 +56,13 @@ export default function PlaygroundPage() {
 
   const handleSend = async () => {
     const text = input.trim()
-    if (!text || loading) return
+    if ((!text && !attachedImage) || loading) return
 
-    const userMsg: ChatMessage = { role: 'user', content: text }
+    const userMsg: ChatMessage = { role: 'user', content: text, image: attachedImage ?? undefined }
     const newMessages = [...messages, userMsg]
     setMessages(newMessages)
     setInput('')
+    setAttachedImage(null)
     setLoading(true)
     inputRef.current?.focus()
 
@@ -54,7 +71,7 @@ export default function PlaygroundPage() {
       const headers: Record<string, string> = { 'Content-Type': 'application/json' }
 
       const body: Record<string, unknown> = {
-        messages: newMessages.map(m => ({ role: m.role, content: m.content })),
+        messages: newMessages.map(m => ({ role: m.role, content: toContent(m) })),
         stream: true
       }
       if (selectedModel !== 'auto') body.model = selectedModel
@@ -238,6 +255,9 @@ export default function PlaygroundPage() {
                         : 'bg-muted'
                     }`}
                   >
+                    {msg.image && (
+                      <img src={msg.image} alt="" className="max-h-60 rounded-md mb-2" />
+                    )}
                     <div className="whitespace-pre-wrap">{msg.content}</div>
                     {msg.meta && (
                       <div className="flex items-center gap-2 mt-2 flex-wrap text-[11px] opacity-70 tabular-nums">
@@ -269,6 +289,19 @@ export default function PlaygroundPage() {
         </div>
 
         <div className="border-t bg-background/50 p-3">
+          {(attachedImage || attachError) && (
+            <div className="flex items-center gap-2 pb-2 text-sm">
+              {attachedImage && (
+                <>
+                  <img src={attachedImage} alt="" className="size-10 rounded object-cover border" />
+                  <button type="button" className="underline text-muted-foreground" onClick={() => setAttachedImage(null)}>
+                    {t('playground.removeAttachment')}
+                  </button>
+                </>
+              )}
+              {attachError && <span className="text-destructive">{attachError}</span>}
+            </div>
+          )}
           <div className="flex gap-2 items-end">
             <textarea
               ref={inputRef}
@@ -285,7 +318,34 @@ export default function PlaygroundPage() {
                 el.style.height = Math.min(el.scrollHeight, 160) + 'px'
               }}
             />
-            <Button onClick={handleSend} disabled={loading || !input.trim()} size="default">
+            <input
+              ref={fileRef}
+              type="file"
+              accept="image/png,image/jpeg,image/webp"
+              className="hidden"
+              onChange={e => {
+                const file = e.target.files?.[0]
+                e.target.value = ''
+                if (!file) return
+                if (file.size > MAX_ATTACHMENT_BYTES) {
+                  setAttachError(t('playground.attachTooLarge'))
+                  return
+                }
+                setAttachError(null)
+                const reader = new FileReader()
+                reader.onload = () => setAttachedImage(String(reader.result))
+                reader.readAsDataURL(file)
+              }}
+            />
+            <Button
+              variant="outline"
+              size="default"
+              onClick={() => fileRef.current?.click()}
+              disabled={loading}
+            >
+              {t('playground.attach')}
+            </Button>
+            <Button onClick={handleSend} disabled={loading || (!input.trim() && !attachedImage)} size="default">
               {loading ? t('playground.sending') : t('playground.send')}
             </Button>
           </div>

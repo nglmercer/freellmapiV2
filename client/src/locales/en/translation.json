@@ -7,7 +7,8 @@
       "playground": "Playground",
       "keys": "Keys",
       "fallback": "Fallback",
-      "analytics": "Analytics"
+      "analytics": "Analytics",
+      "media": "Media"
     },
     "initialSetup": "Initial Setup",
     "pageLoadError": "This page could not be loaded. It may be out of date after an update.",
@@ -113,7 +114,10 @@
     "unknownError": "Unknown error",
     "streamError": "Stream Error: {{message}}",
     "fallback_one": "{{count}} fallback",
-    "fallback_other": "{{count}} fallbacks"
+    "fallback_other": "{{count}} fallbacks",
+    "attach": "Attach image",
+    "attachTooLarge": "Image is larger than 5 MB.",
+    "removeAttachment": "Remove image"
   },
   "keys": {
     "title": "Keys",
@@ -766,5 +770,50 @@
       "changed": "Changed"
     },
     "intervalTitle": "Refresh interval"
+  },
+  "media": {
+    "title": "Media",
+    "description": "Try speech, transcription, images, embeddings and video. Each operation uses only models you have declared for it.",
+    "tabs": {
+      "speech": "Speech",
+      "transcription": "Transcription",
+      "image": "Images",
+      "embeddings": "Embeddings",
+      "video": "Video",
+      "declare": "Declared models"
+    },
+    "unavailable": "No model is declared for “{{capability}}”. Declare one in the Declared models tab; the provider must support this operation.",
+    "generate": "Generate",
+    "generating": "Working…",
+    "transcribe": "Transcribe",
+    "noImage": "The provider returned no image.",
+    "speech": {
+      "input": "Text to speak",
+      "voice": "Voice"
+    },
+    "image": {
+      "generate": "Generate",
+      "edit": "Edit",
+      "prompt": "Describe the image"
+    },
+    "embeddings": {
+      "help": "One input per line",
+      "run": "Embed",
+      "vectors": "{{count}} vectors, dimension {{dimension}}"
+    },
+    "video": {
+      "prompt": "Describe the video",
+      "status": "Status",
+      "delete": "Cancel or delete"
+    },
+    "declare": {
+      "title": "Declared media models",
+      "description": "Only models listed here are used for media operations. The provider must support the operation.",
+      "platform": "Provider (e.g. groq or custom:1)",
+      "modelId": "Model id",
+      "submit": "Declare",
+      "empty": "No models declared yet.",
+      "remove": "Remove"
+    }
   }
 }

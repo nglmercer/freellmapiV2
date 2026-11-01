@@ -7,7 +7,8 @@
       "playground": "Playground",
       "keys": "Claves",
       "fallback": "Cadena de fallback",
-      "analytics": "Analíticas"
+      "analytics": "Analíticas",
+      "media": "Multimedia"
     },
     "initialSetup": "Configuración inicial",
     "pageLoadError": "No se pudo cargar esta página. Puede estar desactualizada tras una actualización.",
@@ -113,7 +114,10 @@
     "unknownError": "Error desconocido",
     "streamError": "Error de transmisión: {{message}}",
     "fallback_one": "{{count}} fallback",
-    "fallback_other": "{{count}} fallbacks"
+    "fallback_other": "{{count}} fallbacks",
+    "attach": "Adjuntar imagen",
+    "attachTooLarge": "La imagen supera 5 MB.",
+    "removeAttachment": "Quitar imagen"
   },
   "keys": {
     "title": "Claves",
@@ -765,5 +769,50 @@
       "changed": "Cambiados"
     },
     "intervalTitle": "Intervalo de actualización"
+  },
+  "media": {
+    "title": "Multimedia",
+    "description": "Prueba voz, transcripción, imágenes, embeddings y vídeo. Cada operación usa solo los modelos que declares para ella.",
+    "tabs": {
+      "speech": "Voz",
+      "transcription": "Transcripción",
+      "image": "Imágenes",
+      "embeddings": "Embeddings",
+      "video": "Vídeo",
+      "declare": "Modelos declarados"
+    },
+    "unavailable": "No hay ningún modelo declarado para “{{capability}}”. Declara uno en la pestaña Modelos declarados; el proveedor debe soportar esta operación.",
+    "generate": "Generar",
+    "generating": "Procesando…",
+    "transcribe": "Transcribir",
+    "noImage": "El proveedor no devolvió ninguna imagen.",
+    "speech": {
+      "input": "Texto a leer",
+      "voice": "Voz"
+    },
+    "image": {
+      "generate": "Generar",
+      "edit": "Editar",
+      "prompt": "Describe la imagen"
+    },
+    "embeddings": {
+      "help": "Una entrada por línea",
+      "run": "Calcular",
+      "vectors": "{{count}} vectores, dimensión {{dimension}}"
+    },
+    "video": {
+      "prompt": "Describe el vídeo",
+      "status": "Estado",
+      "delete": "Cancelar o eliminar"
+    },
+    "declare": {
+      "title": "Modelos multimedia declarados",
+      "description": "Solo se usan para operaciones multimedia los modelos listados aquí. El proveedor debe soportar la operación.",
+      "platform": "Proveedor (p. ej. groq o custom:1)",
+      "modelId": "Id del modelo",
+      "submit": "Declarar",
+      "empty": "Aún no hay modelos declarados.",
+      "remove": "Eliminar"
+    }
   }
 }

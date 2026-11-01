@@ -7,6 +7,7 @@ import { lazy } from 'react'
  */
 export const pageLoaders = {
   playground: () => import('@/pages/PlaygroundPage'),
+  media: () => import('@/pages/MediaPlaygroundPage'),
   keys: () => import('@/pages/KeysPage'),
   fallback: () => import('@/pages/FallbackPage'),
   models: () => import('@/pages/ModelExplorerPage'),
@@ -18,6 +19,7 @@ export const pageLoaders = {
 
 export const pages = {
   playground: lazy(pageLoaders.playground),
+  media: lazy(pageLoaders.media),
   keys: lazy(pageLoaders.keys),
   fallback: lazy(pageLoaders.fallback),
   models: lazy(pageLoaders.models),
