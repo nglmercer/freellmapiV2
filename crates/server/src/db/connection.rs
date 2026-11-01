@@ -390,6 +390,15 @@ fn create_tables(sqlite: &Connection) -> rusqlite::Result<()> {
         ("observed_speed_updated_at", "TEXT"),
         ("canonical_model_id", "INTEGER"),
     ];
+    // Operation type per request. Existing rows and chat calls are 'chat'.
+    if !existing_columns(sqlite, "requests")?
+        .iter()
+        .any(|c| c == "modality")
+    {
+        sqlite.execute_batch(
+            "ALTER TABLE requests ADD COLUMN modality TEXT NOT NULL DEFAULT 'chat'",
+        )?;
+    }
     if !existing_columns(sqlite, "custom_providers")?
         .iter()
         .any(|c| c == "capabilities")

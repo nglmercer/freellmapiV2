@@ -594,6 +594,41 @@ pub fn route_request_with_policy(
         )
         .unwrap_or(0);
 
+    // Every candidate was ruled out only because it lacks a verified capability
+    // the request needs. That is an explicit client-side error, not a rate limit.
+    let missing_capabilities = |reason: &str| {
+        reason
+            .strip_prefix("capability:")
+            .and_then(|rest| rest.strip_suffix(":unsupportedOrUnknown"))
+            .map(str::to_string)
+    };
+    if !decisions.is_empty()
+        && decisions.values().all(|d| {
+            !d.eligible
+                && d.rejection_reasons
+                    .iter()
+                    .any(|r| missing_capabilities(r).is_some())
+        })
+    {
+        let mut needed: Vec<String> = decisions
+            .values()
+            .flat_map(|d| {
+                d.rejection_reasons
+                    .iter()
+                    .filter_map(|r| missing_capabilities(r))
+            })
+            .collect();
+        needed.sort();
+        needed.dedup();
+        return Err(ApiError::new(
+            400,
+            format!(
+                "No enabled model has verified support for: {}. Choose a model that accepts this input.",
+                needed.join(", ")
+            ),
+        ));
+    }
+
     let message = if decryptable_count == 0 {
         "All configured API keys are invalid. Check your keys in the dashboard."
     } else if total_key_count > 0 && skip_keys.is_some_and(|sk| sk.len() as i64 >= total_key_count)
