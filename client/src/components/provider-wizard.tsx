@@ -1,23 +1,6 @@
 import { useMemo, useState, type FormEvent, type ReactNode } from 'react'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
-import {
-  BarChart3,
-  Check,
-  ChevronLeft,
-  ChevronRight,
-  CircleAlert,
-  CircleCheck,
-  Eye,
-  EyeOff,
-  KeyRound,
-  Layers,
-  Plus,
-  Power,
-  RefreshCw,
-  Search,
-  Trash2,
-  Zap,
-} from 'lucide-react'
+import { BarChart3, Check, ChevronLeft, ChevronRight, CircleAlert, CircleCheck, KeyRound, Layers } from 'lucide-react'
 import { useTranslations } from '@/hooks/useTranslations'
 import { apiFetch, ApiError } from '@/lib/api'
 import { PLATFORMS, platformInfo, type PlatformInfo } from '@/lib/platforms'
@@ -35,21 +18,11 @@ import {
   DialogTitle,
 } from '@/components/ui/dialog'
 import { Button } from '@/components/ui/button'
-import { Input } from '@/components/ui/input'
-import { Label } from '@/components/ui/label'
-import { IconButton } from './icon-button'
 import { Stepper, type StepperItem } from './stepper'
-import { StatusIcon } from './status-badge'
-import { Tooltip } from './tooltip'
-import { keyStatusTone } from '@/lib/source-status'
 import type { ApiKey, Platform } from '../../../shared/types'
-
-interface BenchmarkStatus {
-  id: string
-  configured: boolean
-  source: 'dashboard' | 'environment' | 'none'
-  maskedKey: string | null
-}
+import { ProvidersStep } from './provider-wizard-steps/ProvidersStep'
+import { KeyStep } from './provider-wizard-steps/KeyStep'
+import { BenchmarksStep, type BenchmarkStatus } from './provider-wizard-steps/BenchmarksStep'
 
 const STEPS: WizardStep[] = ['providers', 'key', 'benchmarks']
 const STEP_ICONS = { providers: Layers, key: KeyRound, benchmarks: BarChart3 } as const
@@ -83,58 +56,6 @@ export function ProviderWizardProvider({ children }: { children: ReactNode }) {
         />
       )}
     </ProviderWizardContext.Provider>
-  )
-}
-
-function Field({ label, htmlFor, children }: { label: string; htmlFor: string; children: ReactNode }) {
-  return (
-    <div className="space-y-1.5">
-      <Label htmlFor={htmlFor} className="text-xs text-muted-foreground">
-        {label}
-      </Label>
-      {children}
-    </div>
-  )
-}
-
-/** A key input with an eye toggle inside the field. */
-function SecretInput({
-  id,
-  value,
-  onChange,
-  placeholder,
-  revealLabel,
-  hideLabel,
-}: {
-  id: string
-  value: string
-  onChange: (value: string) => void
-  placeholder: string
-  revealLabel: string
-  hideLabel: string
-}) {
-  const [reveal, setReveal] = useState(false)
-  return (
-    <div className="relative">
-      <Input
-        id={id}
-        type={reveal ? 'text' : 'password'}
-        value={value}
-        onChange={(event) => onChange(event.target.value)}
-        placeholder={placeholder}
-        autoComplete="off"
-        spellCheck={false}
-        className="pr-10 font-mono text-xs"
-      />
-      <div className="absolute right-1 top-1/2 -translate-y-1/2">
-        <IconButton
-          label={reveal ? hideLabel : revealLabel}
-          icon={reveal ? EyeOff : Eye}
-          onClick={() => setReveal((value) => !value)}
-          className="size-7"
-        />
-      </div>
-    </div>
   )
 }
 
@@ -303,193 +224,48 @@ function ProviderWizard({ start, onClose }: { start: WizardStart; onClose: () =>
           )}
 
           {step === 'providers' && (
-            <div className="space-y-4">
-              <div className="relative">
-                <Search className="pointer-events-none absolute left-3 top-1/2 size-4 -translate-y-1/2 text-muted-foreground" aria-hidden />
-                <Input
-                  value={search}
-                  onChange={(event) => setSearch(event.target.value)}
-                  placeholder={t('wizard.search')}
-                  aria-label={t('wizard.search')}
-                  className="pl-9"
-                />
-              </div>
-              {filtered.length === 0 && (
-                <p className="py-6 text-center text-sm text-muted-foreground">{t('wizard.noMatch')}</p>
-              )}
-              <ProviderSection
-                title={t('wizard.configured')}
-                items={configured}
-                keyCounts={keyCounts}
-                onChoose={choose}
-              />
-              <ProviderSection
-                title={t('wizard.available')}
-                items={available}
-                keyCounts={keyCounts}
-                onChoose={choose}
-              />
-            </div>
+            <ProvidersStep
+              search={search}
+              onSearchChange={setSearch}
+              matchCount={filtered.length}
+              configured={configured}
+              available={available}
+              keyCounts={keyCounts}
+              onChoose={choose}
+            />
           )}
 
           {step === 'key' && selected && (
-            <div className="space-y-4">
-              <div className="flex items-center gap-2">
-                <h3 className="text-sm font-medium">{selected.label}</h3>
-                {(keyCounts.get(selected.value) ?? 0) > 0 && (
-                  <StatusIcon tone="success" icon={CircleCheck} label={t('wizard.configuredBadge')} />
-                )}
-              </div>
-
-              {selected.anonymous ? (
-                <div className="flex items-center justify-between gap-4 rounded-lg border p-4">
-                  <p className="text-sm text-muted-foreground">{t('wizard.anonymousNote')}</p>
-                  <Button onClick={() => platform && addKey.mutate({ platform, key: 'anonymous', label: '' })} disabled={addKey.isPending}>
-                    <Power className="size-4" aria-hidden />
-                    {addKey.isPending ? t('wizard.saving') : t('wizard.enable')}
-                  </Button>
-                </div>
-              ) : (
-                <form onSubmit={submitKey} className="space-y-4 rounded-lg border p-4">
-                  {selected.needsAccountId && (
-                    <Field label={t('wizard.accountId')} htmlFor="wizard-account">
-                      <Input
-                        id="wizard-account"
-                        value={accountId}
-                        onChange={(event) => setAccountId(event.target.value)}
-                        placeholder={t('wizard.accountIdPlaceholder')}
-                        autoComplete="off"
-                      />
-                    </Field>
-                  )}
-                  <Field label={t('wizard.apiKey')} htmlFor="wizard-key">
-                    <SecretInput
-                      id="wizard-key"
-                      value={key}
-                      onChange={setKey}
-                      placeholder={t('wizard.keyPlaceholder')}
-                      revealLabel={t('wizard.showKey')}
-                      hideLabel={t('wizard.hideKey')}
-                    />
-                  </Field>
-                  <Field label={t('wizard.label')} htmlFor="wizard-label">
-                    <Input
-                      id="wizard-label"
-                      value={label}
-                      onChange={(event) => setLabel(event.target.value)}
-                      placeholder={t('wizard.labelPlaceholder')}
-                    />
-                  </Field>
-                  <div className="flex items-center justify-between gap-3">
-                    <span className="text-xs text-muted-foreground">{t('wizard.storedNote')}</span>
-                    <Button
-                      type="submit"
-                      disabled={addKey.isPending || !key.trim() || (selected.needsAccountId && !accountId.trim())}
-                    >
-                      <KeyRound className="size-4" aria-hidden />
-                      {addKey.isPending ? t('wizard.saving') : t('wizard.save')}
-                    </Button>
-                  </div>
-                </form>
-              )}
-
-              <div className="space-y-2">
-                <h4 className="text-[11px] font-medium uppercase tracking-wide text-muted-foreground">
-                  {t('wizard.existingKeys')}
-                </h4>
-                {platformKeys.length === 0 ? (
-                  <p className="text-sm text-muted-foreground">{t('wizard.noKeysYet')}</p>
-                ) : (
-                  <ul className="divide-y rounded-md border">
-                    {platformKeys.map((row) => (
-                      <li key={row.id} className="flex items-center gap-3 px-3 py-2">
-                        <StatusIcon
-                          tone={keyStatusTone(row.status)}
-                          icon={CircleCheck}
-                          label={t(`keys.status.${row.status}`, { defaultValue: row.status })}
-                        />
-                        <code className="min-w-0 truncate font-mono text-xs">{row.maskedKey}</code>
-                        {row.label && <span className="truncate text-xs text-muted-foreground">{row.label}</span>}
-                        <div className="ml-auto">
-                          <IconButton
-                            label={t('wizard.removeKey')}
-                            icon={Trash2}
-                            tone="danger"
-                            busy={removeKey.isPending}
-                            onClick={() => removeKey.mutate(row.id)}
-                          />
-                        </div>
-                      </li>
-                    ))}
-                  </ul>
-                )}
-              </div>
-            </div>
+            <KeyStep
+              selected={selected}
+              keyCount={keyCounts.get(selected.value) ?? 0}
+              platformKeys={platformKeys}
+              keyValue={key}
+              onKeyChange={setKey}
+              accountId={accountId}
+              onAccountIdChange={setAccountId}
+              label={label}
+              onLabelChange={setLabel}
+              onSubmit={submitKey}
+              onEnableAnonymous={() => platform && addKey.mutate({ platform, key: 'anonymous', label: '' })}
+              saving={addKey.isPending}
+              onRemoveKey={(id) => removeKey.mutate(id)}
+              removing={removeKey.isPending}
+            />
           )}
 
           {step === 'benchmarks' && (
-            <div className="space-y-4">
-              <div className="flex items-start gap-3 rounded-lg border p-4">
-                <BarChart3 className="mt-0.5 size-5 shrink-0 text-muted-foreground" aria-hidden />
-                <div className="min-w-0 flex-1 space-y-1">
-                  <div className="flex items-center gap-2">
-                    <h3 className="text-sm font-medium">{t('wizard.benchmark.title')}</h3>
-                    <StatusIcon
-                      tone={benchmark.data?.configured ? 'success' : 'warning'}
-                      icon={benchmark.data?.configured ? CircleCheck : KeyRound}
-                      label={benchmark.data?.configured ? t('wizard.benchmark.configured') : t('wizard.benchmark.notConfigured')}
-                    />
-                  </div>
-                  <p className="text-xs text-muted-foreground">{t('wizard.benchmark.description')}</p>
-                  {benchmark.data?.maskedKey && (
-                    <p className="font-mono text-xs text-muted-foreground">{benchmark.data.maskedKey}</p>
-                  )}
-                </div>
-              </div>
-
-              <form
-                className="space-y-4"
-                onSubmit={(event) => {
-                  event.preventDefault()
-                  if (benchmarkKey.trim()) saveBenchmark.mutate(benchmarkKey.trim())
-                }}
-              >
-                <Field label={t('wizard.benchmark.keyLabel')} htmlFor="wizard-benchmark">
-                  <SecretInput
-                    id="wizard-benchmark"
-                    value={benchmarkKey}
-                    onChange={setBenchmarkKey}
-                    placeholder={t('wizard.benchmark.placeholder')}
-                    revealLabel={t('wizard.showKey')}
-                    hideLabel={t('wizard.hideKey')}
-                  />
-                </Field>
-                <div className="flex items-center justify-between gap-3">
-                  <div className="flex items-center gap-1">
-                    <IconButton
-                      label={t('wizard.benchmark.refresh')}
-                      icon={RefreshCw}
-                      busy={refreshSources.isPending}
-                      disabled={!benchmark.data?.configured}
-                      onClick={() => refreshSources.mutate()}
-                    />
-                    {benchmark.data?.source === 'dashboard' && (
-                      <IconButton
-                        label={t('wizard.remove')}
-                        icon={Trash2}
-                        tone="danger"
-                        busy={clearBenchmark.isPending}
-                        onClick={() => clearBenchmark.mutate()}
-                      />
-                    )}
-                  </div>
-                  <Button type="submit" disabled={saveBenchmark.isPending || !benchmarkKey.trim()}>
-                    <KeyRound className="size-4" aria-hidden />
-                    {saveBenchmark.isPending ? t('wizard.saving') : t('wizard.save')}
-                  </Button>
-                </div>
-              </form>
-            </div>
+            <BenchmarksStep
+              status={benchmark.data}
+              value={benchmarkKey}
+              onValueChange={setBenchmarkKey}
+              onSave={(value) => saveBenchmark.mutate(value)}
+              saving={saveBenchmark.isPending}
+              onRefresh={() => refreshSources.mutate()}
+              refreshing={refreshSources.isPending}
+              onClear={() => clearBenchmark.mutate()}
+              clearing={clearBenchmark.isPending}
+            />
           )}
         </div>
 
@@ -512,65 +288,5 @@ function ProviderWizard({ start, onClose }: { start: WizardStart; onClose: () =>
         </DialogFooter>
       </DialogPopup>
     </Dialog>
-  )
-}
-
-function ProviderSection({
-  title,
-  items,
-  keyCounts,
-  onChoose,
-}: {
-  title: string
-  items: PlatformInfo[]
-  keyCounts: Map<string, number>
-  onChoose: (platform: PlatformInfo) => void
-}) {
-  const { t } = useTranslations()
-  if (items.length === 0) return null
-  return (
-    <section className="space-y-2">
-      <div className="flex items-center gap-2 text-[11px] font-medium uppercase tracking-wide text-muted-foreground">
-        <span>{title}</span>
-        <span className="tabular-nums">{items.length}</span>
-      </div>
-      <div className="grid gap-2 sm:grid-cols-2">
-        {items.map((item) => {
-          const count = keyCounts.get(item.value) ?? 0
-          return (
-            <button
-              key={item.value}
-              type="button"
-              onClick={() => onChoose(item)}
-              className="flex h-11 items-center gap-3 rounded-lg border bg-background px-3 text-left transition-colors hover:border-foreground/40 hover:bg-muted/40 focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring"
-            >
-              <span className="min-w-0 flex-1 truncate text-sm font-medium">{item.label}</span>
-              {count > 0 && (
-                <Tooltip label={t('wizard.keyCount', { count })}>
-                  <span
-                    role="img"
-                    aria-label={t('wizard.keyCount', { count })}
-                    className="inline-flex items-center gap-1 text-xs tabular-nums text-emerald-600 dark:text-emerald-400"
-                  >
-                    <CircleCheck className="size-4" aria-hidden />
-                    {count}
-                  </span>
-                </Tooltip>
-              )}
-              {count === 0 && item.anonymous && (
-                <Tooltip label={t('wizard.anonymousShort')}>
-                  <Zap className="size-4 text-muted-foreground" aria-label={t('wizard.anonymousShort')} />
-                </Tooltip>
-              )}
-              {count === 0 && !item.anonymous && (
-                <Tooltip label={t('wizard.add')}>
-                  <Plus className="size-4 text-muted-foreground" aria-label={t('wizard.add')} />
-                </Tooltip>
-              )}
-            </button>
-          )
-        })}
-      </div>
-    </section>
   )
 }
