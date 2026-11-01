@@ -2,6 +2,7 @@
 //! providers.
 
 pub mod base;
+pub mod capabilities;
 pub mod cloudflare;
 pub mod cohere;
 pub mod custom;
@@ -17,6 +18,7 @@ pub use base::{
     http_client, make_id, normalize_choices, send_request, ChunkReceiver, ChunkSender, Provider,
     ProviderError,
 };
+pub use capabilities::{Capability, CapabilitySet};
 pub use cloudflare::CloudflareProvider;
 pub use cohere::CohereProvider;
 pub use custom::{
@@ -220,4 +222,50 @@ pub async fn has_provider(platform: &str) -> bool {
     }
     let conn = crate::db::db().lock().await;
     load_custom_provider(&conn, platform).is_some()
+}
+
+#[cfg(test)]
+mod capability_tests {
+    use super::*;
+
+    /// Capabilities are advertised and implemented through the same interface.
+    /// Each optional interface groups one or more capabilities.
+    fn consistent(p: &dyn Provider) -> bool {
+        let caps = p.capabilities();
+        let groups: [(&[Capability], bool); 5] = [
+            (&[Capability::Speech], p.speech().is_some()),
+            (
+                &[Capability::Transcription, Capability::Translation],
+                p.transcription().is_some(),
+            ),
+            (
+                &[Capability::ImageGeneration, Capability::ImageEdit],
+                p.images().is_some(),
+            ),
+            (&[Capability::Embeddings], p.embeddings().is_some()),
+            (&[Capability::VideoGeneration], p.video().is_some()),
+        ];
+        caps.contains(Capability::Chat)
+            && groups
+                .iter()
+                .all(|(group, implemented)| group.iter().any(|c| caps.contains(*c)) == *implemented)
+    }
+
+    #[test]
+    fn builtin_capabilities_match_implemented_interfaces() {
+        for p in builtins().values() {
+            assert!(
+                consistent(p.as_ref()),
+                "inconsistent capabilities for {}",
+                p.platform()
+            );
+        }
+    }
+
+    #[test]
+    fn openai_compat_defaults_to_chat_only() {
+        let p = openai_compat("groq", "Groq", "https://example.test/v1");
+        assert_eq!(p.capabilities().names(), vec!["chat"]);
+        assert!(consistent(p.as_ref()));
+    }
 }
